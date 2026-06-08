@@ -1,0 +1,184 @@
+{
+  "schema_version": "1.0",
+  "app": "brand-ops",
+  "display_name": "Brand-Ops",
+  "description": "Brand identity and AI image-asset generation for the Unicorn Commander suite. Lists brands, reads a brand identity, composes prompts, generates assets, browses the asset catalog, and bootstraps new brand kits.",
+  "signing_algorithm": "RS256",
+  "transport": "stdio",
+  "tools": [
+    {
+      "name": "list_brands",
+      "description": "List the brand slugs seeded under the brand kits directory.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "get_brand",
+      "description": "Get one brand's identity: colors, fonts, voice, tagline, and references.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "list_asset_types",
+      "description": "List the asset-type registry. Each entry has key, label, size, default_backend, and transparent.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "build_prompt",
+      "description": "Compose the image prompt for a brand asset without generating anything. A dry run through the same engine live generation uses. No backend is called and no spend occurs.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "asset": {
+            "type": "string",
+            "description": "Asset type key, for example og_image."
+          },
+          "variant": {
+            "type": ["string", "null"],
+            "description": "Optional variant name allowed by the asset's prompt template."
+          },
+          "topic": {
+            "type": ["string", "null"],
+            "description": "Optional topic, used by text-heavy assets like og_image."
+          },
+          "platform": {
+            "type": ["string", "null"],
+            "description": "Optional platform hint, used by social_card."
+          },
+          "backend": {
+            "type": ["string", "null"],
+            "description": "Optional backend override: gemini, openai, recraft, or flux."
+          }
+        },
+        "required": ["brand", "asset"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "list_generated_assets",
+      "description": "List previously generated assets from the on-disk catalog by reading the sidecar JSON records next to each generated image.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": ["string", "null"],
+            "description": "Optional brand slug to restrict the listing to one brand."
+          },
+          "asset": {
+            "type": ["string", "null"],
+            "description": "Optional asset-type key to restrict the listing to one type."
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "generate_asset",
+      "description": "Generate a brand asset and persist it with a sidecar catalog record. Routes through the same engine the CLI and REST API use. Returns needs_key when the chosen backend has no credentials configured.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "asset": {
+            "type": "string",
+            "description": "Asset type key, for example og_image."
+          },
+          "variant": {
+            "type": ["string", "null"],
+            "description": "Optional variant name allowed by the asset's prompt template."
+          },
+          "topic": {
+            "type": ["string", "null"],
+            "description": "Optional topic, used by text-heavy assets like og_image."
+          },
+          "platform": {
+            "type": ["string", "null"],
+            "description": "Optional platform hint, used by social_card."
+          },
+          "backend": {
+            "type": ["string", "null"],
+            "description": "Optional backend override: gemini, openai, recraft, or flux."
+          },
+          "count": {
+            "type": "integer",
+            "description": "How many images to generate.",
+            "default": 1,
+            "minimum": 1
+          }
+        },
+        "required": ["brand", "asset"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    },
+    {
+      "name": "new_brand",
+      "description": "Bootstrap a new brand kit from the blank template. Copies the template to a new brand directory and replaces the placeholder tokens with the supplied slug, display name, and optional parent slug.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Filesystem-safe identifier for the new brand, for example majiks-studio."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable brand name, for example Majiks Studio."
+          },
+          "parent": {
+            "type": ["string", "null"],
+            "description": "Optional parent brand slug if this is a sub-brand."
+          }
+        },
+        "required": ["slug", "display_name"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    }
+  ]
+}

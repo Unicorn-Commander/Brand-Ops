@@ -1,0 +1,81 @@
+# Unicorn Commander. Command center and federation hub for the Ops suite.
+# unicorncommander.com is the marketing site, unicorncommander.ai is the
+# Ops-Center control plane. Palette and marks pulled from the
+# Unicorn-Commander-Themes icon set.
+
+brand:
+  slug: unicorn-commander
+  display_name: Unicorn Commander
+  tagline: Your AI command center, on your machine.   # (inferred) founder-direct draft
+  parent: null
+  description: |
+    Unicorn Commander is the self-hostable AI command center and federation hub
+    for the Ops suite. It is where the suite apps connect, share identity, and
+    report in. unicorncommander.com is the marketing site and
+    unicorncommander.ai is the Ops-Center control plane. The mark is the
+    Colonel, a dignified military unicorn.
+
+visual:
+  colors:
+    primary: "#8b5cf6"               # command purple
+    accent: "#00d4ff"                # cyan accent
+    background: "#0f172a"            # dark technical slate
+    foreground: "#fafafa"
+    muted: "#334155"
+  typography:
+    primary_font: Inter
+    display_font: Inter
+    mono_font: JetBrains Mono
+  style_keywords:
+    - command-center aesthetic
+    - mission-control feel
+    - the Colonel, a dignified military unicorn with a beret, not cute
+    - sharper geometry
+    - dark technical interface
+    - purple and cyan accents
+
+voice:
+  tone:
+    - founder-direct
+    - technical-but-accessible
+    - no-em-dashes
+    - no-marketing-speak
+  forbidden_phrases:
+    - revolutionary
+    - game-changer
+    - synergize
+    - unleash
+
+prompts:
+  logo:
+    base: |
+      Generate a logo for {brand_context}. Style: {style_keywords}. The logo
+      should be {variant}. Output a clean square composition with a transparent
+      background where possible. {ref_block}
+    variants: [flat, monochrome, color, app-icon]
+  app_icon:
+    base: |
+      Generate an app icon for {brand_context}. {style_keywords}. It must stay
+      recognizable at small sizes like 32x32 and 64x64. Square composition,
+      rounded corners, deep contrast. {ref_block}
+    variants: [color, monochrome, dark, light]
+  og_image:
+    base: |
+      Generate a 1200x630 share image for {brand_context}. Put the headline area
+      on the left and the brand mark on the right. Topic: {topic}.
+      {style_keywords}. {ref_block}
+    variants: [default, dark, light]
+  podcast_cover:
+    base: |
+      Generate a 3000x3000 square podcast cover for {brand_context}. Episode
+      topic: {topic}. {style_keywords}. {ref_block}
+    variants: [series, episode]
+  social_card:
+    base: |
+      Generate a square social card for {brand_context}. Topic: {topic}.
+      Platform: {platform}. {style_keywords}. {ref_block}
+    variants: [instagram, twitter, linkedin]
+
+reference_images:
+  logo: /Volumes/Studio Storage/Development/UC-1/Unicorn-Commander-Themes/unicorn-icons/apps/unicorn-commander-logo.svg
+  colonel: /Volumes/Studio Storage/Development/UC-1/Unicorn-Commander-Themes/unicorn-icons/apps/unicorn-colonel.svg

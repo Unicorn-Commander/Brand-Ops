@@ -1,0 +1,21 @@
+# Generated and imported assets are managed outside git
+brand-kits/*/generated/
+brand-kits/*/imported/
+
+# Secrets. The .env.bak leak that burned Contact-Ops is the reason for the last line.
+.env
+.env.*
+!.env.example
+.env.bak*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.uv/
+dist/
+build/
+*.egg-info/
+
+# OS
+.DS_Store

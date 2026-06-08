@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Default accent = magic-unicorn (purple primary, cyan secondary). The values
+   are space-separated RGB channels so Tailwind's `rgb(var(--accent) / <alpha>)`
+   color tokens can apply opacity. applyBrandAccent() overwrites these at runtime
+   for the active brand. */
+:root {
+  --accent: 182 110 255;
+  --accent-secondary: 0 212 255;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-chrome-bg text-text font-sans antialiased;
+    margin: 0;
+  }
+
+  ::selection {
+    background-color: rgb(var(--accent) / 0.3);
+  }
+
+  /* Quiet, dark scrollbars to match the chrome. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2a2a3d transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #2a2a3d;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #3a3a52;
+  }
+}
+
+@layer components {
+  /* A subtle brand-accent gradient text used for headings and the wordmark. */
+  .accent-gradient {
+    background-image: linear-gradient(
+      135deg,
+      rgb(var(--accent)) 0%,
+      rgb(var(--accent-secondary)) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}

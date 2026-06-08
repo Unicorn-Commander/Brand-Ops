@@ -1,0 +1,54 @@
+# Brand-Ops deployment.
+#
+# One service: the REST API, fronted by Traefik on brand-ops.magicunicorn.dev.
+# It joins two external networks the suite already runs:
+#   - web:             the Traefik edge network (TLS termination, routing).
+#   - unicorn-network: the internal service mesh (Keycloak, Brigade, Postgres,
+#                      Garage) the API reaches for auth and, later, storage.
+#
+# Secrets and tunables come from a sibling .env file (never committed). At a
+# minimum set the backend keys you intend to use; with none set the API still
+# serves brands, asset types, dry-run previews, and the catalog, and live
+# generation returns a clear 422 needs-key response.
+
+services:
+  brand-ops:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: brand-ops:latest
+    container_name: brand-ops
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Auth is opt-in. Set AUTH_REQUIRED=true in .env to enforce a Keycloak or
+      # Brigade bearer on every /api route in production.
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+    expose:
+      - "8000"
+    networks:
+      - web
+      - unicorn-network
+    labels:
+      traefik.enable: "true"
+      # Route on the public network so Traefik attaches to the right interface
+      # when the container is on more than one network.
+      traefik.docker.network: web
+      traefik.http.routers.brand-ops.rule: Host(`brand-ops.magicunicorn.dev`)
+      traefik.http.routers.brand-ops.entrypoints: websecure
+      traefik.http.routers.brand-ops.tls: "true"
+      traefik.http.routers.brand-ops.tls.certresolver: ${TRAEFIK_CERTRESOLVER:-cloudflare}
+      traefik.http.services.brand-ops.loadbalancer.server.port: "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  web:
+    external: true
+  unicorn-network:
+    external: true

@@ -1,0 +1,71 @@
+# Blank brand template. Copy this folder to brand-kits/<slug>/ and fill it in,
+# or run the bootstrap (a later workstream). Drop reference images into refs/.
+# No em-dashes and no marketing-speak in any copy here.
+
+brand:
+  slug: REPLACE-slug                 # filesystem safe identifier
+  display_name: REPLACE Display Name
+  tagline: REPLACE one line
+  parent: null                       # parent brand slug if this is a sub-brand
+  description: |
+    Replace with a few sentences on what this brand is, who it serves, and the
+    voice intent. This text is used as context in every prompt.
+
+visual:
+  colors:
+    primary: "#000000"               # required, hex
+    accent: "#000000"                # required, hex
+    background: "#0a0a0a"
+    foreground: "#fafafa"
+    muted: "#404040"
+  typography:
+    primary_font: Inter
+    display_font: Inter
+    mono_font: JetBrains Mono
+  style_keywords:
+    - replace with short visual phrases
+    - that an image model responds to
+
+voice:
+  tone:
+    - founder-direct
+    - technical-but-accessible
+    - no-em-dashes
+    - no-marketing-speak
+  forbidden_phrases:
+    - revolutionary
+    - game-changer
+    - synergize
+
+prompts:
+  logo:
+    base: |
+      Generate a logo for {brand_context}. Style: {style_keywords}. The logo
+      should be {variant}. Output a clean square composition with a transparent
+      background where possible. {ref_block}
+    variants: [flat, monochrome, color, app-icon]
+  app_icon:
+    base: |
+      Generate an app icon for {brand_context}. {style_keywords}. It must stay
+      recognizable at small sizes like 32x32 and 64x64. Square composition,
+      rounded corners, deep contrast. {ref_block}
+    variants: [color, monochrome, dark, light]
+  og_image:
+    base: |
+      Generate a 1200x630 share image for {brand_context}. Put the headline area
+      on the left and the brand mark on the right. Topic: {topic}.
+      {style_keywords}. {ref_block}
+    variants: [default, dark, light]
+  podcast_cover:
+    base: |
+      Generate a 3000x3000 square podcast cover for {brand_context}. Episode
+      topic: {topic}. {style_keywords}. {ref_block}
+    variants: [series, episode]
+  social_card:
+    base: |
+      Generate a square social card for {brand_context}. Topic: {topic}.
+      Platform: {platform}. {style_keywords}. {ref_block}
+    variants: [instagram, twitter, linkedin]
+
+reference_images:
+  canonical: refs/canonical.png
