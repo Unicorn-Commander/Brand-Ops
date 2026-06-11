@@ -54,9 +54,19 @@ export function JobRow({
   }, [running]);
 
   return (
-    <div className="border-b border-chrome-border last:border-b-0">
+    <div
+      className={`border-b border-white/8 transition-colors last:border-b-0 ${
+        running ? "bg-accent/[0.04]" : "hover:bg-white/[0.02]"
+      }`}
+    >
       <div className="flex items-center gap-3 px-4 py-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-chrome-border bg-chrome-raised text-text-muted">
+        <span
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border text-text-muted transition-colors ${
+            running
+              ? "border-accent/40 bg-accent/10 text-accent"
+              : "border-white/8 bg-chrome-raised/60"
+          }`}
+        >
           {Icon ? <Icon size={16} /> : null}
         </span>
 
@@ -72,13 +82,13 @@ export function JobRow({
             )}
           </div>
 
-          {/* An indeterminate accent bar while running; quiet once settled. */}
+          {/* A shimmering accent bar while running; quiet timestamp once settled. */}
           {running ? (
-            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-chrome-raised">
-              <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
+            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-accent/15">
+              <div className="h-full w-1/2 -translate-x-full animate-shimmer rounded-full bg-gradient-to-r from-transparent via-accent to-transparent" />
             </div>
           ) : (
-            <p className="mt-0.5 text-xs text-text-faint">
+            <p className="mt-0.5 text-xs tabular-nums text-text-faint">
               {relativeTime(job.createdAt, Date.now())}
             </p>
           )}

@@ -39,6 +39,8 @@ export const BRAND_ACCENTS: Record<string, AccentPair> = {
   "unicorn-commander": { primary: "#8b5cf6", secondary: "#b66eff" },
   "center-deep": { primary: "#0891b2", secondary: "#22d3ee" },
   majiks: { primary: "#a855f7", secondary: "#eab308" },
+  // majiks-studio is the darker child of majiks; same purple/gold identity.
+  "majiks-studio": { primary: "#9333ea", secondary: "#eab308" },
 };
 
 /** The default accent when no brand is active (magic-unicorn). */

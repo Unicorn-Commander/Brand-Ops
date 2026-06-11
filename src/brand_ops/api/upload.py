@@ -15,10 +15,13 @@ onto an HTTP 422; nothing here raises a 500 for ordinary bad input.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
+from ..activity import append_event
 from ..asset_types import ASSET_TYPES
 from ..brand_loader import DEFAULT_KITS_DIR
+from ..compliance.lifecycle import stamp_compliance
 from ..ingest import _write_sidecar
 from .catalog import _coerce_record
 from .schemas import AssetRecord
@@ -209,10 +212,36 @@ def save_upload(
     if variant:
         _set_sidecar_variant(dest, variant)
 
+    # Gate the asset at creation time: stamp its lifecycle status into the
+    # sidecar from the deterministic compliance verdict, so an uploaded asset is
+    # reviewed the moment it lands. Best-effort — a stamping failure must not
+    # fail an upload that has already written its bytes and sidecar.
+    try:
+        stamp_compliance(brand, asset_type, dest.name, "imported", root)
+    except Exception:  # noqa: BLE001 - stamping is advisory, never fatal
+        pass
+
     sidecar = dest.with_suffix(dest.suffix + ".json")
     record = _build_record(sidecar, dest)
     if record is None:  # pragma: no cover - sidecar was just written
         raise UploadError("write_failed", "the upload was saved but could not be read back")
+
+    # Record the upload on the provenance feed: a human dropped this asset in.
+    # Best-effort and after the record is built, so a feed failure never fails an
+    # upload whose bytes and sidecar are already written.
+    try:
+        append_event(
+            "you",
+            "human",
+            "uploaded",
+            brand=brand,
+            target=f"{asset_type}/{dest.name}",
+            ts=datetime.now(UTC).isoformat(),
+            kits_dir=root,
+        )
+    except Exception:  # noqa: BLE001 - the feed is advisory; never fail the upload
+        pass
+
     return record
 
 

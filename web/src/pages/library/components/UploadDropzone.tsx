@@ -208,13 +208,13 @@ export function UploadDropzone({ brand, brandLabel, onUploaded }: UploadDropzone
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
         className={[
-          "flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors",
+          "flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
           disabled
-            ? "cursor-not-allowed border-chrome-border bg-chrome-raised/40 opacity-60"
+            ? "cursor-not-allowed border-white/8 bg-chrome-raised/30 opacity-60"
             : dragOver
-              ? "cursor-pointer border-accent bg-accent/10"
-              : "cursor-pointer border-chrome-border bg-chrome-raised hover:border-accent/60 hover:bg-chrome-hover",
+              ? "cursor-pointer border-accent bg-accent/10 ring-2 ring-accent/40 shadow-glow"
+              : "glass cursor-pointer border-white/10 hover:border-accent/60 hover:bg-chrome-hover",
         ].join(" ")}
       >
         <UploadCloud
@@ -264,7 +264,7 @@ export function UploadDropzone({ brand, brandLabel, onUploaded }: UploadDropzone
             {items.map((it) => (
               <li
                 key={it.id}
-                className="flex items-center gap-2 rounded-lg border border-chrome-border bg-chrome-raised px-3 py-2 text-sm"
+                className="flex items-center gap-2 rounded-xl border border-white/8 bg-chrome-raised/60 px-3 py-2 text-sm"
               >
                 <StatusIcon status={it.status} />
                 <span className="min-w-0 flex-1 truncate text-text" title={it.name}>

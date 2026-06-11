@@ -6,40 +6,47 @@
 brand:
   slug: unicorn-commander
   display_name: Unicorn Commander
-  tagline: Your AI command center, on your machine.   # (inferred) founder-direct draft
-  parent: null
+  tagline: Mesh-distributed AI infrastructure and agent orchestration you self-host.
+  parent: magic-unicorn
   description: |
-    Unicorn Commander is the self-hostable AI command center and federation hub
-    for the Ops suite. It is where the suite apps connect, share identity, and
-    report in. unicorncommander.com is the marketing site and
-    unicorncommander.ai is the Ops-Center control plane. The mark is the
-    Colonel, a dignified military unicorn.
+    Unicorn Commander is a self-hosted AI infrastructure platform that runs
+    agent orchestration, LLM routing, search, voice, billing, and federated
+    identity across VPN-meshed multi-node deployments. It ships dozens of agents,
+    multi-provider model support, and Docker and Kubernetes deployment, and is
+    open source. The control plane runs live at unicorncommander.ai. It is a
+    division of Magic Unicorn.
+  mark:
+    asset_type: logo
+    file: The_Colonel_logo.png
+    kind: imported
 
 visual:
   colors:
-    primary: "#8b5cf6"               # command purple
-    accent: "#00d4ff"                # cyan accent
-    background: "#0f172a"            # dark technical slate
-    foreground: "#fafafa"
-    muted: "#334155"
+    primary: "#b66eff"
+    accent: "#00d4ff"
+    background: "#0a0a0f"
+    foreground: "#f0f0f5"
+    muted: "#a0a0b8"
   typography:
-    primary_font: Inter
-    display_font: Inter
-    mono_font: JetBrains Mono
+    primary_font: system-ui
+    display_font: system-ui
+    mono_font: "SF Mono"
   style_keywords:
-    - command-center aesthetic
-    - mission-control feel
-    - the Colonel, a dignified military unicorn with a beret, not cute
-    - sharper geometry
-    - dark technical interface
-    - purple and cyan accents
+    - dark mode
+    - neon purple and cyan
+    - glassmorphism
+    - gradient accents
+    - technical
+    - control-plane dashboard
+    - sovereign self-host
 
 voice:
   tone:
-    - founder-direct
-    - technical-but-accessible
-    - no-em-dashes
-    - no-marketing-speak
+    - technical
+    - direct
+    - infrastructure-focused
+    - sovereignty-minded
+    - confident
   forbidden_phrases:
     - revolutionary
     - game-changer

@@ -4,39 +4,50 @@
 brand:
   slug: magic-unicorn
   display_name: Magic Unicorn
-  tagline: Serious Systems. Approachable Wrapper.
+  tagline: Innovation That Doesn't Apologize
   parent: null
   description: |
-    Magic Unicorn is the parent company behind the Unicorn Commander suite and
-    the MAJIKS family. It builds practical, self-hostable AI infrastructure and
-    puts an approachable wrapper on serious systems. The mark is a unicorn:
-    mythological meeting technological.
+    Magic Unicorn is a Charleston, SC technology company that builds AI
+    platforms, automation systems, and production infrastructure, and co-builds
+    companies alongside clients. It is the parent behind the Unicorn Commander
+    suite, Center Deep, and the MAJIKS family (majiks.online music,
+    majiks.studio creative apps). Its work ships to production rather than
+    staying as demos, and the core of Unicorn Commander and Majik's Music Studio
+    is open source.
+  mark:
+    asset_type: logo
+    file: unicorn.svg
+    kind: imported
 
 visual:
   colors:
     primary: "#b66eff"               # unicorn purple
     accent: "#00d4ff"                # unicorn cyan
-    background: "#0a0a0f"
+    background: "#0a0a0a"
     foreground: "#ffffff"
     muted: "#b3b3b3"
   typography:
     primary_font: Inter
     display_font: Inter
-    mono_font: JetBrains Mono
+    mono_font: Monaco
   style_keywords:
-    - vector animation aesthetic
-    - mythological and technological motifs
-    - clean geometric forms
-    - purple to cyan gradient
-    - dark premium interface
-    - approachable yet serious
+    - dark UI
+    - near-black background
+    - purple-to-cyan gradient
+    - neon glow
+    - radial aurora accents
+    - high contrast
+    - glassy panels
+    - playful-technical
 
 voice:
   tone:
-    - founder-direct
-    - technical-but-accessible
-    - no-em-dashes
-    - no-marketing-speak
+    - bold
+    - confident
+    - irreverent
+    - direct
+    - technical
+    - unapologetic
   forbidden_phrases:
     - revolutionary
     - game-changer

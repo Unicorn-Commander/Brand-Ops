@@ -104,6 +104,43 @@ def _ref_block(refs: list[Path]) -> str:
     )
 
 
+def _palette_clause(brand: Brand, transparent: bool) -> str:
+    """State the brand's exact hex so the model renders on-brand colors.
+
+    Background is included only for non-transparent assets: a transparent asset
+    wants a clean field to cut out, not a painted background color.
+    """
+    colors = brand.visual.colors
+    parts: list[str] = []
+    if colors.primary:
+        parts.append(f"primary {colors.primary}")
+    if colors.accent:
+        parts.append(f"accent {colors.accent}")
+    if not transparent and getattr(colors, "background", None):
+        parts.append(f"background {colors.background}")
+    if not parts:
+        return ""
+    return "Use the exact brand colors: " + ", ".join(parts) + "."
+
+
+def _transparency_clause(transparent: bool) -> str:
+    """For transparent assets, ask for a flat uniform field the engine can cut.
+
+    The gateway backend cannot return a transparent PNG, so the mark is rendered
+    on a flat background and the background is knocked out after generation. A
+    busy or gradient background would defeat that, so we steer away from one.
+    """
+    if not transparent:
+        return ""
+    return (
+        "Center the mark with generous margin on a single plain solid flat-color "
+        "background (one uniform fill color) so the background can be cleanly cut "
+        "out to transparency afterwards. Do not add a scene, photo, or gradient "
+        "behind the mark, and do NOT draw a checkerboard or transparency-grid "
+        "pattern: render an actual solid fill color."
+    )
+
+
 def build_prompt(
     brand: Brand,
     asset_type: str,
@@ -136,6 +173,16 @@ def build_prompt(
     text = template.base
     for token, value in substitutions.items():
         text = text.replace("{" + token + "}", value)
+    # Append exact-color guidance, and for transparent assets a clean-background
+    # instruction, so the model renders on-brand and the post-gen knockout has a
+    # uniform field to remove.
+    clauses = (
+        _palette_clause(brand, spec.transparent),
+        _transparency_clause(spec.transparent),
+    )
+    for clause in clauses:
+        if clause:
+            text = f"{text} {clause}"
     text = " ".join(text.split())
 
     warnings = check_copy(text, brand.voice.forbidden_phrases)

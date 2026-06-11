@@ -36,6 +36,14 @@ def _coerce_record(
         url = "/api/assets/file?" + urlencode(
             {"brand": brand, "asset": asset_type, "file": file_name, "kind": kind}
         )
+    # Lifecycle fields are surfaced verbatim from the sidecar and left null when
+    # absent: a record that was never stamped reads as lifecycle_status=None, so
+    # the backfill — not this read — is what populates them. compliance is the
+    # small {status, score, violations} summary stamp_compliance writes.
+    raw_status = data.get("lifecycle_status")
+    lifecycle_status = raw_status if isinstance(raw_status, str) else None
+    raw_compliance = data.get("compliance")
+    compliance = raw_compliance if isinstance(raw_compliance, dict) else None
     return AssetRecord(
         brand=brand,
         asset_type=asset_type,
@@ -52,6 +60,8 @@ def _coerce_record(
         url=url,
         prompt=data.get("prompt"),
         reference_images=ref_list,
+        lifecycle_status=lifecycle_status,
+        compliance=compliance,
     )
 
 
@@ -76,12 +86,17 @@ def read_assets(
     brand: str | None = None,
     asset: str | None = None,
     kits_dir: Path | None = None,
+    status: str | None = None,
 ) -> list[AssetRecord]:
-    """Read catalog records, optionally filtered by brand and asset type.
+    """Read catalog records, optionally filtered by brand, asset type, and status.
 
     Walks both the generated and imported trees under each brand kit. Reads only
     the directories implied by the filters, and skips unreadable or non-sidecar
     JSON files rather than raising, so one bad file cannot break a list.
+
+    ``status`` filters by lifecycle status ("approved"/"needs_review"): a record
+    whose ``lifecycle_status`` differs (including a never-stamped null) is
+    dropped. Absent, every record is returned regardless of lifecycle status.
     """
     root = kits_dir or DEFAULT_KITS_DIR
     if not root.exists():
@@ -108,8 +123,11 @@ def read_assets(
                 except (OSError, ValueError):
                     continue
                 record = _coerce_record(data, sidecar, image_path, kind=kind)
-                if record is not None:
-                    records.append(record)
+                if record is None:
+                    continue
+                if status is not None and record.lifecycle_status != status:
+                    continue
+                records.append(record)
     # Newest first when a timestamp is present; records without one sort last.
     records.sort(key=lambda r: r.created_at or "", reverse=True)
     return records

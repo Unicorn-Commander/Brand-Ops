@@ -2,6 +2,9 @@
 brand-kits/*/generated/
 brand-kits/*/imported/
 
+# The append-only activity / provenance feed is runtime state, not source.
+brand-kits/.activity.jsonl
+
 # Secrets. The .env.bak leak that burned Contact-Ops is the reason for the last line.
 .env
 .env.*

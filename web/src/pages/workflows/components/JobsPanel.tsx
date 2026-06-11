@@ -1,7 +1,9 @@
 import { ListChecks } from "lucide-react";
-import { Panel } from "../../../components/Panel";
+import { motion, AnimatePresence } from "framer-motion";
+import { GlassPanel } from "../../../components";
 import { EmptyState } from "../../../components/EmptyState";
 import { Button } from "../../../components/Button";
+import { staggerItem } from "../../../lib/motion";
 import { JobRow } from "./JobRow";
 import type { CriticResult, Job } from "../types";
 
@@ -19,7 +21,7 @@ interface JobsPanelProps {
 
 /**
  * The runs panel: a live list of started agent runs with their status. Newest
- * first. Empty until the first run is started.
+ * first. New runs fade and de-blur in; empty until the first run is started.
  */
 export function JobsPanel({
   jobs,
@@ -33,13 +35,19 @@ export function JobsPanel({
   const active = jobs.filter((j) => j.status === "running").length;
 
   return (
-    <Panel
+    <GlassPanel
       title="Runs"
       flush={jobs.length > 0}
       actions={
         <div className="flex items-center gap-3">
           {active > 0 && (
-            <span className="text-xs text-text-muted">{active} running</span>
+            <span className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-70" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+              </span>
+              <span className="tabular-nums">{active}</span> running
+            </span>
           )}
           {hasSettled && (
             <Button variant="ghost" size="sm" onClick={onClearDone}>
@@ -57,18 +65,27 @@ export function JobsPanel({
         />
       ) : (
         <div>
-          {jobs.map((job) => (
-            <JobRow
-              key={job.id}
-              job={job}
-              expanded={expandedIds.has(job.id)}
-              onToggle={() => onToggle(job.id)}
-              onDismiss={() => onDismiss(job.id)}
-              onRefine={onRefine}
-            />
-          ))}
+          <AnimatePresence initial={false}>
+            {jobs.map((job) => (
+              <motion.div
+                key={job.id}
+                variants={staggerItem}
+                initial="hidden"
+                animate="show"
+                exit={{ opacity: 0, height: 0, transition: { duration: 0.18 } }}
+              >
+                <JobRow
+                  job={job}
+                  expanded={expandedIds.has(job.id)}
+                  onToggle={() => onToggle(job.id)}
+                  onDismiss={() => onDismiss(job.id)}
+                  onRefine={onRefine}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
       )}
-    </Panel>
+    </GlassPanel>
   );
 }

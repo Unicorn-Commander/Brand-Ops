@@ -1,0 +1,55 @@
+# Meeting-Ops brand. Sub-brand of Unicorn Commander. *-Ops emblem system.
+# Logos are generated with nano-banana 2 (OpenRouter) conditioned on the
+# reference images below, so the mark matches the existing unicorn house style.
+brand:
+  slug: meeting-ops
+  display_name: Meeting-Ops
+  tagline: Meeting intelligence you self-host.
+  parent: unicorn-commander
+  description: |
+    Meeting-Ops records, transcribes, and diarizes meetings, then turns each
+    conversation into summaries, action items, a searchable knowledge graph,
+    and RAG chat across everything that was said. It runs on your own
+    infrastructure as part of the Unicorn Commander suite.
+  mark:
+    asset_type: logo
+    file: meeting-ops-lead.png
+    kind: imported
+visual:
+  colors:
+    primary: "#1b3a6b"
+    accent: "#d4af37"
+    background: "#0a1228"
+    foreground: "#f0f3fa"
+    muted: "#8895b3"
+  typography:
+    primary_font: Inter
+    display_font: Space Grotesk
+    mono_font: JetBrains Mono
+  style_keywords:
+    - match the EXACT art style of the reference images
+    - bold thick black-outlined sticker-style cartoon unicorn head
+    - white face, gold spiral horn, vibrant full rainbow mane
+    - navy military beret like the reference, plus a sleek headset with a boom microphone
+    - friendly but confident expression, clean flat colors, centered
+voice:
+  tone: [technical, direct, confident, sovereignty-minded]
+  forbidden_phrases: [revolutionary, game-changer, synergize]
+prompts:
+  logo:
+    base: |
+      Create a brand logo mark for {brand_context}. Style: {style_keywords}.
+      Variant: {variant}. Keep the same proportions, outline weight, and friendly
+      confident expression as the reference images; this is the Meeting-Ops comms
+      officer. A single centered unicorn-head mark, no text and no wordmark.
+      {ref_block}
+    variants: [flat, color, app-icon]
+  og_image:
+    base: "Share image for {brand_context}. {style_keywords}. Topic: {topic}. {ref_block}"
+    variants: [default]
+  social_card:
+    base: "Square social card for {brand_context}. Topic: {topic}. {style_keywords}. {ref_block}"
+    variants: [default]
+reference_images:
+  colonel: refs/colonel.png
+  canonical: refs/canonical-unicorn.png

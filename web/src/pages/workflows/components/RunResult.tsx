@@ -91,10 +91,12 @@ function ResultShell({
   statusPill?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-chrome-border bg-chrome-bg/30 p-4">
+    <div className="glass rounded-xl border border-white/8 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-text-muted">Result</span>
+          <span className="font-display text-xs font-semibold tracking-tight text-text-muted">
+            Result
+          </span>
           {statusPill}
         </div>
         <button
@@ -149,7 +151,7 @@ function PlanResultView({ result }: { result: PlanResult }) {
           {items.map((item, i) => (
             <li
               key={`${i}-${item.asset_type}-${item.variant ?? ""}`}
-              className="rounded-lg border border-chrome-border bg-chrome-raised/40 p-3"
+              className="rounded-xl border border-white/8 bg-chrome-raised/40 p-3"
             >
               <div className="flex items-center justify-between gap-3">
                 <p className="truncate text-sm font-medium text-text">
@@ -233,15 +235,17 @@ function CritiqueResultView({
         <span
           className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${
             onBrand
-              ? "border-accent/40 bg-accent/15 text-accent"
-              : "border-amber-500/40 bg-amber-500/15 text-amber-200"
+              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
+              : "border-amber-400/40 bg-amber-400/10 text-amber-200"
           }`}
         >
           {onBrand ? "On-brand" : "Off-brand"}
         </span>
         {score != null && (
           <span className="text-sm text-text-muted">
-            Score <span className="font-semibold text-text">{score}</span> / 100
+            Score{" "}
+            <span className="font-semibold tabular-nums text-text">{score}</span> /
+            100
           </span>
         )}
       </div>

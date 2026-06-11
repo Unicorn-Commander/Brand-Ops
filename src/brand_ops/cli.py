@@ -115,6 +115,23 @@ def ingest(
     console.print(f"[green]Ingested {total} assets into imported/[/green]")
 
 
+@app.command("backfill-compliance")
+def backfill_compliance_cmd() -> None:
+    """Stamp every catalog asset with its compliance-derived lifecycle status.
+
+    Runs the deterministic checker over each generated and imported asset and
+    writes ``lifecycle_status`` + a compliance summary into its sidecar, so a kit
+    built before the lifecycle gate existed gets gated in place. Idempotent.
+    """
+    from .compliance import backfill_compliance
+
+    counts = backfill_compliance()
+    console.print(
+        f"[green]Stamped {counts['stamped']} asset(s)[/green]: "
+        f"{counts['approved']} approved, {counts['needs_review']} needs review"
+    )
+
+
 def main() -> None:
     app()
 

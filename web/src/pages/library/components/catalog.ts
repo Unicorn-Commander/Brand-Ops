@@ -8,7 +8,7 @@
  * The newest by created_at represents that asset in the grid; the rest are its
  * prior versions. Everything below uses only AssetRecord fields.
  */
-import type { AssetRecord } from "../../../lib/types";
+import type { AssetLifecycleStatus, AssetRecord } from "../../../lib/types";
 
 /** Filters the Library can apply on top of the server-side brand/asset query. */
 export interface CatalogFilters {
@@ -17,12 +17,15 @@ export interface CatalogFilters {
   asset: string | null;
   /** backend name, e.g. "openai". */
   backend: string | null;
+  /** Review lifecycle; like brand, this drives the server query. */
+  status: AssetLifecycleStatus | null;
 }
 
 export const EMPTY_FILTERS: CatalogFilters = {
   brand: null,
   asset: null,
   backend: null,
+  status: null,
 };
 
 /**

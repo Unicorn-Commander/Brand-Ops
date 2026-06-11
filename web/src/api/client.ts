@@ -10,21 +10,42 @@
  * generate(): use `isNeedsKeyError(err)` to detect it and read `err.needsKey`.
  */
 import type {
+  ActivityEvent,
+  ActivityList,
+  AgentIdentity,
   AgentInfo,
   AgentList,
   AgentRunResult,
+  AgentTeam,
+  ApproveAssetRequest,
+  ApproveAssetResult,
   AssetList,
   AssetRecord,
   AssetType,
   AssetTypeList,
+  BrandComplianceRollup,
   BrandDetail,
+  BrandGuidelines,
   BrandList,
+  BrandRules,
   BrandSummary,
+  BrandTokens,
+  CloneBrandRequest,
+  ComplianceCheckRequest,
+  ComplianceResult,
+  DirectorChatRequest,
+  DirectorReply,
   GenerateRequest,
   GenerateResult,
+  IntakeRequest,
+  IntakeResult,
+  ListActivityParams,
   ListAssetsParams,
   NeedsKeyError,
   PromptPreview,
+  TemplateList,
+  TemplateDef,
+  TransitionRequest,
   UploadResult,
 } from "../lib/types";
 
@@ -173,6 +194,52 @@ export async function getBrand(
   return request<BrandDetail>(`/brands/${encodeURIComponent(slug)}`, { signal });
 }
 
+/**
+ * POST /api/brands/{slug}/clone -> stand up a new brand from an existing one,
+ * returning the newly created BrandDetail.
+ *
+ * With `as_child` true (the default) the new brand is a sub-brand that inherits
+ * the source's identity through the loader's parent merge; with it false the
+ * source's visual + voice are copied and the new brand stands alone. The source
+ * mark is never carried over. The errors callers branch on: a 404 when `slug` is
+ * unknown, a 409 when `body.new_slug` already exists, and a 422 on an invalid
+ * slug. Each arrives as an ApiError whose `status` distinguishes them.
+ */
+export async function cloneBrand(
+  slug: string,
+  body: CloneBrandRequest,
+  signal?: AbortSignal,
+): Promise<BrandDetail> {
+  return request<BrandDetail>(`/brands/${encodeURIComponent(slug)}/clone`, {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
+/**
+ * POST /api/brands/intake -> stand up a brand new brand from a name + a few
+ * hints, returning the created brand, the draft the Director narrated, and her
+ * notes.
+ *
+ * The Director derives a slug from the name, drafts a full identity through the
+ * LLM gateway, and writes a real brand.yaml. It never 500s on an LLM hiccup: a
+ * gateway miss falls back to a neutral on-theme default and says so in `notes`.
+ * The errors callers branch on: a 409 when the derived slug already exists, and
+ * a 422 on an invalid/empty name; each arrives as an ApiError whose `status`
+ * distinguishes them.
+ */
+export async function intakeBrand(
+  body: IntakeRequest,
+  signal?: AbortSignal,
+): Promise<IntakeResult> {
+  return request<IntakeResult>("/brands/intake", {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
 /** GET /api/asset-types -> the asset types the engine can produce. */
 export async function listAssetTypes(signal?: AbortSignal): Promise<AssetType[]> {
   const data = await request<AssetTypeList>("/asset-types", { signal });
@@ -208,14 +275,18 @@ export async function generate(
   });
 }
 
-/** GET /api/assets?brand=&asset= -> catalog records from sidecars. */
+/** GET /api/assets?brand=&asset=&status= -> catalog records from sidecars. */
 export async function listAssets(
   params: ListAssetsParams = {},
   signal?: AbortSignal,
 ): Promise<AssetList["assets"]> {
   const data = await request<AssetList>("/assets", {
     signal,
-    query: { brand: params.brand, asset: params.asset },
+    query: {
+      brand: params.brand,
+      asset: params.asset,
+      status: params.status,
+    },
   });
   return data.assets;
 }
@@ -264,6 +335,149 @@ export async function upload(
   return data.asset;
 }
 
+/**
+ * POST /api/assets/transition -> move one asset to a new lifecycle state.
+ *
+ * The general review move (approve, request changes, archive, re-flag). Writes
+ * the new lifecycle_status into the sidecar and appends an activity event, then
+ * returns the refreshed catalog record so the Library can swap it into its
+ * cache. A bad target state is a 422; a missing sidecar a 404.
+ */
+export async function transitionAsset(
+  body: TransitionRequest,
+  signal?: AbortSignal,
+): Promise<AssetRecord> {
+  const data = await request<ApproveAssetResult>("/assets/transition", {
+    method: "POST",
+    body,
+    signal,
+  });
+  return data.asset;
+}
+
+/**
+ * POST /api/assets/approve -> mark one asset as approved.
+ *
+ * A thin alias for transitionAsset to "approved", kept for the callers that
+ * speak the approve verb directly. Addresses the asset by brand + file + asset
+ * type + kind, and returns the updated record (now lifecycle_status "approved").
+ */
+export async function approveAsset(
+  body: ApproveAssetRequest,
+  signal?: AbortSignal,
+): Promise<AssetRecord> {
+  return transitionAsset({ ...body, to: "approved" }, signal);
+}
+
+/**
+ * GET /api/activity?brand=&limit= -> the append-only provenance feed.
+ *
+ * Returns events newest first. Pass `brand` to scope to one brand, `limit` to
+ * cap the count (the server clamps to its own ceiling). This is the orientation
+ * surface for both human and agent actions across the suite.
+ */
+export async function listActivity(
+  params: ListActivityParams = {},
+  signal?: AbortSignal,
+): Promise<ActivityEvent[]> {
+  const data = await request<ActivityList>("/activity", {
+    signal,
+    query: {
+      brand: params.brand,
+      limit: params.limit !== undefined ? String(params.limit) : undefined,
+    },
+  });
+  return data.events;
+}
+
+// ---------------------------------------------------------------------------
+// Design tokens + compliance
+// ---------------------------------------------------------------------------
+
+/** GET /api/brands/{slug}/tokens -> the brand's portable design tokens. */
+export async function getBrandTokens(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<BrandTokens> {
+  return request<BrandTokens>(
+    `/brands/${encodeURIComponent(slug)}/tokens`,
+    { signal },
+  );
+}
+
+/** GET /api/brands/{slug}/rules -> the machine-checkable brand rules. */
+export async function getBrandRules(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<BrandRules> {
+  return request<BrandRules>(
+    `/brands/${encodeURIComponent(slug)}/rules`,
+    { signal },
+  );
+}
+
+/**
+ * GET /api/brands/{slug}/guidelines -> the brand's living guidelines (the brand
+ * book): identity, design tokens, the rules manifest, and assets grouped by
+ * type, assembled into one document. 404 -> ApiError(404) when the brand is
+ * unknown. This is the canonical deliverable the guidelines page renders and the
+ * source for the printed PDF export.
+ */
+export async function getBrandGuidelines(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<BrandGuidelines> {
+  return request<BrandGuidelines>(
+    `/brands/${encodeURIComponent(slug)}/guidelines`,
+    { signal },
+  );
+}
+
+/** POST /api/compliance/check -> check one file or block of text against a brand. */
+export async function checkCompliance(
+  body: ComplianceCheckRequest,
+  signal?: AbortSignal,
+): Promise<ComplianceResult> {
+  return request<ComplianceResult>("/compliance/check", {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
+/**
+ * GET /api/brands/{slug}/compliance -> the rollup of the check run over every
+ * catalog asset of the brand. This is the visible on-brand vs off-brand gate.
+ */
+export async function getBrandCompliance(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<BrandComplianceRollup> {
+  return request<BrandComplianceRollup>(
+    `/brands/${encodeURIComponent(slug)}/compliance`,
+    { signal },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Templates (locked, on-brand layouts the Template Studio renders)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/templates -> the locked templates the Template Studio renders.
+ *
+ * Each TemplateDef is a data-driven layout (canvas size, background, and slots)
+ * whose colors and fonts reference brand token names, so a render is on-brand by
+ * construction. The frontend draws them on a canvas from the active brand's
+ * tokens; the set is static and read-only.
+ */
+export async function listTemplates(
+  signal?: AbortSignal,
+): Promise<TemplateDef[]> {
+  const data = await request<TemplateList>("/templates", { signal });
+  return data.templates;
+}
+
 // ---------------------------------------------------------------------------
 // Agents
 // ---------------------------------------------------------------------------
@@ -294,14 +508,135 @@ export async function runAgent(
   );
 }
 
+/**
+ * POST /api/director/chat -> talk to Iris, the brand director.
+ *
+ * Iris reads the operator's message (with the active brand and the recent
+ * history for context) and returns her first-person reply plus a resolved
+ * intent the Studio acts on (chat / single / pack / research). The endpoint
+ * degrades in persona: when the LLM gateway is unavailable it still resolves 200
+ * with an in-character reply and intent "chat", so the caller treats a thrown
+ * error only as a transport failure (and may fall back to the local planner).
+ */
+export async function directorChat(
+  body: DirectorChatRequest,
+  signal?: AbortSignal,
+): Promise<DirectorReply> {
+  return request<DirectorReply>("/director/chat", {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Agent identities (on-brand avatar + persona + manifest, owned by a brand)
+// ---------------------------------------------------------------------------
+
+/** GET /api/brands/{slug}/agents -> the brand's agent identities, newest first. */
+export async function listBrandAgents(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<AgentIdentity[]> {
+  const data = await request<{ agents: AgentIdentity[] }>(
+    `/brands/${encodeURIComponent(slug)}/agents`,
+    { signal },
+  );
+  return data.agents;
+}
+
+/**
+ * GET /api/brands/{slug}/agent-team -> the brand's agent team: the Director
+ * (Iris) and the per-brand Steward, the created agents, and the governance
+ * rollup over those agents. 404 -> ApiError(404) when the brand is unknown.
+ */
+export async function getAgentTeam(
+  slug: string,
+  signal?: AbortSignal,
+): Promise<AgentTeam> {
+  return request<AgentTeam>(
+    `/brands/${encodeURIComponent(slug)}/agent-team`,
+    { signal },
+  );
+}
+
+/** POST /api/brands/{slug}/agents -> create an on-brand agent identity. */
+export async function createBrandAgent(
+  slug: string,
+  body: { name: string; role: string; bio?: string },
+  signal?: AbortSignal,
+): Promise<AgentIdentity> {
+  return request<AgentIdentity>(`/brands/${encodeURIComponent(slug)}/agents`, {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
+/** POST /api/brands/{slug}/agents/{agent}/avatar -> generate the agent's avatar. */
+export async function generateBrandAgentAvatar(
+  slug: string,
+  agent: string,
+  signal?: AbortSignal,
+): Promise<AgentIdentity> {
+  return request<AgentIdentity>(
+    `/brands/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent)}/avatar`,
+    { method: "POST", signal },
+  );
+}
+
+/**
+ * POST /api/brands/{slug}/agents/{agent}/variants -> generate the agent's full
+ * avatar state set (primary, thinking, success, alert), filling in the primary
+ * avatar too if missing.
+ *
+ * Returns the refreshed AgentIdentity, now carrying `variants` (each state mapped
+ * to its /api URL). Degrades like the avatar route: a 422 when the backend has no
+ * key (its `needsKey` is set), a 502 on a backend error, a 404 on an unknown
+ * agent.
+ */
+export async function generateAgentVariants(
+  slug: string,
+  agent: string,
+  signal?: AbortSignal,
+): Promise<AgentIdentity> {
+  return request<AgentIdentity>(
+    `/brands/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent)}/variants`,
+    { method: "POST", signal },
+  );
+}
+
+/** The /api URL of an agent's consumable identity manifest (for download/links). */
+export function agentManifestUrl(slug: string, agent: string): string {
+  return `/api/brands/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent)}/manifest`;
+}
+
 export const api = {
   listBrands,
   getBrand,
+  cloneBrand,
+  intakeBrand,
   listAssetTypes,
   promptPreview,
   generate,
   listAssets,
   upload,
+  transitionAsset,
+  approveAsset,
+  listActivity,
+  getBrandTokens,
+  getBrandRules,
+  getBrandGuidelines,
+  checkCompliance,
+  getBrandCompliance,
+  listTemplates,
   listAgents,
   runAgent,
+  directorChat,
+  listBrandAgents,
+  getAgentTeam,
+  createBrandAgent,
+  generateBrandAgentAvatar,
+  generateAgentVariants,
+  agentManifestUrl,
 };

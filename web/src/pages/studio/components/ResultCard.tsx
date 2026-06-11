@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   ImageIcon,
   Check,
@@ -7,6 +8,7 @@ import {
   Copy,
   CheckCheck,
 } from "lucide-react";
+import { spring } from "../../../lib/motion";
 import type { GeneratedFile, GenerateResult } from "../../../lib/types";
 
 interface ResultCardProps {
@@ -47,8 +49,19 @@ export function ResultCard({
   onVersion,
 }: ResultCardProps) {
   const [copied, setCopied] = useState(false);
+  const reduce = useReducedMotion();
   // GenerateResult does not carry dimensions; fall back to a square frame.
   const ratio = aspectRatio(1, 1);
+
+  // A short "developing" reveal: when the card first mounts, a shimmer sweeps
+  // over the placeholder (an image-gen riff on a print developing), then the
+  // asset settles in. Skipped under reduced-motion.
+  const [developing, setDeveloping] = useState(!reduce);
+  useEffect(() => {
+    if (reduce) return;
+    const id = window.setTimeout(() => setDeveloping(false), 900);
+    return () => window.clearTimeout(id);
+  }, [reduce]);
 
   const copyPath = async () => {
     try {
@@ -61,31 +74,50 @@ export function ResultCard({
   };
 
   return (
-    <div
-      className={`group flex flex-col rounded-xl border bg-chrome-panel p-2 shadow-panel transition-colors ${
-        selected ? "border-accent ring-1 ring-accent/50" : "border-chrome-border"
+    <motion.div
+      whileHover={reduce ? undefined : { y: -3 }}
+      transition={spring.card}
+      className={`group flex flex-col rounded-2xl border bg-chrome-panel/80 p-2 shadow-panel backdrop-blur transition-colors ${
+        selected
+          ? "border-accent shadow-glow ring-1 ring-accent/50"
+          : "border-white/8"
       }`}
     >
       <button
         type="button"
         onClick={onSelect}
         aria-pressed={selected}
-        className="relative w-full overflow-hidden rounded-lg border border-chrome-border bg-chrome-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+        className="relative w-full overflow-hidden rounded-xl border border-white/8 bg-chrome-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         style={{ aspectRatio: ratio }}
         title={selected ? "Selected" : "Select this version"}
       >
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-text-faint">
+        {/* The settled asset placeholder, scaled+faded in once developed. */}
+        <motion.div
+          initial={reduce ? false : { opacity: 0, scale: 1.04 }}
+          animate={{ opacity: developing ? 0 : 1, scale: 1 }}
+          transition={spring.card}
+          className="flex h-full w-full flex-col items-center justify-center gap-2 text-text-faint"
+        >
           <ImageIcon size={22} />
           <span className="px-2 text-center text-xs leading-tight">
             {basename(file.path)}
           </span>
-        </div>
+        </motion.div>
+
+        {/* The "developing" reveal: a shimmer sweep over a dark plate. */}
+        {developing && (
+          <div
+            aria-hidden
+            className="absolute inset-0 animate-shimmer bg-[linear-gradient(110deg,transparent_30%,rgb(var(--accent)/0.18)_50%,transparent_70%)] bg-chrome-bg/60 bg-[length:200%_100%]"
+          />
+        )}
+
         {selected && (
           <span className="absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-accent text-chrome-bg">
             <Check size={13} />
           </span>
         )}
-        <span className="absolute left-2 top-2 rounded-md bg-chrome-bg/80 px-1.5 py-0.5 text-xs text-text-muted">
+        <span className="absolute left-2 top-2 rounded-md bg-chrome-bg/80 px-1.5 py-0.5 text-xs tabular-nums text-text-muted">
           v{index}
         </span>
       </button>
@@ -127,6 +159,6 @@ export function ResultCard({
           </a>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

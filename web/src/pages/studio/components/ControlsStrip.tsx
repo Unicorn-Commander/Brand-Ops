@@ -1,5 +1,4 @@
 import { type ReactNode } from "react";
-import { SlidersHorizontal } from "lucide-react";
 import type { AssetType, BrandSummary } from "../../../lib/types";
 
 /** The control values the screen tracks and feeds back into the agent stub. */
@@ -41,12 +40,12 @@ function Field({
 }
 
 const SELECT_CLASS =
-  "h-9 w-full min-w-0 rounded-lg border border-chrome-border bg-chrome-raised px-2.5 text-sm text-text " +
+  "h-9 w-full min-w-0 rounded-lg border border-white/8 bg-chrome-raised/80 px-2.5 text-sm text-text " +
   "transition-colors hover:bg-chrome-hover focus:outline-none focus:ring-2 focus:ring-accent/50 " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
 const INPUT_CLASS =
-  "h-9 w-full min-w-0 rounded-lg border border-chrome-border bg-chrome-raised px-2.5 text-sm text-text " +
+  "h-9 w-full min-w-0 rounded-lg border border-white/8 bg-chrome-raised/80 px-2.5 text-sm text-text " +
   "placeholder:text-text-faint transition-colors hover:bg-chrome-hover focus:outline-none focus:ring-2 " +
   "focus:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -73,11 +72,7 @@ export function ControlsStrip({
   const toNull = (v: string): string | null => (v === "" ? null : v);
 
   return (
-    <div className="rounded-xl border border-chrome-border bg-chrome-panel p-3 shadow-panel">
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-text-muted">
-        <SlidersHorizontal size={14} />
-        <span>Refine</span>
-      </div>
+    <div className="rounded-xl border border-white/8 bg-chrome-raised/40 p-3">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Field label="Brand" htmlFor="ctl-brand">
           <select

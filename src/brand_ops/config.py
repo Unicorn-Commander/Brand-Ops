@@ -21,6 +21,29 @@ class Settings(BaseModel):
     recraft_api_key: str = ""
     comfyui_url: str = "http://localhost:8188"
     flux_model: str = "flux1-dev"
+    # OpenRouter image generation. In a single-key "vacuum" deploy it can reuse
+    # the agent LLM credentials (llm_api_key / llm_base_url). In the integrated
+    # deploy the text path points at the metered gateway, which CANNOT carry
+    # reference images, so the image backend needs its own direct OpenRouter
+    # credentials to do reference-conditioned generation (matching existing brand
+    # art). These take precedence over llm_* in the openrouter backend; when
+    # blank it falls back to llm_*. Default is nano-banana 2; any OpenRouter image
+    # slug works (openai/gpt-5.4-image-2, black-forest-labs/flux.2-pro, ...).
+    openrouter_image_model: str = "google/gemini-3.1-flash-image-preview"
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    # LiteLLM gateway (the suite inference gateway). When set, Brand-Ops holds no
+    # provider keys: it calls the gateway with a gateway-issued virtual key and
+    # the gateway holds the real provider creds and meters + marks up the spend.
+    # base_url is the gateway root (no /v1); the backend posts /v1/images/generations.
+    litellm_base_url: str = ""
+    litellm_api_key: str = ""
+    litellm_image_model: str = "gpt-image-1"
+    # When an asset's default backend has no key and the caller did not request
+    # one explicitly, fall back through this chain, using the first healthy one.
+    # The gateway (litellm) is preferred when configured; OpenRouter is the
+    # standalone fallback (same key the agents use, works the moment it is set).
+    fallback_image_backends: list[str] = ["litellm", "openrouter"]
 
     # Brigade (autonomy + federation hub)
     brigade_base_url: str = "https://brigade.unicorncommander.ai"
@@ -60,6 +83,16 @@ def get_settings() -> Settings:
         recraft_api_key=os.getenv("RECRAFT_API_KEY", ""),
         comfyui_url=os.getenv("COMFYUI_URL", d.comfyui_url),
         flux_model=os.getenv("FLUX_MODEL", d.flux_model),
+        openrouter_image_model=os.getenv("OPENROUTER_IMAGE_MODEL", d.openrouter_image_model),
+        openrouter_api_key=os.getenv("OPENROUTER_API_KEY", ""),
+        openrouter_base_url=os.getenv("OPENROUTER_BASE_URL", d.openrouter_base_url),
+        litellm_base_url=os.getenv("LITELLM_BASE_URL", ""),
+        litellm_api_key=os.getenv("LITELLM_API_KEY", ""),
+        litellm_image_model=os.getenv("LITELLM_IMAGE_MODEL", d.litellm_image_model),
+        fallback_image_backends=(
+            [x.strip() for x in os.getenv("FALLBACK_IMAGE_BACKENDS", "").split(",") if x.strip()]
+            or d.fallback_image_backends
+        ),
         brigade_base_url=os.getenv("BRIGADE_BASE_URL", d.brigade_base_url),
         brigade_api_key=os.getenv("BRIGADE_API_KEY", ""),
         garage_s3_endpoint=os.getenv("GARAGE_S3_ENDPOINT", ""),

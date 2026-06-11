@@ -49,6 +49,18 @@ def test_list_brands(client: TestClient) -> None:
         assert b["display_name"]
 
 
+def test_list_brands_carries_canonical_mark_url(client: TestClient) -> None:
+    # Each brand declares a canonical mark; the list exposes it as a ready URL
+    # into /api/assets/file. magic-unicorn's mark is its unicorn.svg logo.
+    resp = client.get("/api/brands")
+    assert resp.status_code == 200
+    by_slug = {b["slug"]: b for b in resp.json()["brands"]}
+    mu = by_slug["magic-unicorn"]
+    assert mu["mark_url"]
+    assert "unicorn.svg" in mu["mark_url"]
+    assert mu["mark_url"].startswith("/api/assets/file?brand=magic-unicorn")
+
+
 def test_brand_detail(client: TestClient) -> None:
     resp = client.get("/api/brands/magic-unicorn")
     assert resp.status_code == 200
@@ -116,6 +128,42 @@ def test_prompt_preview_unknown_brand_is_404(client: TestClient) -> None:
         json={"brand": "no-such-brand", "asset": "og_image"},
     )
     assert resp.status_code == 404
+
+
+def test_served_svg_asset_is_forced_download(client: TestClient) -> None:
+    # An SVG can carry <script>, so the file route must serve it as a download,
+    # never inline, and tell the browser not to sniff the bytes into HTML. The
+    # seeded magic-unicorn mark (unicorn.svg) is a real on-disk SVG to serve.
+    resp = client.get(
+        "/api/assets/file",
+        params={
+            "brand": "magic-unicorn",
+            "asset": "logo",
+            "file": "unicorn.svg",
+            "kind": "imported",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-disposition"].startswith("attachment")
+    assert resp.headers["x-content-type-options"] == "nosniff"
+
+
+def test_served_raster_asset_stays_inline(client: TestClient) -> None:
+    # A raster image must keep serving inline so the GUI's <img> tags render it:
+    # no attachment disposition. magic-unicorn ships a PNG logo on disk.
+    resp = client.get(
+        "/api/assets/file",
+        params={
+            "brand": "magic-unicorn",
+            "asset": "logo",
+            "file": "magic-unicorn-logo.png",
+            "kind": "imported",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert "content-disposition" not in resp.headers
+    # nosniff is harmless for an <img> and still hardens the raster path.
+    assert resp.headers["x-content-type-options"] == "nosniff"
 
 
 def test_assets_catalog_shape(client: TestClient) -> None:

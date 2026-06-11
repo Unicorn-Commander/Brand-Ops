@@ -10,8 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import cards
+from .asset_types import get_asset_spec
 from .backends.base import BackendNotConfigured, GenRequest, GenResult, load_backend
-from .brand_loader import load_brand, resolve_reference_images
+from .brand_loader import DEFAULT_KITS_DIR, load_brand, resolve_reference_images
 from .config import Settings, get_settings
 from .output import generated_dir, output_name, save_result
 from .prompt_builder import BuiltPrompt, build_prompt
@@ -24,11 +26,42 @@ class AssetOutcome:
     missing_refs: list[str]
     result: GenResult | None = None
     paths: list[Path] = field(default_factory=list)
+    # Human-readable notes about the run, e.g. a backend fallback.
+    notes: list[str] = field(default_factory=list)
 
 
 def _wants_vector(backend: str, asset_type: str) -> bool:
     # Recraft can emit true SVG; use it for the logo lane where vector is ideal.
     return backend == "recraft" and asset_type == "logo"
+
+
+def resolve_image_backend(default_backend, requested, settings):
+    """Resolve the image backend, applying the fallback chain.
+
+    Returns (active_name, backend_impl, note). When the default backend has no
+    key and the caller did not request one explicitly, fall through
+    settings.fallback_image_backends (the LiteLLM gateway first when configured,
+    then OpenRouter) and use the first healthy one. An explicit request is never
+    swapped. Shared by generate_asset and the agent-identity avatar path.
+    """
+    active = default_backend
+    impl = load_backend(active, settings)
+    note = None
+    if not impl.health() and requested is None:
+        for fallback in settings.fallback_image_backends:
+            if fallback == active:
+                continue
+            fallback_impl = load_backend(fallback, settings)
+            if fallback_impl.health():
+                note = f"{active} backend is not configured; generated via {fallback} instead"
+                active, impl = fallback, fallback_impl
+                break
+    if not impl.health():
+        raise BackendNotConfigured(
+            f"backend {active!r} is not configured. "
+            f"Set its API key or endpoint, then try again."
+        )
+    return active, impl, note
 
 
 def generate_asset(
@@ -66,13 +99,15 @@ def generate_asset(
     if dry_run:
         return outcome
 
-    backend_impl = load_backend(built.backend, settings)
-    if not backend_impl.health():
-        raise BackendNotConfigured(
-            f"backend {built.backend!r} is not configured. "
-            f"Set its API key or endpoint, then try again."
-        )
+    # Resolve the backend (with the fallback chain). An explicit backend= is
+    # respected and never swapped.
+    active_backend, backend_impl, note = resolve_image_backend(built.backend, backend, settings)
+    if note:
+        outcome.notes.append(note)
 
+    # Recompute vector against the backend that will actually run (only recraft
+    # emits SVG; a fallback off recraft produces raster).
+    vector = _wants_vector(active_backend, asset_type)
     req = GenRequest(
         prompt=built.text,
         width=built.size[0],
@@ -84,6 +119,108 @@ def generate_asset(
         extra={"colors": [brand.visual.colors.primary, brand.visual.colors.accent]},
     )
     result = backend_impl.generate(req)
+    # Transparent asset types (logo, app_icon, ...) must end up with a real alpha
+    # channel even when the backend can only return an opaque image on a flat
+    # field. The gateway's gpt-image-1 path cannot honor a transparent-background
+    # request, so cut a uniform background out here. It is a no-op when the image
+    # is already transparent or the background is not a single uniform color.
+    if built.transparent and result.images:
+        from .imaging import knockout_background
+
+        result.images = [knockout_background(img) for img in result.images]
     outcome.result = result
+    outcome.paths = save_result(brand_slug, asset_type, variant, built, result, kits_dir)
+    return outcome
+
+
+def _resolve_mark(brand_slug, brand, mark, kits_dir):
+    """Find the brand mark to composite: an explicit one, the brand's declared
+    mark, else the most recent generated (then imported) logo. None if there is
+    no logo yet (the card still renders, just without a mark)."""
+    base = (kits_dir or DEFAULT_KITS_DIR) / brand_slug
+    if mark:
+        explicit = Path(mark)
+        if explicit.is_file():
+            return explicit
+        for sub in ("generated/logo", "imported/logo"):
+            cand = base / sub / mark
+            if cand.is_file():
+                return cand
+    declared = getattr(brand.brand, "mark", None)
+    if declared and getattr(declared, "file", None):
+        kind = declared.kind or "imported"
+        atype = declared.asset_type or "logo"
+        cand = base / kind / atype / declared.file
+        if cand.is_file():
+            return cand
+    for sub in ("generated/logo", "imported/logo"):
+        directory = base / sub
+        if directory.is_dir():
+            pngs = sorted(directory.glob("*.png"))
+            if pngs:
+                return pngs[-1]
+    return None
+
+
+def generate_card(
+    brand_slug: str,
+    asset_type: str,
+    *,
+    message: str | None = None,
+    mark: str | None = None,
+    variant: str | None = None,
+    dry_run: bool = False,
+    settings: Settings | None = None,
+    kits_dir: Path | None = None,
+) -> AssetOutcome:
+    """Compose a text-bearing card (og_image / social_card) deterministically.
+
+    Unlike :func:`generate_asset`, the text is rendered with the brand's real
+    fonts and exact colors over a brand background with the mark composited in,
+    so the copy is always correct and on brand (no model text rendering). Saves
+    into the same catalog so it shows in the GUI and gets a compliance stamp.
+    """
+    settings = settings or get_settings()
+    brand = load_brand(brand_slug, kits_dir)
+    if not cards.supported(asset_type):
+        raise ValueError(
+            f"{asset_type!r} has no card layout; composable: og_image, social_card"
+        )
+
+    spec = get_asset_spec(asset_type)
+    text = message or brand.brand.tagline or ""
+    built = BuiltPrompt(
+        text=text,
+        asset_type=asset_type,
+        variant=variant,
+        backend="compose",
+        size=spec.size,
+        transparent=False,
+        reference_images=[],
+        warnings=[],
+    )
+    planned_path = generated_dir(brand_slug, asset_type, kits_dir) / output_name(
+        asset_type, variant, "image/png", "<timestamp>"
+    )
+    outcome = AssetOutcome(built=built, planned_path=planned_path, missing_refs=[])
+    if dry_run:
+        return outcome
+
+    mark_path = _resolve_mark(brand_slug, brand, mark, kits_dir)
+    png = cards.compose_card(brand, asset_type, message=message, mark_path=mark_path)
+    result = GenResult(
+        images=[png],
+        mime="image/png",
+        backend="compose",
+        model="brand-ops-compose",
+        meta={
+            "composited": True,
+            "mark": (str(mark_path) if mark_path else None),
+            "size": list(spec.size),
+        },
+    )
+    outcome.result = result
+    if mark_path:
+        outcome.notes.append(f"composited with mark {Path(mark_path).name}")
     outcome.paths = save_result(brand_slug, asset_type, variant, built, result, kits_dir)
     return outcome

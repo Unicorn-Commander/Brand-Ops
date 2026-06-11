@@ -42,7 +42,7 @@ export function Select({
           value={value}
           disabled={disabled || isEmpty}
           onChange={(e) => onChange(e.target.value)}
-          className="h-9 w-full appearance-none rounded-lg border border-chrome-border bg-chrome-raised pl-3 pr-9 text-sm text-text outline-none transition-colors hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-9 w-full appearance-none rounded-xl border border-white/8 bg-chrome-bg/60 pl-3 pr-9 text-sm text-text outline-none transition-colors hover:bg-chrome-hover focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <option value="">{allLabel}</option>
           {options.map((opt) => (

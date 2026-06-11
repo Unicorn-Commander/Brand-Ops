@@ -31,6 +31,17 @@ export interface UserTurn {
   text: string;
 }
 
+/**
+ * Who is speaking an agent turn, for the transcript to render their avatar and
+ * name. Iris (the director) or a brand steward; carried on each agent turn so a
+ * conversation can switch speakers as the active brand changes.
+ */
+export interface TurnSpeaker {
+  name: string;
+  /** A mark/photo URL when the speaker has one (a steward's brand mark); null for Iris. */
+  avatarUrl: string | null;
+}
+
 export interface AgentTurn {
   id: string;
   role: "agent";
@@ -40,6 +51,8 @@ export interface AgentTurn {
   details?: string[];
   /** Marks an error note so the renderer can tint it. */
   error?: boolean;
+  /** Who said it: Iris or the active brand's steward. */
+  speaker?: TurnSpeaker;
 }
 
 export type Turn = UserTurn | AgentTurn;
@@ -58,7 +71,7 @@ export function userTurn(text: string): UserTurn {
 export function agentTurn(
   kind: AgentKind,
   text: string,
-  extra?: { details?: string[]; error?: boolean },
+  extra?: { details?: string[]; error?: boolean; speaker?: TurnSpeaker },
 ): AgentTurn {
   return { id: nextId(), role: "agent", kind, text, ...extra };
 }

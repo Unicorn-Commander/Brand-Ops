@@ -119,6 +119,57 @@ def test_upload_with_variant_is_recorded(
     assert record["variant"] == "dark"
 
 
+def test_uploaded_svg_serves_as_forced_download(
+    client: TestClient, cleanup_uploads: list[Path]
+) -> None:
+    # SVG is in the upload allowlist, so a malicious one can be stored. The fix
+    # is at serving: the bytes must come back as an attachment with nosniff, so
+    # an embedded <script> never executes inline on a shared origin once auth is
+    # on. This exercises the full upload -> serve loop end to end.
+    brand = "magic-unicorn"
+    asset_type = "logo"
+    svg = (
+        b'<svg xmlns="http://www.w3.org/2000/svg">'
+        b'<script>alert(document.domain)</script></svg>'
+    )
+    resp = client.post(
+        "/api/assets/upload",
+        data={"brand": brand, "asset_type": asset_type},
+        files={"file": ("xss.svg", svg, "image/svg+xml")},
+    )
+    assert resp.status_code == 200, resp.text
+    record = resp.json()["asset"]
+    cleanup_uploads.append(_imported_path(brand, asset_type, record["file"]))
+    assert record["file"].endswith(".svg")
+
+    served = client.get(record["url"])
+    assert served.status_code == 200
+    assert served.headers["content-disposition"].startswith("attachment")
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+
+def test_uploaded_png_serves_inline(
+    client: TestClient, cleanup_uploads: list[Path]
+) -> None:
+    # The counterpart to the SVG case: an uploaded raster must keep serving
+    # inline (no attachment) so the Library can show it in an <img>.
+    brand = "magic-unicorn"
+    asset_type = "logo"
+    resp = client.post(
+        "/api/assets/upload",
+        data={"brand": brand, "asset_type": asset_type},
+        files={"file": ("inline-raster.png", _TINY_PNG, "image/png")},
+    )
+    assert resp.status_code == 200, resp.text
+    record = resp.json()["asset"]
+    cleanup_uploads.append(_imported_path(brand, asset_type, record["file"]))
+
+    served = client.get(record["url"])
+    assert served.status_code == 200
+    assert "content-disposition" not in served.headers
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+
 def test_upload_unknown_brand_is_404(client: TestClient) -> None:
     resp = client.post(
         "/api/assets/upload",

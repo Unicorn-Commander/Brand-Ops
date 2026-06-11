@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LibraryBig, AlertTriangle } from "lucide-react";
-import { Panel } from "../../components/Panel";
+import { GlassPanel } from "../../components";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { Button } from "../../components/Button";
 import { api } from "../../api/client";
+import type { AssetLifecycleStatus, AssetRecord } from "../../lib/types";
 import { useActiveBrand } from "../../brand-context";
 import { FilterBar } from "./components/FilterBar";
 import { AssetGrid } from "./components/AssetGrid";
@@ -28,6 +29,31 @@ function humanizeKey(key: string): string {
 }
 
 /**
+ * sessionStorage key a caller (e.g. the command palette's "Review queue"
+ * action) sets to hand the Library an initial review-status filter. The Library
+ * reads it once on mount and clears it, so it lands filtered without a flash of
+ * the unfiltered grid and without stickiness on later visits.
+ */
+const STATUS_HANDOFF_KEY = "brand-ops.library-status";
+
+/** The lifecycle values a status handoff may carry, as a runtime guard set. */
+const HANDOFF_STATUS_VALUES: ReadonlySet<string> = new Set<AssetLifecycleStatus>([
+  "approved",
+  "needs_review",
+  "changes_requested",
+  "archived",
+]);
+
+/** Read + clear the one-shot status handoff. Returns a valid status, or null. */
+function readStatusHandoff(): AssetLifecycleStatus | null {
+  if (typeof sessionStorage === "undefined") return null;
+  const raw = sessionStorage.getItem(STATUS_HANDOFF_KEY);
+  if (raw === null) return null;
+  sessionStorage.removeItem(STATUS_HANDOFF_KEY);
+  return HANDOFF_STATUS_VALUES.has(raw) ? (raw as AssetLifecycleStatus) : null;
+}
+
+/**
  * Library: the catalog of generated assets.
  *
  * A filter bar (brand / asset type / backend) sits over a responsive grid of
@@ -39,10 +65,16 @@ function humanizeKey(key: string): string {
  */
 export default function LibraryPage() {
   const { brands, activeSlug } = useActiveBrand();
+  const queryClient = useQueryClient();
 
   // The library has its own brand filter, seeded from the app's active brand
   // but independent after that (a user may browse one brand, or all of them).
-  const [filters, setFilters] = useState<CatalogFilters>(EMPTY_FILTERS);
+  // The review-status filter can be pre-set by a one-shot sessionStorage
+  // handoff (the "Review queue" command lands here filtered to needs_review).
+  const [filters, setFilters] = useState<CatalogFilters>(() => ({
+    ...EMPTY_FILTERS,
+    status: readStatusHandoff(),
+  }));
   const [seeded, setSeeded] = useState(false);
   useEffect(() => {
     if (!seeded && activeSlug) {
@@ -55,8 +87,12 @@ export default function LibraryPage() {
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
 
-  // Server query, keyed on the brand filter. Asset type and backend are applied
-  // client-side, so changing them does not refetch.
+  // Server query, keyed on the brand and review-status filters. Asset type and
+  // backend are applied client-side, so changing them does not refetch.
+  const assetsKey = useMemo(
+    () => ["assets", filters.brand, filters.status] as const,
+    [filters.brand, filters.status],
+  );
   const {
     data: records,
     isLoading,
@@ -65,10 +101,29 @@ export default function LibraryPage() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ["assets", filters.brand],
+    queryKey: assetsKey,
     queryFn: ({ signal }) =>
-      api.listAssets({ brand: filters.brand ?? undefined }, signal),
+      api.listAssets(
+        {
+          brand: filters.brand ?? undefined,
+          status: filters.status ?? undefined,
+        },
+        signal,
+      ),
   });
+
+  // A small standing count of assets needing review, scoped to the same brand
+  // filter, for the header. Kept independent of the main list so it stays
+  // correct even when the user has filtered the grid to Approved.
+  const { data: needsReview } = useQuery({
+    queryKey: ["assets", filters.brand, "needs_review"] as const,
+    queryFn: ({ signal }) =>
+      api.listAssets(
+        { brand: filters.brand ?? undefined, status: "needs_review" },
+        signal,
+      ),
+  });
+  const needsReviewCount = needsReview?.length ?? 0;
 
   const all = useMemo(() => records ?? [], [records]);
   const facets = useMemo(() => facetsOf(all), [all]);
@@ -84,6 +139,17 @@ export default function LibraryPage() {
     () => brands.map((b) => ({ value: b.slug, label: b.display_name })),
     [brands],
   );
+
+  // Resolve a brand slug to its display name for the per-card label. Falls back
+  // to the slug if the brand list has not loaded the entry yet.
+  const brandName = useCallback(
+    (slug: string) => brands.find((b) => b.slug === slug)?.display_name ?? slug,
+    [brands],
+  );
+  // The Library is the cross-brand view; the brand label on each card is only
+  // useful when more than one brand is in view. Filtered to one brand, it is
+  // redundant, so suppress it.
+  const showBrand = filters.brand === null;
   const assetOptions: SelectOption[] = useMemo(
     () =>
       facets.assetTypes.map((key) => ({ value: key, label: humanizeKey(key) })),
@@ -130,27 +196,88 @@ export default function LibraryPage() {
     void refetch();
   }
 
+  // Move an asset through review (approve / request changes / archive / re-flag).
+  // On success swap the returned (now restamped) record into the active list
+  // cache so its badge and pill update instantly, then invalidate every assets
+  // query to resync (the header count and a status-filtered grid both refetch)
+  // and every activity query so the new event shows in the feeds without reload.
+  const transitionMutation = useMutation({
+    mutationFn: (vars: {
+      record: AssetRecord;
+      to: AssetLifecycleStatus;
+      note?: string;
+    }) =>
+      api.transitionAsset({
+        brand: vars.record.brand,
+        file: vars.record.file,
+        asset: vars.record.asset_type,
+        kind: vars.record.kind ?? "generated",
+        to: vars.to,
+        note: vars.note,
+      }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AssetRecord[]>(assetsKey, (prev) =>
+        prev
+          ? prev.map((r) => (r.file === updated.file ? updated : r))
+          : prev,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["assets"] });
+      void queryClient.invalidateQueries({ queryKey: ["activity"] });
+    },
+  });
+
+  const transitioningFile =
+    transitionMutation.isPending && transitionMutation.variables
+      ? transitionMutation.variables.record.file
+      : null;
+
+  const handleTransition = useCallback(
+    (record: AssetRecord, to: AssetLifecycleStatus, note?: string) => {
+      transitionMutation.mutate({ record, to, note });
+    },
+    [transitionMutation],
+  );
+
   return (
     <div className="space-y-4">
-      <Panel title="Add assets">
+      <GlassPanel title="Add assets">
         <UploadDropzone
           brand={uploadBrand}
           brandLabel={uploadBrandLabel}
           onUploaded={handleUploaded}
         />
-      </Panel>
+      </GlassPanel>
 
-      <Panel
+      <GlassPanel
         title="Library"
         actions={
-          isFetching && !isLoading ? (
-            <span className="flex items-center gap-2 text-xs text-text-muted">
-              <Spinner size={14} /> Refreshing
-            </span>
-          ) : undefined
+          <div className="flex items-center gap-3">
+            {needsReviewCount > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setFilters((f) => ({ ...f, status: "needs_review" }))
+                }
+                className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+                title="Show assets needing review"
+              >
+                <span className="tabular-nums">{needsReviewCount}</span> need
+                review
+              </button>
+            )}
+            {isFetching && !isLoading && (
+              <span className="flex items-center gap-2 text-xs text-text-muted">
+                <Spinner size={14} /> Refreshing
+              </span>
+            )}
+          </div>
         }
       >
         <div className="space-y-5">
+          <p className="text-xs text-text-muted">
+            Every asset belongs to a brand. This is the cross-brand view of all
+            of them; filter by brand to see just one.
+          </p>
           <FilterBar
             filters={filters}
             onChange={setFilters}
@@ -215,16 +342,22 @@ export default function LibraryPage() {
               groups={groups}
               selectedKey={openKey}
               onSelect={openAsset}
+              showBrand={showBrand}
+              brandName={brandName}
             />
           )}
         </div>
-      </Panel>
+      </GlassPanel>
 
       <AssetDetailDrawer
         group={openGroup}
         activeFile={activeFile}
         onSelectVersion={setActiveFile}
         onClose={closeDrawer}
+        onTransition={handleTransition}
+        transitioning={
+          activeFile !== null && transitioningFile === activeFile
+        }
       />
     </div>
   );

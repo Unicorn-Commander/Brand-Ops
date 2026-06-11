@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .backends.base import GenResult
 from .brand_loader import DEFAULT_KITS_DIR
+from .compliance.lifecycle import stamp_compliance
 from .prompt_builder import BuiltPrompt
 
 _EXT = {
@@ -76,5 +77,12 @@ def save_result(
             "meta": result.meta,
         }
         path.with_suffix(path.suffix + ".json").write_text(json.dumps(record, indent=2))
+        # Gate the asset at creation time: stamp its lifecycle status into the
+        # sidecar from the deterministic compliance verdict. Best-effort — a
+        # stamping failure must never fail the generation that just succeeded.
+        try:
+            stamp_compliance(brand_slug, asset_type, path.name, "generated", kits_dir)
+        except Exception:  # noqa: BLE001 - stamping is advisory, never fatal
+            pass
         paths.append(path)
     return paths

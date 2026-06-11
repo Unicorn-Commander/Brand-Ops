@@ -27,7 +27,7 @@ interface PromptPreviewCardProps {
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-chrome-border bg-chrome-raised px-2 py-0.5 text-xs text-text-muted">
+    <span className="inline-flex items-center gap-1 rounded-md border border-white/8 bg-chrome-raised/80 px-2 py-0.5 text-xs text-text-muted">
       {children}
     </span>
   );
@@ -61,9 +61,9 @@ export function PromptPreviewCard({
   };
 
   return (
-    <div className="rounded-xl border border-chrome-border bg-chrome-panel shadow-panel">
-      <header className="flex items-center justify-between gap-3 border-b border-chrome-border px-4 py-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-text">
+    <div className="glass rounded-2xl shadow-panel">
+      <header className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3">
+        <h2 className="flex items-center gap-2 font-display text-sm font-semibold tracking-tight text-text">
           <Wand2 size={15} className="text-accent" />
           Composed prompt
         </h2>
@@ -105,13 +105,15 @@ export function PromptPreviewCard({
             <div className="flex flex-wrap gap-1.5">
               <Pill>{preview.backend}</Pill>
               <Pill>
-                {preview.width} x {preview.height}
+                <span className="tabular-nums">
+                  {preview.width} x {preview.height}
+                </span>
               </Pill>
               {preview.variant && <Pill>variant: {preview.variant}</Pill>}
               {preview.transparent && <Pill>transparent</Pill>}
             </div>
 
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-chrome-border bg-chrome-bg p-3 font-mono text-xs leading-relaxed text-text">
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-white/8 bg-chrome-bg/80 p-3 font-mono text-xs leading-relaxed text-text">
               {preview.prompt}
             </pre>
 
@@ -150,11 +152,11 @@ export function PromptPreviewCard({
         )}
       </div>
 
-      <footer className="flex items-center justify-between gap-3 border-t border-chrome-border px-4 py-3">
+      <footer className="flex items-center justify-between gap-3 border-t border-white/8 px-4 py-3">
         <label className="flex items-center gap-2 text-xs text-text-muted">
           Variations
           <select
-            className="h-8 rounded-lg border border-chrome-border bg-chrome-raised px-2 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
+            className="h-8 rounded-lg border border-white/8 bg-chrome-raised/80 px-2 text-sm tabular-nums text-text focus:outline-none focus:ring-2 focus:ring-accent/50 disabled:opacity-50"
             value={count}
             disabled={generating}
             onChange={(e) => onCountChange(Number(e.target.value))}

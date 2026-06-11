@@ -36,16 +36,21 @@ WORKDIR /app
 # across source-only changes. --no-install-project installs deps but not the
 # package itself yet.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --frozen --no-install-project --no-dev --extra backends
 
 # Now the source, then install the package into the same environment.
 COPY src ./src
-COPY brand-kits ./brand-kits
-RUN uv sync --frozen --no-dev
+# Bake the curated brands as a SEED. The live brand-kits dir (DEFAULT_KITS_DIR =
+# /app/brand-kits) is a persistent volume on a server; seed_kits seeds it
+# copy-if-missing on boot so generated assets + agent identities survive rebuilds.
+COPY brand-kits ./brand-kits-seed
+RUN uv sync --frozen --no-dev --extra backends
 
 EXPOSE 8000
 
 # Uvicorn serves the module-level app. One worker by default; scale with
 # replicas behind Traefik rather than in-process workers so each worker keeps a
 # clean process and the JWKS cache stays simple.
-CMD ["uvicorn", "brand_ops.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Seed the live brand-kits volume copy-if-missing, then serve. `exec` hands the
+# PID to uvicorn so signals (stop/restart) propagate cleanly.
+CMD ["sh", "-c", "python -m brand_ops.seed_kits && exec uvicorn brand_ops.api.app:app --host 0.0.0.0 --port 8000"]

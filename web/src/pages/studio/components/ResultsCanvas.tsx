@@ -1,3 +1,4 @@
+import { motion } from "framer-motion";
 import {
   Images,
   KeyRound,
@@ -7,9 +8,10 @@ import {
   Layers,
   Loader2,
 } from "lucide-react";
-import { Panel } from "../../../components/Panel";
+import { GlassPanel } from "../../../components/GlassPanel";
 import { EmptyState } from "../../../components/EmptyState";
 import { Spinner } from "../../../components/Spinner";
+import { staggerContainer, staggerItem } from "../../../lib/motion";
 import { ResultCard } from "./ResultCard";
 import { PlannedPackList } from "./PlannedPackList";
 import type { GenerateResult } from "../../../lib/types";
@@ -71,7 +73,8 @@ export function ResultsCanvas({
     badge = (
       <span className="inline-flex items-center gap-1 text-xs text-text-muted">
         <CheckCircle2 size={14} className="text-accent" />
-        {n} {n === 1 ? "asset" : "assets"}
+        <span className="tabular-nums">{n}</span>{" "}
+        {n === 1 ? "asset" : "assets"}
       </span>
     );
   } else if (state.status === "pack_plan") {
@@ -80,7 +83,8 @@ export function ResultsCanvas({
     badge = (
       <span className="inline-flex items-center gap-1 text-xs text-text-muted">
         <Layers size={14} className="text-accent" />
-        {n} {n === 1 ? "asset" : "assets"}
+        <span className="tabular-nums">{n}</span>{" "}
+        {n === 1 ? "asset" : "assets"}
       </span>
     );
   } else if (state.status === "planning_pack") {
@@ -93,9 +97,25 @@ export function ResultsCanvas({
     );
   }
 
+  // The idle/empty canvas gets the faint dot-grid so the hero area reads as a
+  // surface waiting to be filled, not a blank box.
+  const showDotGrid = state.status === "idle";
+
   return (
-    <Panel title={title} actions={badge} flush className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+    <GlassPanel
+      title={
+        <span className="font-display tracking-tight">{title}</span>
+      }
+      actions={badge}
+      flush
+      glow={state.status === "results"}
+      className="flex h-full flex-col"
+    >
+      <div
+        className={`min-h-0 flex-1 overflow-y-auto p-4 ${
+          showDotGrid ? "bg-dot-grid bg-dot-grid" : ""
+        }`}
+      >
         {state.status === "idle" && (
           <EmptyState
             icon={<Sparkles size={28} />}
@@ -158,22 +178,28 @@ export function ResultsCanvas({
                   ))}
                 </ul>
               )}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <motion.div
+                variants={staggerContainer}
+                initial="hidden"
+                animate="show"
+                className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+              >
                 {state.result.files.map((file, i) => (
-                  <ResultCard
-                    key={file.path}
-                    result={state.result}
-                    file={file}
-                    index={i + 1}
-                    selected={selectedIndex === i}
-                    onSelect={() => onSelect(i)}
-                    onVersion={onVersion}
-                  />
+                  <motion.div key={file.path} variants={staggerItem}>
+                    <ResultCard
+                      result={state.result}
+                      file={file}
+                      index={i + 1}
+                      selected={selectedIndex === i}
+                      onSelect={() => onSelect(i)}
+                      onVersion={onVersion}
+                    />
+                  </motion.div>
                 ))}
-              </div>
+              </motion.div>
             </>
           ))}
       </div>
-    </Panel>
+    </GlassPanel>
   );
 }

@@ -43,6 +43,7 @@ except ImportError:  # pragma: no cover - python-jose is a hard dependency
     JWTError = Exception  # type: ignore[assignment]
     jwt = None  # type: ignore[assignment]
 
+from ..brand_loader import set_current_org
 from ..config import get_settings
 
 _log = logging.getLogger("brand_ops.api.auth")
@@ -74,6 +75,10 @@ class Principal:
     valid token was presented. ``uc_uid`` is the canonical Unicorn ecosystem
     user id (sub on a Keycloak token, the Brigade subject on a Brigade token).
     ``issuer`` records which path validated the token, for logging and audit.
+    ``org`` is the caller's tenant; it scopes which brands the request can see
+    (see ``brand_loader.current_org``). It defaults to the configured default
+    org so a principal built without an explicit org -- including the anonymous
+    one on the open dogfood -- is still scoped to the seed-brand tenant.
     """
 
     uc_uid: str
@@ -81,10 +86,76 @@ class Principal:
     scopes: tuple[str, ...] = ()
     issuer: str | None = None
     anonymous: bool = False
+    org: str = "magic-unicorn"
     claims: dict[str, Any] = field(default_factory=dict)
 
 
-ANONYMOUS = Principal(uc_uid="anonymous", anonymous=True, issuer=None)
+def _default_org() -> str:
+    """The tenant a token with no org claim (and the anonymous caller) falls to.
+
+    ``BRAND_OPS_DEFAULT_ORG`` overrides it; the default is ``magic-unicorn`` so
+    the open dogfood (anonymous principal) sees the seed brands, whose own
+    default org is also ``magic-unicorn``. Read at call time so a test or a
+    deployment can set it via env with no reimport.
+    """
+    return os.getenv("BRAND_OPS_DEFAULT_ORG", "").strip() or "magic-unicorn"
+
+
+def _org_claim_name() -> str:
+    """The token claim that names the caller's org. ``org`` by default.
+
+    ``BRAND_OPS_ORG_CLAIM`` overrides it for issuers that stamp the tenant under
+    a different claim name.
+    """
+    return os.getenv("BRAND_OPS_ORG_CLAIM", "").strip() or "org"
+
+
+def _extract_org(claims: dict[str, Any]) -> str:
+    """Resolve the caller's org from verified claims, falling back to default.
+
+    Tolerant of how different issuers express tenancy:
+
+    * the configured claim (``BRAND_OPS_ORG_CLAIM``, default ``org``) as a
+      plain string;
+    * ``organization`` as a string, or as a Keycloak organization *object*
+      (``{"acme": {...}}``) whose first key is the org;
+    * ``organizations`` as a list (first non-empty entry wins) or a string.
+
+    If none yields a non-empty org, falls back to :func:`_default_org`. An
+    unexpected shape never raises -- it degrades to the default -- so a weird
+    token can only ever scope the caller to the default tenant, never wider.
+    """
+    # 1. The explicitly configured claim, as a string.
+    claim = claims.get(_org_claim_name())
+    if isinstance(claim, str) and claim.strip():
+        return claim.strip()
+
+    # 2. ``organization``: a string, or a Keycloak org object keyed by name.
+    organization = claims.get("organization")
+    if isinstance(organization, str) and organization.strip():
+        return organization.strip()
+    if isinstance(organization, dict):
+        for key in organization:
+            if isinstance(key, str) and key.strip():
+                return key.strip()
+
+    # 3. ``organizations``: a list (first entry) or a string.
+    organizations = claims.get("organizations")
+    if isinstance(organizations, list):
+        for entry in organizations:
+            if isinstance(entry, str) and entry.strip():
+                return entry.strip()
+            if isinstance(entry, dict):
+                name = entry.get("name") or entry.get("id") or entry.get("slug")
+                if isinstance(name, str) and name.strip():
+                    return name.strip()
+    elif isinstance(organizations, str) and organizations.strip():
+        return organizations.strip()
+
+    return _default_org()
+
+
+ANONYMOUS = Principal(uc_uid="anonymous", anonymous=True, issuer=None, org=_default_org())
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +343,7 @@ async def _verify_keycloak(token: str) -> Principal | None:
         agent_id=agent_id,
         scopes=_extract_scopes(claims),
         issuer="keycloak",
+        org=_extract_org(claims),
         claims=claims,
     )
 
@@ -413,6 +485,7 @@ async def _verify_brigade(token: str) -> Principal | None:
         agent_id=agent_id,
         scopes=_extract_scopes(claims),
         issuer="brigade",
+        org=_extract_org(claims),
         claims=claims,
     )
 
@@ -439,6 +512,11 @@ async def require_principal(
     resolves to the anonymous principal so local dev and tests run with no
     issuer. When AUTH_REQUIRED is true, a valid Keycloak or Brigade bearer is
     mandatory and anything else is 401.
+
+    Whichever principal is resolved (authed or anonymous), its org is published
+    to the request-scoped ``current_org`` contextvar so every brand read inside
+    the request is scoped to that tenant. The anonymous principal carries the
+    default org, so the open dogfood still sees the seed brands.
     """
     required = auth_required()
     if credentials is None:
@@ -448,10 +526,11 @@ async def require_principal(
                 detail="Missing bearer token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        return ANONYMOUS
+        return _anonymous_principal()
 
     principal = await authenticate(credentials.credentials)
     if principal is not None:
+        set_current_org(principal.org)
         return principal
     if required:
         raise HTTPException(
@@ -461,7 +540,20 @@ async def require_principal(
         )
     # Auth optional: a bad token does not block an open endpoint, but we do not
     # silently elevate it either; the caller is treated as anonymous.
-    return ANONYMOUS
+    return _anonymous_principal()
+
+
+def _anonymous_principal() -> Principal:
+    """The anonymous caller, scoped to the *current* default org.
+
+    Built fresh (rather than returning the module ``ANONYMOUS`` constant) so a
+    deployment or test that sets ``BRAND_OPS_DEFAULT_ORG`` at runtime takes
+    effect without a reimport, and so the contextvar is set as a side effect on
+    the open path exactly as it is on the authed path.
+    """
+    org = _default_org()
+    set_current_org(org)
+    return Principal(uc_uid="anonymous", anonymous=True, issuer=None, org=org)
 
 
 __all__ = (

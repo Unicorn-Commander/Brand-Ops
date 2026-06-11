@@ -52,12 +52,30 @@ class AssetPrompt(BaseModel):
     variants: list[str] = Field(default_factory=list)
 
 
+class BrandMark(BaseModel):
+    """The brand's canonical mark: one imported (or generated) asset chosen as
+    the brand's true logo, so the GUI shows the right mark instead of guessing
+    the first asset tagged ``logo`` from a cross-mis-tagged catalog.
+    """
+
+    asset_type: str
+    file: str
+    kind: str = "imported"
+
+
 class BrandMeta(BaseModel):
     slug: str
     display_name: str
     tagline: str | None = None
     parent: str | None = None
     description: str | None = None
+    mark: BrandMark | None = None
+    # Owning tenant. Defaults to "magic-unicorn" so the existing seed
+    # brand.yamls -- which carry no ``org`` -- load as the dogfood default org,
+    # and an open (anonymous) request whose org is also "magic-unicorn" sees
+    # them. A brand created by a tenant is stamped with that tenant's org at
+    # write time (see brand_clone), so future brands carry real ownership.
+    org: str = "magic-unicorn"
 
 
 class Brand(BaseModel):

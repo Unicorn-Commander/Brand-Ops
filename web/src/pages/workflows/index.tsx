@@ -14,7 +14,9 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { MessagesSquare } from "lucide-react";
+import { motion } from "framer-motion";
 import { useActiveBrand } from "../../brand-context";
+import { staggerContainer, staggerItem } from "../../lib/motion";
 import { useJobRunner } from "./useJobRunner";
 import { JobsPanel } from "./components/JobsPanel";
 import { AssetPackCard } from "./components/cards/AssetPackCard";
@@ -98,14 +100,16 @@ export default function WorkflowsPage() {
   return (
     <div className="space-y-6">
       {/* Conversation-friendly intro: this is the on-ramp to suite-wide chat. */}
-      <section className="rounded-xl border border-chrome-border bg-chrome-panel p-5 shadow-panel">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-accent/30 bg-accent/10 text-accent">
-            <MessagesSquare size={20} />
+      <section className="glass accent-ring relative overflow-hidden rounded-2xl p-6 shadow-panel">
+        <div className="flex items-start gap-4">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent shadow-glow">
+            <MessagesSquare size={22} />
           </span>
           <div>
-            <h1 className="text-base font-semibold text-text">Workflows</h1>
-            <p className="mt-1 max-w-2xl text-sm text-text-muted">
+            <h1 className="accent-gradient font-display text-2xl font-semibold tracking-tight">
+              Workflows
+            </h1>
+            <p className="mt-1.5 max-w-2xl text-sm text-text-muted">
               Hand a task to an agent. Each card runs a real agent and shows its
               result below.
               {activeBrand
@@ -119,35 +123,50 @@ export default function WorkflowsPage() {
 
       {/* Workflow cards. Each owns its config and runs its agent. */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold text-text">Start a workflow</h2>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <AssetPackCard
-            startRun={start}
-            running={busy.has("asset_pack")}
-            activeSlug={activeSlug}
-            activeName={activeName}
-          />
-          <AvatarCard
-            startRun={start}
-            running={busy.has("avatar")}
-            activeSlug={activeSlug}
-            activeName={activeName}
-          />
-          <CriticCard
-            startRun={start}
-            running={busy.has("brand_critic")}
-            activeSlug={activeSlug}
-            activeName={activeName}
-          />
-          <div id="refine-card">
+        <h2 className="mb-3 font-display text-sm font-semibold tracking-tight text-text">
+          Start a workflow
+        </h2>
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          animate="show"
+          className="grid grid-cols-1 gap-4 md:grid-cols-2"
+        >
+          <motion.div variants={staggerItem}>
+            <AssetPackCard
+              startRun={start}
+              running={busy.has("asset_pack")}
+              activeSlug={activeSlug}
+              activeName={activeName}
+            />
+          </motion.div>
+          <motion.div variants={staggerItem}>
+            <AvatarCard
+              startRun={start}
+              running={busy.has("avatar")}
+              activeSlug={activeSlug}
+              activeName={activeName}
+            />
+          </motion.div>
+          <motion.div variants={staggerItem}>
+            <CriticCard
+              startRun={start}
+              running={busy.has("brand_critic")}
+              activeSlug={activeSlug}
+              activeName={activeName}
+            />
+          </motion.div>
+          <motion.div variants={staggerItem} id="refine-card">
             <RefineCard
               startRun={start}
               running={busy.has("refine")}
               seed={refineSeed}
             />
-          </div>
-          <ResearchCard startRun={start} running={busy.has("brand_research")} />
-        </div>
+          </motion.div>
+          <motion.div variants={staggerItem}>
+            <ResearchCard startRun={start} running={busy.has("brand_research")} />
+          </motion.div>
+        </motion.div>
       </section>
 
       {/* Runs. */}

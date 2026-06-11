@@ -11,6 +11,7 @@ built-in packs never need it.
 """
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any, NamedTuple
 
 from .base import Agent
@@ -145,6 +146,28 @@ class AssetPackAgent(Agent):
                 entry["status"] = "error"
                 entry["error"] = f"{type(exc).__name__}: {exc}"
             items.append(entry)
+
+        # Record one summary event on the provenance feed: the asset_pack agent
+        # ran a named pack for this brand. A dry-run is a plan, not a generation,
+        # so the note distinguishes the two. Best-effort: a feed failure never
+        # changes what the agent returns.
+        try:
+            from datetime import datetime
+
+            from ..activity import append_event
+
+            verb = "planned asset pack" if dry_run else "ran asset pack"
+            append_event(
+                "asset_pack",
+                "agent",
+                verb,
+                brand=brand,
+                target=f"pack/{pack}",
+                note=f"{len(items)} assets",
+                ts=datetime.now(UTC).isoformat(),
+            )
+        except Exception:  # noqa: BLE001 - the feed is advisory; never fail the run
+            pass
 
         return {
             "status": "ok",

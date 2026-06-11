@@ -1,7 +1,7 @@
 """The image backend contract.
 
-Every backend (gemini, openai, recraft, flux) is a real adapter that calls its
-provider directly. None of them is a wrapper around another script. They all
+Every backend (openrouter, gemini, openai, recraft, flux) is a real adapter that
+calls its provider directly. None of them is a wrapper around another script. They all
 satisfy the ImageBackend protocol, so the engine, the CLI, the MCP server, the
 REST API, and the autonomy agents all drive any backend the same way.
 
@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-KNOWN_BACKENDS = ("gemini", "openai", "recraft", "flux")
+KNOWN_BACKENDS = ("litellm", "openrouter", "gemini", "openai", "recraft", "flux")
 
 
 @dataclass

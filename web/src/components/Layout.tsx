@@ -1,30 +1,40 @@
 import { useState, useRef, useEffect } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Sparkles,
   LibraryBig,
+  LayoutTemplate,
   Palette,
   Workflow,
+  Activity,
   ChevronDown,
   Check,
+  Command as CommandIcon,
 } from "lucide-react";
 import { useActiveBrand } from "../brand-context";
 import { BRAND_ACCENTS } from "../theme";
+import { AuroraBackground } from "./AuroraBackground";
+import { CommandPalette } from "./CommandPalette";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { pageVariants } from "../lib/motion";
 
-/** The four primary sections, in nav order. */
+/** The primary sections, in nav order. Brands-first: the Showcase is home. */
 const SECTIONS = [
-  { to: "/", label: "Studio", icon: Sparkles, end: true },
+  { to: "/", label: "Brands", icon: Palette, end: true },
+  { to: "/studio", label: "Studio", icon: Sparkles, end: false },
   { to: "/library", label: "Library", icon: LibraryBig, end: false },
-  { to: "/brands", label: "Brands", icon: Palette, end: false },
+  { to: "/templates", label: "Templates", icon: LayoutTemplate, end: false },
   { to: "/workflows", label: "Workflows", icon: Workflow, end: false },
+  { to: "/activity", label: "Activity", icon: Activity, end: false },
 ] as const;
 
 function navClass({ isActive }: { isActive: boolean }): string {
   const base =
     "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors";
   return isActive
-    ? `${base} bg-chrome-raised text-text`
-    : `${base} text-text-muted hover:text-text hover:bg-chrome-hover`;
+    ? `${base} bg-white/10 text-text`
+    : `${base} text-text-muted hover:text-text hover:bg-white/[0.06]`;
 }
 
 /** A small color swatch for a brand, using its accent pairing when known. */
@@ -47,7 +57,6 @@ function BrandSwitcher() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click and on Escape.
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
@@ -73,7 +82,7 @@ function BrandSwitcher() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="inline-flex items-center gap-2 rounded-lg border border-chrome-border bg-chrome-raised px-3 py-1.5 text-sm text-text hover:bg-chrome-hover"
+        className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-text hover:bg-white/[0.08]"
       >
         {activeSlug && <BrandSwatch slug={activeSlug} />}
         <span className="max-w-[10rem] truncate">{label}</span>
@@ -83,7 +92,7 @@ function BrandSwitcher() {
       {open && (
         <ul
           role="listbox"
-          className="absolute right-0 z-50 mt-2 max-h-80 w-60 overflow-auto rounded-xl border border-chrome-border bg-chrome-panel p-1 shadow-panel"
+          className="glass absolute right-0 z-50 mt-2 max-h-80 w-60 overflow-auto rounded-xl p-1 shadow-float"
         >
           {brands.length === 0 && (
             <li className="px-3 py-2 text-sm text-text-muted">
@@ -102,14 +111,12 @@ function BrandSwitcher() {
                   }}
                   className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
                     selected
-                      ? "bg-chrome-raised text-text"
-                      : "text-text-muted hover:bg-chrome-hover hover:text-text"
+                      ? "bg-white/10 text-text"
+                      : "text-text-muted hover:bg-white/[0.06] hover:text-text"
                   }`}
                 >
                   <BrandSwatch slug={b.slug} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {b.display_name}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate">{b.display_name}</span>
                   {selected && <Check size={15} className="text-accent" />}
                 </button>
               </li>
@@ -121,30 +128,53 @@ function BrandSwitcher() {
   );
 }
 
+/** A static ⌘K hint button; dispatches the same shortcut the palette listens for. */
+function CommandHint() {
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+        )
+      }
+      className="hidden items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-text-faint hover:text-text-muted sm:inline-flex"
+      title="Command menu"
+    >
+      <CommandIcon size={13} /> K
+    </button>
+  );
+}
+
 /**
- * The app chrome: a fixed top nav with the four sections and the brand
- * switcher, over a routed content outlet. The shell is constant; the active
- * brand themes the content via the accent CSS vars.
+ * The app chrome: the living aurora backdrop, a floating glass top bar (sections,
+ * ⌘K, brand switcher), the command palette, and a route-level transition around
+ * the routed content. The shell is constant; the active brand themes everything
+ * via the accent CSS vars the aurora and glass read.
  */
 export function Layout() {
+  const location = useLocation();
+
   return (
-    <div className="flex h-full flex-col bg-chrome-bg">
-      <header className="sticky top-0 z-40 border-b border-chrome-border bg-chrome-surface/80 backdrop-blur">
+    <div className="relative flex min-h-full flex-col">
+      <AuroraBackground />
+
+      <header className="sticky top-0 z-40 border-b border-white/8 bg-chrome-bg/40 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-4">
-          <div className="flex items-center gap-2">
+          <NavLink to="/" className="flex items-center gap-2">
             <span
-              className="h-6 w-6 rounded-md"
+              className="h-6 w-6 rounded-md shadow-glow"
               style={{
                 background:
                   "linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-secondary)))",
               }}
             />
-            <span className="text-sm font-semibold tracking-tight text-text">
+            <span className="font-display text-sm font-semibold tracking-tight text-text">
               Brand-Ops
             </span>
-          </div>
+          </NavLink>
 
-          <nav className="flex items-center gap-1">
+          <nav className="hidden items-center gap-1 md:flex">
             {SECTIONS.map(({ to, label, icon: Icon, end }) => (
               <NavLink key={to} to={to} end={end} className={navClass}>
                 <Icon size={16} />
@@ -153,15 +183,33 @@ export function Layout() {
             ))}
           </nav>
 
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <CommandHint />
             <BrandSwitcher />
           </div>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6">
-        <Outlet />
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-7">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={location.pathname}
+            variants={pageVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+          >
+            {/* Keyed by route: a render error on one page shows a recoverable
+                panel instead of blanking the whole app, and navigating (or
+                browser Back) remounts the boundary and clears it. */}
+            <ErrorBoundary key={location.pathname}>
+              <Outlet />
+            </ErrorBoundary>
+          </motion.div>
+        </AnimatePresence>
       </main>
+
+      <CommandPalette />
     </div>
   );
 }

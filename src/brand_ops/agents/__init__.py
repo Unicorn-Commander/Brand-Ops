@@ -15,6 +15,7 @@ from .avatar import AvatarAgent
 from .base import Agent
 from .brand_research import BrandResearchAgent
 from .critic import BrandCriticAgent
+from .director import DirectorAgent
 from .registry import AGENT_REGISTRY, AgentSpec
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "AvatarAgent",
     "BrandCriticAgent",
     "BrandResearchAgent",
+    "DirectorAgent",
 ]

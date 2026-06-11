@@ -44,6 +44,11 @@ brand-ops = "brand_ops.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# Bundle the OFL fonts (Inter, Space Grotesk) used by the deterministic card
+# compositor so they ship in the installed package, not just the source tree.
+[tool.setuptools.package-data]
+brand_ops = ["assets/fonts/*.ttf"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

@@ -124,7 +124,7 @@ export function CodeBlock({
   return (
     <div>
       {label && <p className="mb-1 text-xs font-medium text-text-muted">{label}</p>}
-      <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-chrome-border bg-chrome-bg/40 p-3 font-mono text-xs leading-relaxed text-text">
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl border border-white/8 bg-chrome-bg/50 p-3 font-mono text-xs leading-relaxed text-text shadow-inner">
         {children}
       </pre>
     </div>

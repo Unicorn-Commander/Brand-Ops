@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .. import __version__
 from .auth import auth_required
+from .mcp_http import attach_mcp_http, mcp_http_enabled, mcp_lifespan
 from .routes import router
 from .schemas import HealthOut
 
@@ -46,11 +47,19 @@ def _cors_origins() -> list[str]:
 
 
 def create_app() -> FastAPI:
-    """Build and configure the FastAPI application."""
+    """Build and configure the FastAPI application.
+
+    When ``MCP_HTTP_ENABLED`` is set, the same MCP tools are also mounted over
+    HTTP at ``/mcp`` (gated by ``MCP_AUTH_REQUIRED``, default on) with a public
+    ``.well-known/mcps.json`` manifest, so the suite gateway can reach them
+    remotely. Off by default, so the standalone app and the tests are unchanged.
+    """
+    mcp_http = mcp_http_enabled()
     app = FastAPI(
         title="Brand-Ops API",
         version=__version__,
         summary="Brand identity and AI image-asset generation for the Unicorn Commander suite.",
+        lifespan=mcp_lifespan if mcp_http else None,
     )
 
     origins = _cors_origins()
@@ -73,6 +82,8 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(router)
+    if mcp_http:
+        attach_mcp_http(app)
     return app
 
 

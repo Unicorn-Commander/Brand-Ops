@@ -15,8 +15,8 @@ from fastapi.testclient import TestClient
 from brand_ops.agents.registry import AGENT_REGISTRY
 from brand_ops.api.app import create_app
 
-# The six agent names the registry exposes. Sourced from the registry so this
-# test tracks it rather than hard-coding a list that could drift.
+# The agent names the registry exposes. Sourced from the registry so this test
+# tracks it rather than hard-coding a list that could drift.
 _EXPECTED_AGENTS = {spec.name for spec in AGENT_REGISTRY}
 
 
@@ -38,7 +38,9 @@ def test_list_agents_returns_the_six_agents(client: TestClient) -> None:
     assert "agents" in body
     agents = body["agents"]
     assert isinstance(agents, list)
-    assert len(agents) == 6
+    # Count tracks the registry rather than a hard-coded number so adding an
+    # agent (e.g. the director) does not falsely fail this assertion.
+    assert len(agents) == len(AGENT_REGISTRY)
 
     names = {a["name"] for a in agents}
     assert names == _EXPECTED_AGENTS

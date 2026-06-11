@@ -17,8 +17,10 @@ from typing import Any
 from .asset_pack import AssetPackAgent
 from .avatar import AVATAR_VARIANTS, AvatarAgent
 from .base import Agent
+from .brand_intake import BrandIntakeAgent
 from .brand_research import BrandResearchAgent
 from .critic import BrandCriticAgent
+from .director import DirectorAgent
 from .refine import RefineAgent
 from .tagger import TaggerAgent
 
@@ -57,6 +59,54 @@ def _string(desc: str) -> dict[str, Any]:
 
 AGENT_REGISTRY: tuple[AgentSpec, ...] = (
     AgentSpec(
+        name=DirectorAgent.name,
+        description=DirectorAgent.description,
+        agent_cls=DirectorAgent,
+        input_schema={
+            "type": "object",
+            "required": ["message"],
+            "properties": {
+                "message": _string("The operator's new line to Iris."),
+                "brand": _string("Active brand slug in the Studio, if any."),
+                "history": {
+                    "type": "array",
+                    "description": "Recent conversation turns, oldest first.",
+                    "items": {
+                        "type": "object",
+                        "required": ["role", "text"],
+                        "properties": {
+                            "role": {
+                                "type": "string",
+                                "enum": ["user", "agent"],
+                                "description": "Who spoke: the operator or Iris.",
+                            },
+                            "text": _string("The turn's plain text."),
+                        },
+                    },
+                },
+                "brands_context": {
+                    "type": "array",
+                    "description": "The operator's brands so Iris knows them by name.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "slug": _string("Brand slug."),
+                            "display_name": _string("Brand display name."),
+                        },
+                    },
+                },
+            },
+        },
+        scopes_required=("brandops:generate",),
+        tier_required="pro",
+        model_tier="default",
+        output_summary=(
+            "An in-persona reply plus a routed intent (chat, single, pack, or "
+            "research) the Studio acts on."
+        ),
+        tags=("brand", "director"),
+    ),
+    AgentSpec(
         name=BrandResearchAgent.name,
         description=BrandResearchAgent.description,
         agent_cls=BrandResearchAgent,
@@ -79,6 +129,47 @@ AGENT_REGISTRY: tuple[AgentSpec, ...] = (
         model_tier="strong",
         output_summary="A structured brand profile plus a draft brand.yaml dict.",
         tags=("brand", "research"),
+    ),
+    AgentSpec(
+        name=BrandIntakeAgent.name,
+        description=BrandIntakeAgent.description,
+        agent_cls=BrandIntakeAgent,
+        input_schema={
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": _string("The new brand's display name."),
+                "description": _string(
+                    "What the operator can say about the brand, if anything."
+                ),
+                "url": _string("A related URL or the brand's live site, if any."),
+                "parent_brand": {
+                    "type": "object",
+                    "description": (
+                        "The parent brand's identity (colors, voice, style "
+                        "keywords) when drafting a sub-brand, so the draft stays "
+                        "consistent with the parent."
+                    ),
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["describe", "onboard"],
+                    "default": "describe",
+                    "description": (
+                        "describe drafts from the name and description; onboard "
+                        "drafts from the url and name as hints."
+                    ),
+                },
+            },
+        },
+        scopes_required=("brandops:generate",),
+        tier_required="pro",
+        model_tier="strong",
+        output_summary=(
+            "A drafted brand identity (palette, typography, voice, style "
+            "keywords, tagline, description, rationale) plus honest notes."
+        ),
+        tags=("brand", "intake", "create"),
     ),
     AgentSpec(
         name=AssetPackAgent.name,

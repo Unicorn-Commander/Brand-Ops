@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import {
   Layers,
   ChevronDown,
@@ -8,6 +9,7 @@ import {
   AlertTriangle,
   Lock,
 } from "lucide-react";
+import { staggerContainer, staggerItem } from "../../../lib/motion";
 import type { PlannedPack, PlannedItem } from "../lib/pack";
 import { PACK_LABELS, type PackName } from "../lib/pack";
 
@@ -55,7 +57,10 @@ function PlannedRow({ item, index }: { item: PlannedItem; index: number }) {
   };
 
   return (
-    <li className="overflow-hidden rounded-lg border border-chrome-border bg-chrome-panel">
+    <motion.li
+      variants={staggerItem}
+      className="overflow-hidden rounded-xl border border-white/8 bg-chrome-panel/80 backdrop-blur"
+    >
       <div className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"
@@ -67,14 +72,14 @@ function PlannedRow({ item, index }: { item: PlannedItem; index: number }) {
           <span className="shrink-0 text-text-faint">
             {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </span>
-          <span className="shrink-0 rounded-md bg-chrome-raised px-1.5 py-0.5 font-mono text-[0.7rem] text-text-muted">
+          <span className="shrink-0 rounded-md bg-chrome-raised px-1.5 py-0.5 font-mono text-[0.7rem] tabular-nums text-text-muted">
             {index + 1}
           </span>
           <span className="truncate text-sm font-medium text-text">
             {item.asset_type}
           </span>
           {item.variant && (
-            <span className="shrink-0 rounded-md border border-chrome-border px-1.5 py-0.5 text-[0.7rem] text-text-muted">
+            <span className="shrink-0 rounded-md border border-white/8 px-1.5 py-0.5 text-[0.7rem] text-text-muted">
               {item.variant}
             </span>
           )}
@@ -93,14 +98,14 @@ function PlannedRow({ item, index }: { item: PlannedItem; index: number }) {
       </div>
 
       {open && (
-        <div className="border-t border-chrome-border/60 px-3 py-2">
+        <div className="border-t border-white/8 px-3 py-2">
           {failed && item.error ? (
             <p className="flex items-start gap-2 text-xs text-red-200">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
               <span>{item.error}</span>
             </p>
           ) : item.prompt ? (
-            <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md border border-chrome-border bg-chrome-bg p-2.5 font-mono text-xs leading-relaxed text-text">
+            <pre className="max-h-44 overflow-auto whitespace-pre-wrap rounded-md border border-white/8 bg-chrome-bg/80 p-2.5 font-mono text-xs leading-relaxed text-text">
               {item.prompt}
             </pre>
           ) : (
@@ -108,7 +113,7 @@ function PlannedRow({ item, index }: { item: PlannedItem; index: number }) {
           )}
         </div>
       )}
-    </li>
+    </motion.li>
   );
 }
 
@@ -127,14 +132,15 @@ export function PlannedPackList({ plan }: PlannedPackListProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-lg border border-chrome-border bg-chrome-raised px-3 py-2.5">
+      <div className="glass rounded-xl px-3 py-2.5">
         <div className="flex items-center gap-2">
           <Layers size={16} className="shrink-0 text-accent" />
-          <span className="text-sm font-semibold text-text">
+          <span className="font-display text-sm font-semibold tracking-tight text-text">
             {packLabel(plan.pack)}
           </span>
           <span className="text-xs text-text-muted">
-            {plan.items.length} {plan.items.length === 1 ? "asset" : "assets"}
+            <span className="tabular-nums">{plan.items.length}</span>{" "}
+            {plan.items.length === 1 ? "asset" : "assets"}
             {failed > 0 ? ` (${failed} failed)` : ""}
           </span>
         </div>
@@ -147,7 +153,12 @@ export function PlannedPackList({ plan }: PlannedPackListProps) {
         )}
       </div>
 
-      <ul className="space-y-2">
+      <motion.ul
+        variants={staggerContainer}
+        initial="hidden"
+        animate="show"
+        className="space-y-2"
+      >
         {plan.items.map((item, i) => (
           <PlannedRow
             key={`${item.asset_type}-${item.variant ?? "default"}-${i}`}
@@ -155,7 +166,7 @@ export function PlannedPackList({ plan }: PlannedPackListProps) {
             index={i}
           />
         ))}
-      </ul>
+      </motion.ul>
     </div>
   );
 }

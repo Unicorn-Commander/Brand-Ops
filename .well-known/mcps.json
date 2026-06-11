@@ -51,6 +51,19 @@
       "read_only": true
     },
     {
+      "name": "list_templates",
+      "description": "List the locked, data-driven layout templates the Studio renders on-brand from any brand's tokens. A template is not an image and no backend is called: each entry has an id, label, the catalog asset_type a saved render maps to, the pixel width and height, a background (brand-gradient or a solid color token), and slots positioned by 0..1 fractions of the canvas. Every color is a brand token name (brand/primary, text/foreground, and so on), never raw hex, so the render is on brand by construction. The same set GET /api/templates serves.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
       "name": "build_prompt",
       "description": "Compose the image prompt for a brand asset without generating anything. A dry run through the same engine live generation uses. No backend is called and no spend occurs.",
       "input_schema": {
@@ -155,6 +168,36 @@
       "read_only": false
     },
     {
+      "name": "generate_brand_kit",
+      "description": "Generate a whole on-brand asset kit for a brand in one call: the batch form of generate_asset. Resolves a set of asset types and generates one of each through the same engine, so every image is on brand by construction and compliance-stamped on save. Targeting: an explicit asset_types list generates exactly those; otherwise only_missing true (the default) generates only the types the brand has no covering asset of yet (computed from the same catalog GET /api/assets reads, where a type is covered when it has an asset whose lifecycle_status is not needs_review or archived); otherwise all registry asset types. Each type is fault-isolated: a per-type failure (a backend error or a missing key) is captured with status error and never aborts the rest of the kit. Returns the brand, a results list (per type: asset_type and status ok or error, plus file, url, and the compliance summary on ok), and the generated and failed counts.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "only_missing": {
+            "type": "boolean",
+            "description": "When true (default) and no explicit asset_types are given, target only the asset types with no covering asset yet. Ignored when asset_types is provided.",
+            "default": true
+          },
+          "asset_types": {
+            "type": ["array", "null"],
+            "description": "Optional explicit list of asset-type keys to generate, for example [\"logo\", \"og_image\"]. Overrides only_missing.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["brand"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    },
+    {
       "name": "new_brand",
       "description": "Bootstrap a new brand kit from the blank template. Copies the template to a new brand directory and replaces the placeholder tokens with the supplied slug, display name, and optional parent slug.",
       "input_schema": {
@@ -174,6 +217,295 @@
           }
         },
         "required": ["slug", "display_name"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    },
+    {
+      "name": "clone_brand",
+      "description": "Clone an existing brand into a new sub-brand or a distinct seeded brand. Writes a new brand kit from the source. When as_child is true (the default) the new brand is a minimal child that inherits the source's visual and voice through the loader's parent merge; when false the source's resolved visual, voice, and prompt templates are copied in with no parent. The source's canonical mark is never copied, so the new brand starts with no logo.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "The existing source brand to clone, for example magic-unicorn."
+          },
+          "new_slug": {
+            "type": "string",
+            "description": "The new brand's identifier (lowercase letters, digits, and hyphens), for example magic-unicorn-labs."
+          },
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable name for the new brand."
+          },
+          "as_child": {
+            "type": "boolean",
+            "description": "True (default) inherits the source via the parent merge; false copies the source's visual, voice, and prompts in with no parent.",
+            "default": true
+          }
+        },
+        "required": ["slug", "new_slug", "display_name"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    },
+    {
+      "name": "intake_brand",
+      "description": "Draft a brand identity with the Director and create the brand. From a brand name and whatever you can say about it, the Director drafts a full identity (palette, typography, voice, style keywords, tagline, description) and a complete, valid brand kit is written from it. The slug is derived from the name. When parent is set the draft is kept consistent with the parent's palette and voice and the new brand records the parent. mode=onboard with a url drafts from the url and name as hints and notes that deep live-site capture needs Brigade. When the LLM gateway is unavailable or returns an unusable draft, a neutral on-theme default identity is written instead and a note says it is a starting point to refine. Returns the created brand, the draft, and notes.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The new brand's display name, for example Majiks Studio."
+          },
+          "description": {
+            "type": ["string", "null"],
+            "description": "What you can say about the brand, if anything."
+          },
+          "url": {
+            "type": ["string", "null"],
+            "description": "A related URL or the brand's live site, if any."
+          },
+          "parent": {
+            "type": ["string", "null"],
+            "description": "An existing brand slug if this is a sub-brand."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["describe", "onboard"],
+            "description": "describe drafts from the name and description (the default); onboard drafts from the url and name as hints.",
+            "default": "describe"
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    },
+    {
+      "name": "get_brand_tokens",
+      "description": "Get a brand's machine-readable design tokens: semantic color tokens (brand/primary, surface/background, and so on) with hex and rgb, font tokens, and a ready-to-paste CSS custom-properties block. The portable, machine-readable form of the brand identity for agents and downstream tools.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "The brand slug, for example magic-unicorn."
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "get_brand_rules",
+      "description": "Get a brand's deterministic compliance rules manifest: the allowed color palette, the color tolerance and gradient axis the color check uses, banned terms, required terms, voice tone, and manual review rules. This is the brand truth that agents and the rest of the suite check assets against before approving them.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "The brand slug, for example magic-unicorn."
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "get_brand_guidelines",
+      "description": "Get a brand's full guidelines document: the assembled brand book. One read-only call returning the brand identity (slug, display name, tagline, description, parent, mark URL), the design tokens (colors with hex and rgb, plus typography), the deterministic rules manifest, the voice (tone and forbidden phrases), the logo section (mark URL and logo lockups), and every catalog asset grouped by type in the asset-type registry order with its label and count. Lets agents and other suite modules read one consistent brand book.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "The brand slug, for example magic-unicorn."
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "check_compliance",
+      "description": "Check an asset or a piece of text against a brand's deterministic rules and return a structured pass, warn, or fail result with a score, per-rule checks, and human-readable violations. Pass a catalog file (with its asset type and kind) to run the color-palette check on the image, or pass text to run the banned-term, em-dash, and required-term checks. No model is used; the result is deterministic.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "The brand slug to check against, for example magic-unicorn."
+          },
+          "file": {
+            "type": ["string", "null"],
+            "description": "Catalog file basename to check, for example logo-wordmark.png. Provide with asset and kind."
+          },
+          "asset": {
+            "type": ["string", "null"],
+            "description": "The asset type of the file, for example logo or og_image."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Where the file lives: generated or imported. Defaults to generated.",
+            "default": "generated"
+          },
+          "text": {
+            "type": ["string", "null"],
+            "description": "A piece of copy to check for banned terms, em-dashes, and required terms. Use instead of a file for a text-only check."
+          }
+        },
+        "required": ["brand"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "list_brand_agents",
+      "description": "List a brand's agent identities, newest first. An agent identity belongs to exactly one brand and inherits its voice and visual language, so any agent a company spins up (a Steward, a Specialist, or a custom agent) is on brand by construction. Each entry carries slug, name, role, bio, inherited voice tone, the avatar URL and variant state URLs, the compliance verdict, and a governance bucket. The same roster GET /api/brands/{slug}/agents serves.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          }
+        },
+        "required": ["brand"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "get_agent_manifest",
+      "description": "Get a brand agent's Brigade/suite-consumable identity manifest: the portable, machine-readable identity record other suite modules and the Brigade autonomy agents consume. Returns the schema, name, role, bio, brand, the avatar URL plus the variant state URLs and servable size derivatives, the voice tone, the brand palette, and the avatar's compliance verdict. The same document GET /api/brands/{slug}/agents/{agent}/manifest serves.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent slug, for example iris."
+          }
+        },
+        "required": ["brand", "agent"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "get_agent_team",
+      "description": "Get a brand's agent team: the Director, the brand Steward, and its agents. A per-brand rollup. director is the single Director persona (Iris) every brand shares; steward is this brand's dedicated agent (named for the brand, its avatar the brand's canonical mark); agents is the list of created agent identities. The governance block tallies those agents by avatar compliance bucket (on_brand, needs_review, or unrated) so a view can show coverage at a glance. The same rollup GET /api/brands/{slug}/agents/team serves.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          }
+        },
+        "required": ["brand"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
+      "name": "create_agent",
+      "description": "Create an on-brand agent identity for a brand. The agent-facing door to spin up a Steward, a Specialist, or a custom agent that comes out on brand by construction: it belongs to the brand and inherits the brand's voice tone. The slug is derived from the name. No avatar is generated here; call generate_agent_avatar or generate_agent_variants next. A duplicate agent, an unknown brand, or a name that yields no valid slug is returned as a structured error.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "name": {
+            "type": "string",
+            "description": "The agent's display name, for example Iris."
+          },
+          "role": {
+            "type": "string",
+            "description": "The agent's role, for example brand steward."
+          },
+          "bio": {
+            "type": "string",
+            "description": "Optional short bio for the agent.",
+            "default": ""
+          }
+        },
+        "required": ["brand", "name", "role"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    },
+    {
+      "name": "generate_agent_avatar",
+      "description": "Generate an on-brand avatar for an agent, save it, and compliance-check it. Generates a single primary avatar through the same backend resolution every other on-brand image uses, saves it under the agent's directory, and runs the brand color compliance check on it (advisory; a failing check never blocks the save). Returns the refreshed identity with the avatar URL set and the compliance verdict.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent slug, for example iris."
+          }
+        },
+        "required": ["brand", "agent"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false
+    },
+    {
+      "name": "generate_agent_variants",
+      "description": "Generate an agent's full on-brand avatar state set and record it. Generates the whole avatar state set (primary, thinking, success, alert) as one recognizable character on brand by construction where only the expression changes, saves each (primary as avatar.png, the rest as avatar-<state>.png), compliance-checks each (advisory), and writes the variants map onto the agent while keeping the primary as the canonical avatar. Returns the refreshed identity carrying the variant state URLs.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent slug, for example iris."
+          }
+        },
+        "required": ["brand", "agent"],
         "additionalProperties": false
       },
       "scopes_required": ["brand-ops:generate"],
