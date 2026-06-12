@@ -86,7 +86,7 @@ export default function CrewPage() {
         </div>
       </div>
 
-      <section className="voice-card" style={{ marginTop: 28, display: "grid", gridTemplateColumns: "1.2fr 1fr", padding: 0, overflow: "hidden" }}>
+      <section className="voice-card crew-iris" style={{ marginTop: 28, display: "grid", padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "22px 26px", borderRight: "1px solid var(--c-hairline-soft)" }}>
           <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
             <span className="orb" style={{ width: 52, height: 52, position: "relative" }}>I<span className="dot dot-live" style={{ position: "absolute", right: 0, bottom: 1, border: "2.5px solid var(--c-surface)" }} /></span>
@@ -126,7 +126,7 @@ export default function CrewPage() {
       </section>
 
       <SectionTitle title="Brand stewards" note="One per brand. Counts come from activity and lifecycle state." />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 18 }}>
+      <div className="crew-stewards" style={{ display: "grid", gap: 18 }}>
         {teams.map(({ brand, team }) => {
           const brandAssets = assetsFor(assets, brand.slug);
           const brandActivity = activity.filter((event) => event.brand === brand.slug);
@@ -164,7 +164,7 @@ export default function CrewPage() {
       </div>
 
       <SectionTitle title="Specialists" note="Shared skills from /api/agents." />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 12 }}>
+      <div className="crew-specs" style={{ display: "grid", gap: 12 }}>
         {agents.slice(0, 6).map((agent) => (
           <div key={agent.name} className="voice-card" style={{ padding: "13px 15px" }}>
             <b style={{ display: "block", fontFamily: "var(--c-font-mono)", fontSize: 12 }}>{agent.name}</b>
@@ -177,7 +177,7 @@ export default function CrewPage() {
       </div>
 
       <SectionTitle title="Doors" note="Console and MCP/API access use the same gates." />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 18 }}>
+      <div className="crew-doors" style={{ display: "grid", gap: 18 }}>
         <Door title="Console" chip="you" stats={[["1", "human"], [String(reviewItems), "awaiting sign-off"]]} body="This GUI: approvals and human gates." />
         <Door title="MCP" chip={`${toolCount || "—"} tools`} glow stats={[[String(toolCount || "—"), "tools"], [String(mcpQ.data?.resources?.length ?? "—"), "resources"]]} body="Agent door: /.well-known/mcps.json." />
         <Door title="API" chip="REST" stats={[[String(activity.length), "recent actions"], [String(teams.length), "brands"]]} body="Service door: suite apps reading brand truth." />
@@ -195,7 +195,7 @@ export default function CrewPage() {
       </div>
 
       <SectionTitle title="House rules" note="The contract every agent signs." />
-      <div className="voice-card" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", padding: 0 }}>
+      <div className="voice-card crew-rules" style={{ display: "grid", padding: 0 }}>
         {HOUSE_RULES.map(([no, title, body], index) => (
           <div key={no} style={{ padding: "16px 20px", borderRight: index === HOUSE_RULES.length - 1 ? undefined : "1px solid var(--c-hairline-soft)" }}>
             <span style={{ fontFamily: "var(--c-font-mono)", fontSize: 9.5, color: "#b9a7ff", display: "block", marginBottom: 6 }}>{no}</span>

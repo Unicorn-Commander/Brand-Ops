@@ -121,7 +121,7 @@ export default function NewBrandPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, margin: "18px 0 24px" }}>
+      <div className="nb-modes" style={{ display: "grid", gap: 10, margin: "18px 0 24px" }}>
         {MODES.map((item) => (
           <button
             key={item.id}
@@ -136,7 +136,7 @@ export default function NewBrandPage() {
         ))}
       </div>
 
-      <section style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 24, alignItems: "start" }}>
+      <section className="nb-grid" style={{ display: "grid", gap: 24, alignItems: "start" }}>
         <form
           className="voice-card"
           onSubmit={(event) => {
@@ -189,10 +189,10 @@ export default function NewBrandPage() {
 
         <div>
           <section
+            className="nb-pipeline"
             style={{
               position: "relative",
               display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
               gap: "38px 46px",
             }}
           >
@@ -307,7 +307,7 @@ function DirectionCard({ result }: { result: IntakeResult }) {
   const colors = brandColors(brand);
   const display = fontStack(brand.visual.typography.display_font);
   return (
-    <div className="voice-card" style={{ display: "grid", gridTemplateColumns: "minmax(260px, 360px) 1fr", gap: 18 }}>
+    <div className="voice-card nb-direction" style={{ display: "grid", gap: 18 }}>
       <div
         style={{
           minHeight: 250,

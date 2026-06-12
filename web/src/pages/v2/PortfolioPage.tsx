@@ -231,7 +231,7 @@ export default function PortfolioPage() {
         </div>
       </div>
 
-      <section className="rise d3" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 18, marginTop: 20 }}>
+      <section className="rise d3 duty-grid" style={{ display: "grid", gap: 18, marginTop: 20 }}>
         <div className="voice-card" style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 18px" }}>
           <div style={{ display: "flex", alignItems: "center" }}>
             <span className="orb" style={{ width: 32, height: 32, fontSize: 13, outline: "2.5px solid var(--c-surface)" }}>I</span>

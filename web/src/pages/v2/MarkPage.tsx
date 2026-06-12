@@ -106,7 +106,7 @@ export default function MarkPage() {
         ))}
       </section>
 
-      <section style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr 1.1fr", gap: 22, margin: "26px 0" }}>
+      <section className="mk-row3" style={{ display: "grid", gap: 22, margin: "26px 0" }}>
         <Panel title="Clear space">
           <div style={{ position: "relative", display: "grid", placeItems: "center", height: 210 }}>
             <div style={{ position: "relative", border: "1px dashed color-mix(in srgb, var(--b-accent) 55%, transparent)", padding: 38, borderRadius: 8 }}>
@@ -157,7 +157,7 @@ export default function MarkPage() {
       </section>
 
       <span className="microlabel">Approved uses</span>
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 18, margin: "14px 0 26px" }}>
+      <section className="mk-row4" style={{ display: "grid", gap: 18, margin: "14px 0 26px" }}>
         <UseTile brand={brand} label="Primary · on brand field" bg="var(--b-bg)" />
         <UseTile brand={brand} label="On light mat" className="mat" />
         <UseTile brand={brand} label="Mono via CSS filter" bg="var(--mat-dark)" filter="grayscale(1) contrast(1.1)" />
@@ -165,7 +165,7 @@ export default function MarkPage() {
       </section>
 
       <span className="microlabel">Do / don't</span>
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 18, margin: "14px 0 26px" }}>
+      <section className="mk-row4" style={{ display: "grid", gap: 18, margin: "14px 0 26px" }}>
         <DoTile brand={brand} ok label="Flat brand fields" />
         <DoTile brand={brand} label="Never stretch or skew" transform="scaleX(1.55)" />
         <DoTile brand={brand} label="Never recolor" filter="hue-rotate(120deg) saturate(1.6)" />

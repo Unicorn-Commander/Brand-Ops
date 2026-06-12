@@ -99,7 +99,7 @@ export default function StandardsPage() {
           background: "rgba(255,255,255,0.02)",
         }}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "240px 70px 1fr 110px 100px", gap: 18, padding: "12px 22px", color: "var(--b-ink-3)", fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase" }}>
+        <div className="board-head" style={{ display: "grid", gap: 18, padding: "12px 22px", color: "var(--b-ink-3)", fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase" }}>
           <span>Brand</span>
           <span>Grade</span>
           <span>Dimensions</span>
@@ -109,9 +109,9 @@ export default function StandardsPage() {
         {board.map((row) => (
           <div
             key={row.slug}
+            className="board-row"
             style={{
               display: "grid",
-              gridTemplateColumns: "240px 70px 1fr 110px 100px",
               gap: 18,
               alignItems: "center",
               padding: "14px 22px",
@@ -154,7 +154,7 @@ export default function StandardsPage() {
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "330px 1fr", gap: 26, marginTop: 30 }}>
+      <div className="report-grid" style={{ display: "grid", gap: 26, marginTop: 30 }}>
         <aside
           style={{
             border: "1px solid var(--b-hairline)",
@@ -188,7 +188,7 @@ export default function StandardsPage() {
             <span className="microlabel">Dimensions</span>
             <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
               {selectedDimensions.map((dimension) => (
-                <div key={dimension.key} style={{ display: "grid", gridTemplateColumns: "150px 1fr 44px", gap: 14, alignItems: "center" }}>
+                <div key={dimension.key} className="dim-row" style={{ display: "grid", gap: 14, alignItems: "center" }}>
                   <div>
                     <b style={{ display: "block", fontSize: 13 }}>{dimension.label}</b>
                     <span style={{ color: "var(--b-ink-3)", fontSize: 10.5 }}>{dimension.note}</span>

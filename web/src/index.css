@@ -762,6 +762,70 @@
    swatch, a type specimen, or an asset group. Scoped to #brand-book so it has
    no effect on the on-screen view or any other page's print.
    --------------------------------------------------------------------------- */
+
+  /* ------------------------------------------------------------------------
+     Responsive grid classes (converted from inline styles so media queries
+     can reshape them). Desktop values mirror the original inline grids.
+     ------------------------------------------------------------------------ */
+  .mk-row3 { grid-template-columns: 1.1fr 1fr 1.1fr; }
+  .mk-row4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .nb-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nb-grid { grid-template-columns: 360px 1fr; }
+  .nb-pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nb-direction { grid-template-columns: minmax(260px, 360px) 1fr; }
+  .crew-iris { grid-template-columns: 1.2fr 1fr; }
+  .crew-stewards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .crew-specs { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .crew-doors { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .crew-rules { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .duty-grid { grid-template-columns: 1.2fr 1fr; }
+  .board-head, .board-row { grid-template-columns: 240px 70px 1fr 110px 100px; }
+  .report-grid { grid-template-columns: 330px 1fr; }
+  .dim-row { grid-template-columns: 150px 1fr 44px; }
+
+  @media (max-width: 900px) {
+    .crew-stewards, .crew-doors { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .crew-specs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .mk-row3 { grid-template-columns: 1fr; }
+    .mk-row4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .nb-grid, .report-grid, .crew-iris, .duty-grid, .nb-direction { grid-template-columns: 1fr; }
+    .nb-pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .crew-iris > div:first-child { border-right: 0 !important; border-bottom: 1px solid var(--c-hairline-soft); }
+  }
+
+  @media (max-width: 640px) {
+    .workspace-chip, .kbd { display: none; }
+    .v2-topbar-inner { gap: 10px; flex-wrap: nowrap; }
+    .wordmark { flex: none; }
+    .wordmark b { white-space: nowrap; }
+    .v2-nav { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; }
+    .v2-nav::-webkit-scrollbar { display: none; }
+    .v2-nav a { padding: 7px 9px; font-size: 13px; white-space: nowrap; }
+    .v2-topbar-right { flex: none; gap: 8px; }
+    .v2-topbar-right .btn { white-space: nowrap; font-size: 12px; padding: 7px 11px; }
+    .omnibar { flex-wrap: wrap; }
+    .omnibar .hint { display: none; }
+    .nb-modes, .nb-pipeline, .crew-stewards, .crew-doors, .crew-rules { grid-template-columns: 1fr; }
+    .crew-specs, .kit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* serpentine connectors assume a 2-D grid; on a single column the flow
+       is simply top-to-bottom, so the arrows go away. */
+    .fl { display: none; }
+    .crew-rules > div { border-right: 0 !important; border-bottom: 1px solid var(--c-hairline-soft); }
+    /* the standards board becomes stacked cards: identity + grade on the
+       first line, dimensions full-width below, issues + audit tucked after */
+    .board-head { display: none; }
+    .board-row { grid-template-columns: 1fr auto; row-gap: 10px; }
+    .board-row > :nth-child(3) { grid-column: 1 / -1; }
+    .dim-row { grid-template-columns: 90px 1fr 36px; }
+    /* hero aura halo is wider than the mark; cap it so it cannot cause
+       horizontal scroll on small screens */
+    .aura::before { width: 100%; }
+    .hq-hero .hero-mark img, .hero-mark img { max-width: 78vw; height: auto; }
+    .tree .cov { display: none; }
+    .paint-wall { height: auto; }
+    .paint-wall > .paint-field { min-height: 86px; }
+  }
+
 @media print {
   /* A comfortable, consistent printed margin. */
   @page {
