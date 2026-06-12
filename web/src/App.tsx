@@ -1,17 +1,14 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useParams } from "react-router-dom";
 import { BrandLayout, Layout } from "./components/Layout";
 import StudioPage from "./pages/studio/index";
 import LibraryPage from "./pages/library/index";
-import BrandDetailPage from "./pages/brands/detail";
 import BrandGuidelinesPage from "./pages/brands/guidelines";
 import PortfolioPage from "./pages/v2/PortfolioPage";
 import BrandHQPage from "./pages/v2/BrandHQPage";
-import {
-  BrandSurfacePage,
-  CrewPage,
-  NewBrandPage,
-  StandardsPage,
-} from "./pages/v2/PlaceholderPage";
+import MarkPage from "./pages/v2/MarkPage";
+import StandardsPage from "./pages/v2/StandardsPage";
+import CrewPage from "./pages/v2/CrewPage";
+import NewBrandPage from "./pages/v2/NewBrandPage";
 
 /**
  * App routing. The Layout renders the persistent chrome (aurora + nav + brand
@@ -31,8 +28,8 @@ export function App() {
         <Route path="crew" element={<CrewPage />} />
         <Route path="brands/new" element={<NewBrandPage />} />
         <Route path="brands" element={<PortfolioPage />} />
-        <Route path="brands/:slug" element={<BrandDetailPage />} />
-        <Route path="brands/:slug/guidelines" element={<BrandGuidelinesPage />} />
+        <Route path="brands/:slug" element={<LegacyBrandRedirect target="overview" />} />
+        <Route path="brands/:slug/guidelines" element={<LegacyBrandRedirect target="book" />} />
         <Route path="studio" element={<StudioPage />} />
         <Route path="templates" element={<Navigate to="/b/magic-unicorn/studio" replace />} />
         <Route path="workflows" element={<Navigate to="/b/magic-unicorn/studio" replace />} />
@@ -42,12 +39,18 @@ export function App() {
       <Route path="/b/:slug" element={<BrandLayout />}>
         <Route index element={<Navigate to="overview" replace />} />
         <Route path="overview" element={<BrandHQPage />} />
-        <Route path="mark" element={<BrandSurfacePage title="The mark" />} />
+        <Route path="mark" element={<MarkPage />} />
         <Route path="book" element={<BrandGuidelinesPage />} />
         <Route path="assets" element={<LibraryPage />} />
         <Route path="studio" element={<StudioPage />} />
-        <Route path="grade" element={<BrandSurfacePage title="Grade" />} />
+        <Route path="grade" element={<StandardsPage />} />
       </Route>
     </Routes>
   );
+}
+
+function LegacyBrandRedirect({ target }: { target: string }) {
+  const { slug } = useParams();
+  if (!slug) return <Navigate to="/" replace />;
+  return <Navigate to={`/b/${slug}/${target}`} replace />;
 }

@@ -208,7 +208,7 @@ export function AssetGrid({
                       {meta}
                     </p>
                     <p className="truncate text-xs text-text-muted">
-                      {group.current.backend ?? "unknown backend"}
+                      {group.current.backend ?? "backend unavailable"}
                       {group.current.size.length === 2
                         ? ` · ${group.current.size[0]}×${group.current.size[1]}`
                         : ""}

@@ -62,7 +62,7 @@ export function AssetThumb({ asset, src, onClick, className = "" }: AssetThumbPr
           {meta || asset.asset_type}
         </p>
         <p className="truncate text-xs text-text-muted">
-          {asset.backend ?? "unknown backend"}
+          {asset.backend ?? "backend unavailable"}
           {asset.size.length === 2 ? ` · ${asset.size[0]}×${asset.size[1]}` : ""}
         </p>
       </div>

@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { NavLink, Outlet, useParams } from "react-router-dom";
 import { CommandPalette } from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { EnvProvider, useBrandEnv } from "../v2/EnvProvider";
+import { useActiveBrand } from "../brand-context";
 
 const CHROME_NAV = [
   { to: "/", label: "Portfolio", end: true },
@@ -111,7 +113,12 @@ export function Layout() {
 
 export function BrandLayout() {
   const { slug } = useParams();
+  const { setActiveSlug } = useActiveBrand();
   const brandQ = useBrandEnv(slug);
+
+  useEffect(() => {
+    if (slug) setActiveSlug(slug);
+  }, [setActiveSlug, slug]);
 
   return (
     <EnvProvider slug={slug}>
