@@ -81,11 +81,10 @@ export default function StandardsPage() {
           background: "rgba(255,255,255,0.02)",
         }}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "240px 70px 1fr 90px 110px 100px", gap: 18, padding: "12px 22px", color: "var(--b-ink-3)", fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "240px 70px 1fr 110px 100px", gap: 18, padding: "12px 22px", color: "var(--b-ink-3)", fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase" }}>
           <span>Brand</span>
           <span>Grade</span>
           <span>Dimensions</span>
-          <span>Trend</span>
           <span>Open issues</span>
           <span>Last audit</span>
         </div>
@@ -94,7 +93,7 @@ export default function StandardsPage() {
             key={row.slug}
             style={{
               display: "grid",
-              gridTemplateColumns: "240px 70px 1fr 90px 110px 100px",
+              gridTemplateColumns: "240px 70px 1fr 110px 100px",
               gap: 18,
               alignItems: "center",
               padding: "14px 22px",
@@ -126,9 +125,6 @@ export default function StandardsPage() {
                 <div style={{ height: 4, borderRadius: 99, background: "var(--c-bg-2)", overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${Math.max(60, 100 - row.flagged * 7)}%`, background: row.flagged ? "var(--c-warn)" : "var(--c-go)" }} /></div>
               </div>
             </div>
-            <svg width="86" height="26" viewBox="0 0 86 26" aria-hidden="true">
-              <polyline fill="none" stroke={row.grade.score >= 80 ? "var(--c-go)" : "var(--c-stop)"} strokeWidth="1.5" points="2,18 16,17 30,15 44,13 58,11 72,9 84,8" />
-            </svg>
             <span style={{ color: row.flagged ? "var(--c-warn)" : "var(--c-go)", fontWeight: 600 }}>{row.flagged}</span>
             <span style={{ fontFamily: "var(--c-font-mono)", fontSize: 11, color: "var(--b-ink-3)" }}>recent</span>
           </div>

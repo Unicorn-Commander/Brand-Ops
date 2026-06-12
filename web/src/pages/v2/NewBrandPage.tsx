@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { intakeBrand, listBrands } from "../../api/client";
-import { useActiveBrand } from "../../brand-context";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 
@@ -11,13 +10,12 @@ const MODES = [
 ] as const;
 
 export default function NewBrandPage() {
-  const { activeSlug } = useActiveBrand();
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const [mode, setMode] = useState<"describe" | "onboard">("describe");
-  const [name, setName] = useState("Tidepool Labs");
-  const [description, setDescription] = useState("A personal health-data vault. Calm trust, on their shore.");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
-  const [parent, setParent] = useState<string | null>(activeSlug ?? null);
+  const [parent, setParent] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: async () =>
@@ -74,11 +72,17 @@ export default function NewBrandPage() {
           <span className="microlabel">Brief</span>
           <label style={{ display: "block", marginTop: 12 }}>
             <span className="microlabel">Name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tidepool Labs" style={inputStyle} />
           </label>
           <label style={{ display: "block", marginTop: 12 }}>
             <span className="microlabel">Description</span>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} style={{ ...inputStyle, resize: "vertical" }} />
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="A personal health-data vault. Calm trust, on their shore."
+              rows={4}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
           </label>
           {mode === "onboard" && (
             <label style={{ display: "block", marginTop: 12 }}>

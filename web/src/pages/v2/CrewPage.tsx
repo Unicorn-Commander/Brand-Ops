@@ -36,12 +36,6 @@ export default function CrewPage() {
   const teams = teamsQ.data;
   const selected = teams.find((row) => row.brand.slug === activeSlug) ?? teams[0];
   const onDuty = teams.length;
-  const approvedRate = Math.round(
-    teams.reduce((sum, row) => sum + row.team.governance.on_brand, 0) /
-      Math.max(1, teams.reduce((sum, row) => sum + row.team.governance.total, 0)) *
-      100,
-  );
-  const spend = `$${(teams.length * 0.31).toFixed(2)}`;
 
   return (
     <div className="rise" style={{ padding: "40px 0 60px" }}>
@@ -58,8 +52,7 @@ export default function CrewPage() {
         <div style={{ marginLeft: "auto", display: "flex", gap: 24, flexWrap: "wrap" }}>
           <div><b style={{ display: "block", fontSize: 22 }}>{onDuty}</b><span className="microlabel">on duty</span></div>
           <div><b style={{ display: "block", fontSize: 22 }}>{activity.length}</b><span className="microlabel">actions</span></div>
-          <div><b style={{ display: "block", fontSize: 22 }}>{approvedRate}%</b><span className="microlabel">approval rate</span></div>
-          <div><b style={{ display: "block", fontSize: 22 }}>{spend}</b><span className="microlabel">spend</span></div>
+          <div><b style={{ display: "block", fontSize: 22 }}>—</b><span className="microlabel">spend not yet metered</span></div>
         </div>
       </div>
 
