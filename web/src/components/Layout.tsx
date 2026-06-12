@@ -3,6 +3,8 @@ import { NavLink, Outlet, useParams } from "react-router-dom";
 import { CommandPalette } from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { EnvProvider, useBrandEnv } from "../v2/EnvProvider";
+import { UserMenu } from "../v2/UserMenu";
+import { applyAmbient } from "../pages/v2/SettingsPage";
 import { useActiveBrand } from "../brand-context";
 import { MarkImg } from "./MarkImg";
 
@@ -97,6 +99,7 @@ function Topbar({
               New brand
             </NavLink>
           )}
+          <UserMenu />
         </div>
       </div>
     </header>
@@ -104,6 +107,9 @@ function Topbar({
 }
 
 export function Layout() {
+  useEffect(() => {
+    applyAmbient();
+  }, []);
   return (
     <EnvProvider>
       <Topbar />

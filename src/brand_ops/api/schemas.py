@@ -845,3 +845,16 @@ class CreateAgentIdentityRequest(BaseModel):
     name: str
     role: str
     bio: str = ""
+
+
+class MeOut(BaseModel):
+    """The authenticated caller, as the GUI shows it (user menu, settings)."""
+
+    uc_uid: str
+    email: str | None = None
+    name: str | None = None
+    org: str
+    issuer: str | None = None
+    anonymous: bool
+    scopes: list[str] = Field(default_factory=list)
+    logout_url: str | None = None

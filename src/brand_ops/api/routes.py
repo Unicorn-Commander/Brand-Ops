@@ -37,6 +37,7 @@ from ..asset_types import ASSET_TYPES, get_asset_spec
 from ..backends.base import BackendError, BackendNotConfigured
 from ..brand_clone import clone_brand, create_brand_from_draft
 from ..brand_loader import DEFAULT_KITS_DIR, BrandNotFound, list_brands, load_brand
+from ..config import get_settings
 from ..compliance import (
     build_rules,
     build_tokens,
@@ -51,6 +52,7 @@ from .auth import Principal, require_principal
 from .catalog import _coerce_record, read_assets
 from .guidelines import build_guidelines
 from .schemas import (
+    MeOut,
     ActivityEvent,
     ActivityList,
     AgentIdentityList,
@@ -193,6 +195,34 @@ def _brand_detail(brand: Brand) -> BrandDetail:
 # ---------------------------------------------------------------------------
 # Brands
 # ---------------------------------------------------------------------------
+
+
+@router.get("/me", response_model=MeOut)
+def get_me(principal: _Auth) -> MeOut:
+    """Who am I: the verified principal behind this request.
+
+    Drives the user menu and the Settings account card. ``name``/``email``
+    come from the token claims when the issuer provided them; the anonymous
+    principal (AUTH_REQUIRED off, e.g. local dev) reports itself honestly.
+    """
+    claims = principal.claims or {}
+    settings = get_settings()
+    logout = (
+        f"{settings.keycloak_realm_url}/protocol/openid-connect/logout"
+        f"?client_id={settings.keycloak_client_id}"
+        if not principal.anonymous
+        else None
+    )
+    return MeOut(
+        uc_uid=principal.uc_uid,
+        email=claims.get("email"),
+        name=claims.get("name") or claims.get("preferred_username"),
+        org=principal.org,
+        issuer=principal.issuer,
+        anonymous=principal.anonymous,
+        scopes=list(principal.scopes),
+        logout_url=logout,
+    )
 
 
 @router.get("/brands", response_model=BrandList)

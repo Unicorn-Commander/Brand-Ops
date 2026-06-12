@@ -920,3 +920,15 @@ export interface AgentTeam {
   agents: AgentIdentity[];
   governance: AgentTeamGovernance;
 }
+
+/** GET /api/me: the verified caller behind this session. */
+export interface Me {
+  uc_uid: string;
+  email: string | null;
+  name: string | null;
+  org: string;
+  issuer: string | null;
+  anonymous: boolean;
+  scopes: string[];
+  logout_url: string | null;
+}

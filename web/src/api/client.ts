@@ -10,6 +10,7 @@
  * generate(): use `isNeedsKeyError(err)` to detect it and read `err.needsKey`.
  */
 import type {
+  Me,
   ActivityEvent,
   ActivityList,
   AgentIdentity,
@@ -611,7 +612,13 @@ export function agentManifestUrl(slug: string, agent: string): string {
   return `/api/brands/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent)}/manifest`;
 }
 
+/** The verified principal behind this session (drives the user menu). */
+export async function me(signal?: AbortSignal): Promise<Me> {
+  return request<Me>("/me", { signal });
+}
+
 export const api = {
+  me,
   listBrands,
   getBrand,
   cloneBrand,

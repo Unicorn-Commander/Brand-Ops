@@ -8,6 +8,7 @@ import BrandHQPage from "./pages/v2/BrandHQPage";
 import MarkPage from "./pages/v2/MarkPage";
 import StandardsPage from "./pages/v2/StandardsPage";
 import CrewPage from "./pages/v2/CrewPage";
+import SettingsPage from "./pages/v2/SettingsPage";
 import NewBrandPage from "./pages/v2/NewBrandPage";
 
 /**
@@ -26,6 +27,7 @@ export function App() {
         <Route path="library" element={<LibraryPage />} />
         <Route path="standards" element={<StandardsPage />} />
         <Route path="crew" element={<CrewPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="brands/new" element={<NewBrandPage />} />
         <Route path="brands" element={<PortfolioPage />} />
         <Route path="brands/:slug" element={<LegacyBrandRedirect target="overview" />} />

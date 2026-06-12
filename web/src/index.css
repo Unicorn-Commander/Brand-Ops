@@ -855,3 +855,9 @@
     max-width: 100% !important;
   }
 }
+
+/* Preference: ambient effects off (Settings). Grain, auras, and glow halos
+   go flat; layout and color are untouched. */
+body.no-ambient .grain::before { display: none; }
+body.no-ambient .aura::before,
+body.no-ambient .aura::after { display: none; }
