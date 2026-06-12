@@ -59,26 +59,37 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <motion.section variants={staggerItem} className="gl-section">
-      <header className="mb-5 border-b border-white/8 pb-4 print:border-black/10">
-        <div className="flex items-baseline gap-3">
-          <span className="font-mono text-xs tabular-nums text-text-faint print:text-black/40">
+    <motion.section
+      id={`book-${index}`}
+      variants={staggerItem}
+      className="gl-section plate overflow-hidden rounded-[18px] border border-white/10 bg-white/[0.018] print:border-black/10 print:bg-white"
+    >
+      <div className="grid min-h-[430px] lg:grid-cols-[0.9fr_1.1fr]">
+        <header className="flex flex-col border-b border-white/8 p-8 print:border-black/10 lg:border-b-0 lg:border-r">
+          <div className="flex items-baseline gap-3">
+            <span className="font-mono text-xs tabular-nums text-text-faint print:text-black/40">
+              {index}
+            </span>
+            <span className="text-xs font-medium uppercase tracking-[0.2em] text-accent">
+              {eyebrow}
+            </span>
+          </div>
+          <h2 className="mt-3 font-display text-4xl font-semibold tracking-tight text-text print:text-black">
+            {title}
+          </h2>
+          {lede && (
+            <p className="mt-3 max-w-md text-sm leading-relaxed text-text-muted print:text-black/70">
+              {lede}
+            </p>
+          )}
+        </header>
+        <div className="relative p-8">
+          {children}
+          <span className="absolute bottom-4 right-5 font-mono text-[10px] text-text-faint print:text-black/40">
             {index}
           </span>
-          <span className="text-xs font-medium uppercase tracking-[0.2em] text-accent">
-            {eyebrow}
-          </span>
         </div>
-        <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-text print:text-black">
-          {title}
-        </h2>
-        {lede && (
-          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-muted print:text-black/70">
-            {lede}
-          </p>
-        )}
-      </header>
-      {children}
+      </div>
     </motion.section>
   );
 }
@@ -283,27 +294,27 @@ function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
   const hasAssets = asset_groups.length > 0;
   // The lockups grid (logo-type assets) beyond the mark itself.
   const lockups = logo.lockups ?? [];
+  const nameParts = brand.display_name.split(/\s+/);
+  const firstLine = nameParts.slice(0, Math.max(1, Math.ceil(nameParts.length / 2))).join(" ");
+  const secondLine = nameParts.slice(Math.max(1, Math.ceil(nameParts.length / 2))).join(" ");
 
   return (
     <motion.div
       id="brand-book"
       variants={staggerContainer}
-      initial="hidden"
-      animate="show"
-      className="space-y-12"
+      initial={false}
+      animate={{ opacity: 1 }}
+      className="space-y-7 opacity-100"
     >
-      {/* COVER. Full-bleed brand-accent gradient with the mark, the name, the
-          tagline, a quiet eyebrow, and the Export action. */}
       <motion.section variants={staggerItem} className="gl-section gl-cover">
-        <GlassPanel ring glow flush className="overflow-hidden">
+        <GlassPanel ring glow flush className="plate overflow-hidden rounded-[18px]">
           <div
-            className="relative grid min-h-[360px] place-items-center px-8 py-16 text-center"
+            className="relative flex min-h-[560px] flex-col justify-between overflow-hidden px-10 py-11 md:px-14"
             style={{
-              background: `linear-gradient(150deg, ${accent.primary}, ${accent.secondary})`,
+              background: `radial-gradient(900px 520px at 12% -10%, ${accent.primary}66, transparent 60%), radial-gradient(800px 600px at 100% 30%, ${accent.secondary}33, transparent 55%), #0a0a0a`,
             }}
           >
-            <div className="absolute inset-0 bg-black/15 print:hidden" />
-            {/* Export sits top-right, hidden from the printed page itself. */}
+            <div className="absolute inset-0 bg-black/10 print:hidden" />
             <div className="absolute right-4 top-4 print:hidden">
               <Button
                 variant="secondary"
@@ -315,23 +326,34 @@ function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
                 Export
               </Button>
             </div>
-            <div className="relative flex flex-col items-center gap-5">
+            <div className="relative flex items-start justify-between gap-8">
+              <div>
+                <span className="text-xs font-medium uppercase tracking-[0.3em] text-white/70">
+                  Brand guidelines
+                </span>
+                <h1 className="mt-5 font-display text-[clamp(4rem,8vw,7rem)] font-black leading-[0.94] tracking-[-0.04em] text-white drop-shadow-sm">
+                  {firstLine}
+                  {secondLine && (
+                    <>
+                      <br />
+                      <span style={{ color: accent.secondary }}>{secondLine}</span>
+                    </>
+                  )}
+                </h1>
+              </div>
               {mark && (
                 <img
                   src={mark}
                   alt={`${brand.display_name} mark`}
-                  className="max-h-28 max-w-[60%] object-contain drop-shadow-xl"
+                  className="max-h-48 max-w-[28%] object-contain drop-shadow-2xl"
                 />
               )}
-              <span className="text-xs font-medium uppercase tracking-[0.3em] text-white/75">
-                Brand guidelines
-              </span>
-              <h1 className="font-display text-5xl font-semibold tracking-tight text-white drop-shadow-sm">
-                {brand.display_name}
-              </h1>
-              {brand.tagline && (
-                <p className="max-w-xl text-base text-white/85">{brand.tagline}</p>
-              )}
+            </div>
+            <div className="relative flex flex-wrap items-baseline gap-5 text-sm text-white/50">
+              {brand.tagline && <span className="text-white/75">{brand.tagline}</span>}
+              <span>{brand.parent ? `Part of ${brand.parent}` : "Root brand"}</span>
+              <span>Maintained continuously · {printedDate}</span>
+              <span className="ml-auto font-mono">#{slug}</span>
             </div>
           </div>
         </GlassPanel>
@@ -341,6 +363,22 @@ function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
           </p>
         )}
       </motion.section>
+
+      <nav className="gl-section plate grid overflow-hidden rounded-[18px] border border-white/10 bg-white/[0.018] print:border-black/10 print:bg-white sm:grid-cols-3 lg:grid-cols-6">
+        {[
+          ["01", "Foundations"],
+          ["02", "The mark"],
+          ["03", "Color"],
+          ["04", "Typography"],
+          ["05", "Voice"],
+          ["06", "Applications"],
+        ].map(([no, label]) => (
+          <a key={no} href={`#book-${no}`} className="border-b border-r border-white/8 p-5 text-text-muted no-underline transition hover:bg-white/[0.04] hover:text-text print:border-black/10 print:text-black/70 sm:border-b-0">
+            <span className="mb-2 block font-mono text-[10px] text-accent">{no}</span>
+            <b className="text-sm font-semibold">{label}</b>
+          </a>
+        ))}
+      </nav>
 
       {/* LOGO AND USAGE. */}
       <Section
