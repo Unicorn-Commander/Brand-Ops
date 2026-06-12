@@ -1,16 +1,26 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getBrandCompliance, listAssets, listBrands } from "../../api/client";
+import { getBrandCompliance, listActivity, listAssets, listBrands } from "../../api/client";
 import { useActiveBrand } from "../../brand-context";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
-import { assetsFor, flaggedCount, gradeFromDimensions, coverageFor, standardDimensions } from "../../v2/metrics";
+import { assetsFor, flaggedCount, gradeFromDimensions, coverageFor, standardDimensions, relativeTime } from "../../v2/metrics";
+
+function latest(values: Array<string | null | undefined>): string | null {
+  const dates = values
+    .filter((value): value is string => Boolean(value))
+    .map((value) => ({ value, time: new Date(value).getTime() }))
+    .filter((item) => Number.isFinite(item.time))
+    .sort((a, b) => b.time - a.time);
+  return dates[0]?.value ?? null;
+}
 
 export default function StandardsPage() {
   const { activeSlug } = useActiveBrand();
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const assetsQ = useQuery({ queryKey: ["assets", "all"], queryFn: ({ signal }) => listAssets({}, signal) });
+  const activityQ = useQuery({ queryKey: ["activity", "standards"], queryFn: ({ signal }) => listActivity({ limit: 80 }, signal) });
   const compliancesQ = useQuery({
     queryKey: ["compliance", "all"],
     queryFn: async ({ signal }) => {
@@ -25,7 +35,7 @@ export default function StandardsPage() {
     },
   });
 
-  if (brandsQ.isLoading || assetsQ.isLoading || compliancesQ.isLoading) {
+  if (brandsQ.isLoading || assetsQ.isLoading || activityQ.isLoading || compliancesQ.isLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: "80px 0" }}>
         <Spinner size={28} />
@@ -33,12 +43,14 @@ export default function StandardsPage() {
     );
   }
 
-  if (!brandsQ.data || !assetsQ.data || !compliancesQ.data) {
+  if (!brandsQ.data || !assetsQ.data || !activityQ.data || !compliancesQ.data) {
     return <EmptyState title="Standards unavailable" description="The compliance board could not load." />;
   }
 
   const assets = assetsQ.data;
+  const activity = activityQ.data;
   const compliances = compliancesQ.data;
+  const brandNameBySlug = new Map(brandsQ.data.map((brand) => [brand.slug, brand.display_name]));
   const selected = compliances.find((row) => row.slug === activeSlug) ?? compliances[0];
   const selectedAssets = assetsFor(assets, selected.slug);
   const selectedCoverage = coverageFor(selectedAssets, []);
@@ -50,7 +62,10 @@ export default function StandardsPage() {
     const flagged = flaggedCount(rowAssets);
     const dimensions = standardDimensions(coverage.pct, row.compliance);
     const grade = gradeFromDimensions(dimensions);
-    return { ...row, coverage, flagged, dimensions, grade };
+    const newestAssetStamp = latest(rowAssets.map((asset) => asset.compliance ? asset.created_at : null));
+    const newestActivityStamp = latest(activity.filter((event) => event.brand === row.slug).map((event) => event.ts));
+    const lastAudit = newestAssetStamp ?? newestActivityStamp;
+    return { ...row, coverage, flagged, dimensions, grade, lastAudit };
   });
 
   return (
@@ -110,7 +125,7 @@ export default function StandardsPage() {
               </span>
               <div style={{ minWidth: 0 }}>
                 <b style={{ display: "block" }}>{row.brand.display_name}</b>
-                <span style={{ color: "var(--b-ink-3)", fontSize: 10.5 }}>{row.brand.parent || "masterbrand"}</span>
+                <span style={{ color: "var(--b-ink-3)", fontSize: 10.5 }}>{row.brand.parent ? `Part of ${brandNameBySlug.get(row.brand.parent) ?? row.brand.parent}` : "masterbrand"}</span>
               </div>
             </div>
             <span className={`grade-letter ${row.grade.className}`}>{row.grade.letter}</span>
@@ -134,7 +149,7 @@ export default function StandardsPage() {
               ))}
             </div>
             <span style={{ color: row.flagged ? "var(--c-warn)" : "var(--c-go)", fontWeight: 600 }}>{row.flagged}</span>
-            <span style={{ fontFamily: "var(--c-font-mono)", fontSize: 11, color: "var(--b-ink-3)" }}>recent</span>
+            <span style={{ fontFamily: "var(--c-font-mono)", fontSize: 11, color: "var(--b-ink-3)" }}>{row.lastAudit ? relativeTime(row.lastAudit) : "not audited"}</span>
           </div>
         ))}
       </div>

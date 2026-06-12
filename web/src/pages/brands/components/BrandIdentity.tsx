@@ -133,7 +133,7 @@ function IdentityBody({ brand }: { brand: BrandDetail }) {
           <p className="mt-2 text-sm text-text-muted">{brand.tagline}</p>
         )}
         {brand.parent && (
-          <p className="mt-1 text-xs text-text-faint">Part of {brand.parent}</p>
+          <p className="mt-1 text-xs text-text-faint">Sub-brand</p>
         )}
         {brand.description && (
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-text-muted">

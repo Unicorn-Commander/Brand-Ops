@@ -14,7 +14,6 @@ import {
   LibraryBig,
   LayoutTemplate,
   Palette,
-  Workflow,
   Check,
   Plus,
   BookOpen,
@@ -25,16 +24,14 @@ import { spring } from "../lib/motion";
 
 const SECTIONS = [
   { to: "/", label: "Brands", icon: Palette },
-  { to: "/studio", label: "Studio", icon: Sparkles },
   { to: "/library", label: "Library", icon: LibraryBig },
-  { to: "/templates", label: "Templates", icon: LayoutTemplate },
-  { to: "/workflows", label: "Workflows", icon: Workflow },
 ] as const;
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { brands, activeSlug, setActiveSlug } = useActiveBrand();
+  const currentBrand = activeSlug ?? brands[0]?.slug ?? "magic-unicorn";
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -60,7 +57,7 @@ export function CommandPalette() {
     if (typeof sessionStorage !== "undefined") {
       sessionStorage.setItem("brand-ops.new-brand-mode", "distinct");
     }
-    go("/studio");
+    go("/brands/new");
   }
 
   // Open the review queue: the Library reads this handoff on mount and lands
@@ -119,13 +116,21 @@ export function CommandPalette() {
                   {activeSlug && (
                     <Command.Item
                       value="action open brand book guidelines"
-                      onSelect={() => go(`/brands/${activeSlug}/guidelines`)}
+                      onSelect={() => go(`/b/${activeSlug}/book`)}
                       className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-muted data-[selected=true]:bg-accent/15 data-[selected=true]:text-text"
                     >
                       <BookOpen size={15} />
                       Open brand book
                     </Command.Item>
                   )}
+                  <Command.Item
+                    value="action open active brand studio generate"
+                    onSelect={() => go(`/b/${currentBrand}/studio`)}
+                    className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-muted data-[selected=true]:bg-accent/15 data-[selected=true]:text-text"
+                  >
+                    <Sparkles size={15} />
+                    Open Studio
+                  </Command.Item>
                   <Command.Item
                     value="action review queue needs review"
                     onSelect={reviewQueue}
@@ -136,7 +141,7 @@ export function CommandPalette() {
                   </Command.Item>
                   <Command.Item
                     value="action new from template"
-                    onSelect={() => go("/templates")}
+                    onSelect={() => go(`/b/${currentBrand}/studio?template=1`)}
                     className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-muted data-[selected=true]:bg-accent/15 data-[selected=true]:text-text"
                   >
                     <LayoutTemplate size={15} />
@@ -175,7 +180,7 @@ export function CommandPalette() {
                         value={`brand ${b.display_name} ${b.slug}`}
                         onSelect={() => {
                           setActiveSlug(b.slug);
-                          go(`/brands/${b.slug}`);
+                          go(`/b/${b.slug}/overview`);
                         }}
                         className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-text-muted data-[selected=true]:bg-accent/15 data-[selected=true]:text-text"
                       >

@@ -351,7 +351,7 @@ function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
             </div>
             <div className="relative flex flex-wrap items-baseline gap-5 text-sm text-white/50">
               {brand.tagline && <span className="text-white/75">{brand.tagline}</span>}
-              <span>{brand.parent ? `Part of ${brand.parent}` : "Root brand"}</span>
+              <span>{brand.parent ? "Sub-brand" : "Root brand"}</span>
               <span>Maintained continuously · {printedDate}</span>
               <span className="ml-auto font-mono">#{slug}</span>
             </div>

@@ -56,6 +56,21 @@ function applyBrandEnv(brand: BrandDetail): void {
   root.style.setProperty("--b-font-body", fontStack(brand.visual.typography.primary_font));
 }
 
+function applyChromeEnv(): void {
+  const root = document.documentElement;
+  root.style.setProperty("--b-bg", "#07070b");
+  root.style.setProperty("--b-bg-glow1", "rgba(155, 140, 255, 0.24)");
+  root.style.setProperty("--b-bg-glow2", "rgba(76, 201, 240, 0.14)");
+  root.style.setProperty("--b-ink", "#f2f1ee");
+  root.style.setProperty("--b-ink-2", "rgba(242, 241, 238, 0.66)");
+  root.style.setProperty("--b-ink-3", "rgba(242, 241, 238, 0.44)");
+  root.style.setProperty("--b-primary", "#9b8cff");
+  root.style.setProperty("--b-accent", "#4cc9f0");
+  root.style.setProperty("--b-hairline", "rgba(155, 140, 255, 0.14)");
+  root.style.setProperty("--b-font-display", FONT_STACKS.Inter);
+  root.style.setProperty("--b-font-body", FONT_STACKS.Inter);
+}
+
 export function useBrandEnv(slug: string | undefined) {
   return useQuery({
     queryKey: ["brand", slug],
@@ -83,7 +98,10 @@ export function EnvProvider({
 
   useEffect(() => {
     const brand = query.data;
-    if (!brand) return;
+    if (!brand) {
+      applyChromeEnv();
+      return;
+    }
     loadFont(brand.visual.typography.display_font);
     loadFont(brand.visual.typography.primary_font);
     applyBrandEnv(brand);

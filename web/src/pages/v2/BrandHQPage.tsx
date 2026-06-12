@@ -8,6 +8,7 @@ import {
   listActivity,
   listAssets,
   listAssetTypes,
+  listBrands,
 } from "../../api/client";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
@@ -48,6 +49,7 @@ export default function BrandHQPage() {
   const tokensQ = useQuery({ queryKey: ["brand-tokens", slug], queryFn: ({ signal }) => getBrandTokens(slug, signal) });
   const assetsQ = useQuery({ queryKey: ["assets", slug], queryFn: ({ signal }) => listAssets({ brand: slug }, signal) });
   const typesQ = useQuery({ queryKey: ["asset-types"], queryFn: ({ signal }) => listAssetTypes(signal) });
+  const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const complianceQ = useQuery({ queryKey: ["compliance", slug], queryFn: ({ signal }) => getBrandCompliance(slug, signal) });
   const activityQ = useQuery({ queryKey: ["activity", slug], queryFn: ({ signal }) => listActivity({ brand: slug, limit: 8 }, signal) });
   const teamQ = useQuery({ queryKey: ["agent-team", slug], queryFn: ({ signal }) => getAgentTeam(slug, signal) });
@@ -86,6 +88,7 @@ export default function BrandHQPage() {
   const required = types.length ? types.map((type) => type.key) : Object.keys(REQUIRED_LABELS);
   const activity = activityQ.data ?? [];
   const team = teamQ.data;
+  const parentName = brand.parent ? brandsQ.data?.find((item) => item.slug === brand.parent)?.display_name ?? brand.parent : null;
 
   return (
     <>
@@ -93,7 +96,7 @@ export default function BrandHQPage() {
         <div className="rise">
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 26 }}>
             <span className="microlabel">Brand HQ</span>
-            {brand.parent && <span className="chip">Part of {brand.parent}</span>}
+            {parentName && <span className="chip">Part of {parentName}</span>}
             <span className="chip">Steward · active</span>
           </div>
           <h1>{brand.display_name}</h1>
@@ -113,8 +116,28 @@ export default function BrandHQPage() {
           {note && <p className="spec-note" style={{ marginTop: 18, display: "inline-flex" }}>{note}</p>}
         </div>
         <div className="hero-side rise d2">
-          <div className="hero-mark aura">
+          <div className="hero-mark aura" style={{ position: "relative" }}>
+            <span style={{ position: "absolute", inset: -18, border: "1px solid color-mix(in srgb, var(--b-accent) 35%, transparent)", borderRadius: 999, boxShadow: "0 0 54px color-mix(in srgb, var(--b-accent) 20%, transparent)" }} />
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((tick) => (
+              <span
+                key={tick}
+                style={{
+                  position: "absolute",
+                  left: "50%",
+                  top: "50%",
+                  width: 2,
+                  height: 12,
+                  background: "var(--b-accent)",
+                  opacity: 0.45,
+                  transform: `rotate(${tick * 45}deg) translateY(-146px)`,
+                  transformOrigin: "0 146px",
+                }}
+              />
+            ))}
             <MarkImg brand={brand} />
+            <span style={{ position: "absolute", right: -10, bottom: 12, fontFamily: "var(--c-font-mono)", fontSize: 10, color: "var(--b-ink-3)", background: "rgba(0,0,0,0.38)", border: "1px solid var(--b-hairline)", borderRadius: 8, padding: "5px 7px" }}>
+              {coverage.present}/{coverage.total} kit · {flagged} flags
+            </span>
           </div>
           <div className="gradeboard">
             <div>
