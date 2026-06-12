@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { getBrand, listActivity, listAssets, listAssetTypes, listBrands } from "../../api/client";
+import { getAgentTeam, getBrand, listActivity, listAgents, listAssets, listAssetTypes, listBrands } from "../../api/client";
 import type { AssetRecord, AssetType, BrandDetail, BrandSummary } from "../../lib/types";
 import { MarkImg } from "../../components/MarkImg";
 import {
@@ -95,6 +95,7 @@ export default function PortfolioPage() {
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const assetsQ = useQuery({ queryKey: ["assets", "all"], queryFn: ({ signal }) => listAssets({}, signal) });
   const typesQ = useQuery({ queryKey: ["asset-types"], queryFn: ({ signal }) => listAssetTypes(signal) });
+  const agentsQ = useQuery({ queryKey: ["agents"], queryFn: ({ signal }) => listAgents(signal) });
   const activityQ = useQuery({
     queryKey: ["activity", "portfolio"],
     queryFn: ({ signal }) => listActivity({ limit: 20 }, signal),
@@ -110,16 +111,26 @@ export default function PortfolioPage() {
   });
   const detailedBrands = brands.map((brand, index) => brandDetailQs[index]?.data ?? brand);
   const brandNameBySlug = new Map(detailedBrands.map((brand) => [brand.slug, brand.display_name]));
+  const teamQs = useQueries({
+    queries: brands.map((brand) => ({
+      queryKey: ["agent-team", brand.slug],
+      queryFn: ({ signal }: { signal: AbortSignal }) => getAgentTeam(brand.slug, signal),
+      staleTime: 60_000,
+    })),
+  });
   const assets = assetsQ.data ?? [];
   const types = typesQ.data ?? [];
+  const agents = agentsQ.data ?? [];
+  const teams = teamQs.map((query) => query.data).filter(Boolean);
   const activity = activityQ.data ?? [];
 
   const stats = useMemo(() => {
     const needsReview = assets.filter((asset) => asset.lifecycle_status === "needs_review").length;
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     return {
       assets: assets.length,
       review: needsReview,
-      flaggedToday: activity.filter((event) => /flag/i.test(event.action)).length,
+      flaggedToday: activity.filter((event) => /flag/i.test(event.action) && new Date(event.ts).getTime() >= cutoff).length,
     };
   }, [activity, assets]);
 
@@ -129,6 +140,12 @@ export default function PortfolioPage() {
   }
 
   const ticker = activity.length ? activity : [];
+  const currentActivity = activity[0];
+  const pendingIntake = activity.filter((event) => /intake|draft|propos/i.test(`${event.action} ${event.note ?? ""}`)).length;
+  const signOffCount = stats.review + pendingIntake;
+  const reviewItems = assets.filter((asset) => asset.lifecycle_status === "needs_review").slice(0, 2);
+  const createdAgentCount = teams.reduce((sum, team) => sum + (team?.governance.total ?? 0), 0);
+  const onDuty = agents.length + teams.length + createdAgentCount;
   const roots = detailedBrands.filter((brand) => !brand.parent);
   const children = detailedBrands.filter((brand) => brand.parent);
 
@@ -160,7 +177,7 @@ export default function PortfolioPage() {
             </div>
             <div className="flag">
               <b>{stats.flaggedToday}</b>
-              <span>flagged feed</span>
+              <span>flagged today</span>
             </div>
           </div>
         </div>
@@ -189,11 +206,14 @@ export default function PortfolioPage() {
           <Link className="chip" to="/brands/new">
             New brand
           </Link>
+          <Link className="chip" to={`/b/${brands[0]?.slug ?? "magic-unicorn"}/studio?pack=core`}>
+            Generate a kit
+          </Link>
           <Link className="chip" to="/standards">
             Audit the portfolio
           </Link>
-          <Link className="chip" to="/library">
-            Open Library
+          <Link className="chip" to={`/b/${brands[0]?.slug ?? "magic-unicorn"}/book`}>
+            Draft a book
           </Link>
         </div>
       </section>
@@ -210,6 +230,95 @@ export default function PortfolioPage() {
           </div>
         </div>
       </div>
+
+      <section className="rise d3" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 18, marginTop: 20 }}>
+        <div className="voice-card" style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <span className="orb" style={{ width: 32, height: 32, fontSize: 13, outline: "2.5px solid var(--c-surface)" }}>I</span>
+            {detailedBrands.slice(0, 6).map((brand) => (
+              <span
+                key={brand.slug}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 999,
+                  display: "grid",
+                  placeItems: "center",
+                  overflow: "hidden",
+                  marginLeft: -9,
+                  outline: "2.5px solid var(--c-surface)",
+                  background: "var(--c-bg-2)",
+                }}
+              >
+                <MarkImg brand={brand} style={{ borderRadius: 999, fontSize: 13 }} />
+              </span>
+            ))}
+            {agents.length > 0 && (
+              <span
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 999,
+                  display: "grid",
+                  placeItems: "center",
+                  marginLeft: -9,
+                  outline: "2.5px solid var(--c-surface)",
+                  background: "var(--c-bg-2)",
+                  color: "var(--c-ink-3)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                }}
+              >
+                +{agents.length}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: "var(--c-ink-2)", lineHeight: 1.5 }}>
+            <b style={{ color: "var(--c-ink)" }}>On duty · {onDuty}</b>
+            {currentActivity ? (
+              <> — {displayActivity(currentActivity)} · {relativeTime(currentActivity.ts)}</>
+            ) : (
+              " — no activity yet"
+            )}
+          </div>
+          <Link to="/crew" style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 600, color: "var(--c-ink)", textDecoration: "none", whiteSpace: "nowrap" }}>
+            Crew →
+          </Link>
+        </div>
+        <div
+          style={{
+            border: "1px solid rgba(232,181,74,0.35)",
+            borderRadius: "var(--radius)",
+            background: "var(--c-surface)",
+            boxShadow: "var(--shadow-paper), 0 0 36px -14px rgba(232,181,74,0.3)",
+            padding: "12px 18px",
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+          }}
+        >
+          <div>
+            <b style={{ fontFamily: "var(--c-font-display)", fontSize: 14, display: "block" }}>Your sign-off · {signOffCount}</b>
+            <span style={{ fontSize: 10.5, color: "var(--c-ink-3)" }}>agents propose, you decide</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
+            {reviewItems.map((asset) => (
+              <Link key={asset.file} to="/library?status=needs_review" style={{ fontSize: 11, color: "var(--c-ink-2)", textDecoration: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <b style={{ color: "var(--c-ink)" }}>{brandNameBySlug.get(asset.brand) ?? asset.brand}</b> · {asset.asset_type}/{asset.variant ?? asset.file}
+              </Link>
+            ))}
+            {pendingIntake > 0 && (
+              <Link to="/brands/new" style={{ fontSize: 11, color: "var(--c-ink-2)", textDecoration: "none" }}>
+                <b style={{ color: "var(--c-ink)" }}>Iris</b> · {pendingIntake} intake draft{pendingIntake === 1 ? "" : "s"}
+              </Link>
+            )}
+            {signOffCount === 0 && <div style={{ fontSize: 11, color: "var(--c-ink-3)" }}>No review items or intake drafts are pending.</div>}
+          </div>
+          <Link className="btn btn-ink" to={stats.review > 0 ? "/library?status=needs_review" : "/brands/new"} style={{ fontSize: 12, padding: "8px 14px", whiteSpace: "nowrap" }}>
+            Review
+          </Link>
+        </div>
+      </section>
 
       <section className="brand-shelf">
         {detailedBrands.map((brand, index) => (
