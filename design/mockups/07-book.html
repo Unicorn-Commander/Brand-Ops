@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Magic Unicorn — Brand Book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  /* Magic Unicorn environment */
+  body {
+    --b-bg: #0a0a0a;
+    --b-bg-glow1: rgba(182, 110, 255, 0.22);
+    --b-bg-glow2: rgba(0, 212, 255, 0.12);
+    --b-ink: #ffffff;
+    --b-ink-2: rgba(255, 255, 255, 0.64);
+    --b-ink-3: rgba(255, 255, 255, 0.42);
+    --b-hairline: rgba(214, 178, 255, 0.13);
+    --b-primary: #b66eff;
+    --b-accent: #00d4ff;
+    --b-font-display: "Inter", sans-serif;
+    --b-font-body: "Inter", sans-serif;
+  }
+
+  .toolrow { display: flex; align-items: center; gap: 10px; padding: 18px 0 0; }
+  .toolrow .right { margin-left: auto; display: flex; gap: 10px; }
+
+  /* book pages: each section is a "plate" */
+  .plate { border: 1px solid var(--b-hairline); border-radius: 18px; margin: 26px 0; overflow: hidden; background: rgba(255,255,255,0.018); position: relative; }
+  .plate .folio { position: absolute; bottom: 18px; right: 24px; font-family: var(--c-font-mono); font-size: 10px; color: var(--b-ink-3); z-index: 5; }
+
+  /* cover */
+  .cover-plate { min-height: 560px; display: flex; flex-direction: column; justify-content: space-between; padding: 44px 52px;
+    background: radial-gradient(900px 520px at 12% -10%, rgba(182,110,255,0.4), transparent 60%),
+                radial-gradient(800px 600px at 100% 30%, rgba(0,212,255,0.2), transparent 55%), #0a0a0a; }
+  .cover-plate .top { display: flex; justify-content: space-between; align-items: flex-start; }
+  .cover-plate h1 { margin: 0; font-weight: 900; font-size: clamp(64px, 8vw, 112px); line-height: 0.94; letter-spacing: -0.04em; }
+  .cover-plate h1 span { background: linear-gradient(120deg, #b66eff, #00d4ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .cover-plate .mark { height: 200px; filter: drop-shadow(0 22px 60px rgba(182,110,255,0.4)); }
+  .cover-plate .foot { display: flex; align-items: baseline; gap: 22px; color: var(--b-ink-3); font-size: 12.5px; }
+  .cover-plate .foot b { color: var(--b-ink-2); font-weight: 600; }
+
+  /* toc */
+  .toc { display: grid; grid-template-columns: repeat(6, 1fr); }
+  .toc a { padding: 20px 22px; border-right: 1px solid var(--b-hairline); text-decoration: none; color: var(--b-ink-2); transition: background 0.15s; }
+  .toc a:last-child { border-right: 0; }
+  .toc a:hover { background: rgba(255,255,255,0.04); color: var(--b-ink); }
+  .toc .no { font-family: var(--c-font-mono); font-size: 10px; color: var(--b-accent); display: block; margin-bottom: 6px; }
+  .toc b { font-size: 13.5px; font-weight: 650; letter-spacing: -0.01em; }
+
+  /* spread layout */
+  .spread { display: grid; grid-template-columns: 0.9fr 1.1fr; min-height: 430px; }
+  .spread .left { padding: 40px 44px; border-right: 1px solid var(--b-hairline); display: flex; flex-direction: column; }
+  .spread .right { position: relative; }
+  .spread h2 { margin: 12px 0 12px; font-size: 34px; font-weight: 800; letter-spacing: -0.03em; }
+  .spread p { font-size: 13.5px; line-height: 1.65; color: var(--b-ink-2); max-width: 44ch; }
+  .rule-list { margin: 18px 0 0; padding: 0; list-style: none; }
+  .rule-list li { display: flex; gap: 10px; padding: 8px 0; font-size: 12.5px; color: var(--b-ink-2); border-top: 1px solid rgba(214,178,255,0.08); }
+  .rule-list li b { color: var(--b-ink); font-weight: 650; }
+  .rule-list .t { color: var(--b-accent); font-family: var(--c-font-mono); font-size: 10px; padding-top: 2px; flex: none; }
+
+  /* color spread right side */
+  .paint-stack { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .paint-stack > div { flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; }
+  .paint-stack .pname { font-weight: 700; font-size: 14px; }
+  .paint-stack .pmeta { font-family: var(--c-font-mono); font-size: 10.5px; opacity: 0.7; text-align: right; }
+
+  /* logo spread right side */
+  .logo-stage { position: absolute; inset: 0; display: grid; grid-template-rows: 1.5fr 1fr; }
+  .logo-stage .main { display: grid; place-items: center; }
+  .logo-stage .main img { height: 180px; filter: drop-shadow(0 18px 48px rgba(182,110,255,0.35)); }
+  .logo-stage .strip { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 1px solid var(--b-hairline); }
+  .logo-stage .strip > div { display: grid; place-items: center; border-right: 1px solid var(--b-hairline); position: relative; }
+  .logo-stage .strip > div:last-child { border-right: 0; }
+  .logo-stage .strip img { height: 64px; }
+  .logo-stage .strip .lbl { position: absolute; bottom: 10px; left: 14px; font-family: var(--c-font-mono); font-size: 9.5px; color: var(--b-ink-3); }
+  .logo-stage .strip .light { background: var(--mat-light); }
+
+  /* voice spread */
+  .voice-cols { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 1fr; }
+  .voice-cols > div { padding: 36px 34px; }
+  .voice-cols .yes { border-right: 1px solid var(--b-hairline); }
+  .voice-cols h4 { margin: 0 0 16px; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; }
+  .voice-cols .yes h4 { color: #8be3a8; } .voice-cols .no h4 { color: #f49b8a; }
+  .vline { font-size: 14.5px; line-height: 1.55; padding: 12px 0; border-top: 1px solid rgba(214,178,255,0.08); color: var(--b-ink-2); }
+  .vline.s { text-decoration: line-through; text-decoration-color: rgba(244,108,86,0.6); color: var(--b-ink-3); }
+
+  /* applications spread */
+  .apps-stage { position: absolute; inset: 0; padding: 30px; display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; align-items: center; }
+  .app-og { border-radius: 12px; overflow: hidden; border: 1px solid var(--b-hairline); aspect-ratio: 1.91/1; position: relative;
+    background: radial-gradient(420px 260px at 16% -8%, rgba(182,110,255,0.5), transparent 60%), radial-gradient(300px 200px at 100% 110%, rgba(0,212,255,0.35), transparent 55%), #0a0a0a; }
+  .app-og .t { padding: 22px 24px; font-size: 24px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.05; }
+  .app-og .e { padding: 0 24px; font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--b-accent); font-weight: 700; }
+  .app-og img { position: absolute; right: 20px; bottom: 16px; height: 56%; }
+  .app-sq { border-radius: 12px; overflow: hidden; border: 1px solid var(--b-hairline); aspect-ratio: 1/1; position: relative;
+    background: radial-gradient(300px 220px at 14% -10%, rgba(0,212,255,0.4), transparent 60%), #0a0a0a; }
+  .app-sq .t { padding: 18px 18px; font-size: 17px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+  .app-sq img { position: absolute; right: 12px; bottom: 10px; height: 46%; }
+
+  .wl-foot { display: flex; align-items: center; gap: 14px; padding: 22px 0 60px; }
+</style>
+</head>
+<body class="grain" data-env="brand">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html" title="Back to Portfolio">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(255,255,255,0.15);" />
+      <b>‹ Portfolio</b>
+    </a>
+    <span style="display:flex; align-items:center; gap:9px;">
+      <img src="assets/img/mu-unicorn.svg" alt="" style="height:24px;" />
+      <b style="font-family:var(--b-font-display); font-size:14.5px; letter-spacing:-0.01em;">Magic Unicorn</b>
+    </span>
+    <nav class="nav">
+      <a href="02-brand-hq.html">Overview</a>
+      <a href="03-mark.html">Mark</a>
+      <a class="on" href="07-book.html">Book</a>
+      <a href="06-library.html">Assets</a>
+      <a href="04-studio.html">Studio</a>
+      <a href="08-grade.html">Grade</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="chip"><span class="dot dot-live"></span> Steward online</span>
+      <span class="kbd">⌘K</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="toolrow rise">
+    <span class="microlabel">Brand book · living document · v4</span>
+    <span class="chip">auto-maintained by the steward</span>
+    <div class="right">
+      <a class="btn btn-ghost" href="#">Share portal link</a>
+      <a class="btn btn-ink" href="#" style="background:var(--b-ink); color:var(--b-bg);">Export PDF</a>
+    </div>
+  </div>
+
+  <!-- COVER -->
+  <section class="plate cover-plate rise d1">
+    <div class="top">
+      <div>
+        <span class="microlabel" style="color:var(--b-accent);">Brand guidelines</span>
+        <h1>Magic<br/><span>Unicorn</span></h1>
+      </div>
+      <img class="mark" src="assets/img/mu-unicorn.svg" alt="Magic Unicorn mark" />
+    </div>
+    <div class="foot">
+      <span><b>Innovation That Doesn't Apologize</b></span>
+      <span>Charleston, SC</span>
+      <span>Maintained continuously · last ratified change Jun 10, 2026</span>
+      <span style="margin-left:auto;">№ 001</span>
+    </div>
+  </section>
+
+  <!-- TOC -->
+  <nav class="plate toc rise d2">
+    <a href="#"><span class="no">01</span><b>Foundations</b></a>
+    <a href="#"><span class="no">02</span><b>The mark</b></a>
+    <a href="#"><span class="no">03</span><b>Color</b></a>
+    <a href="#"><span class="no">04</span><b>Typography</b></a>
+    <a href="#"><span class="no">05</span><b>Voice</b></a>
+    <a href="#"><span class="no">06</span><b>Applications</b></a>
+  </nav>
+
+  <!-- SPREAD: THE MARK -->
+  <section class="plate spread rise d2">
+    <div class="left">
+      <span class="microlabel">02 · The mark</span>
+      <h2>The unicorn</h2>
+      <p>A hand-drawn head, black outline, pastel mane. It is the house signature — the one element every sub-brand inherits in spirit.</p>
+      <ul class="rule-list">
+        <li><span class="t">R-01</span><span><b>Clear space</b> ≥ 1× mark height, all sides.</span></li>
+        <li><span class="t">R-02</span><span><b>Minimum size</b> 24px digital · 12mm print.</span></li>
+        <li><span class="t">R-03</span><span><b>Never</b> recolor, outline, stretch, or crop the horn.</span></li>
+        <li><span class="t">R-04</span><span>Prefer the gradient field on dark; mono only in 1-color print.</span></li>
+      </ul>
+    </div>
+    <div class="right">
+      <div class="logo-stage">
+        <div class="main"><img src="assets/img/mu-unicorn.svg" alt="" /></div>
+        <div class="strip">
+          <div><img src="assets/img/mu-unicorn.svg" alt="" /><span class="lbl">on dark · default</span></div>
+          <div class="light"><img src="assets/img/mu-unicorn.svg" alt="" /><span class="lbl" style="color:#8c857a;">on light</span></div>
+          <div><img src="assets/img/mu-unicorn.svg" alt="" style="filter:grayscale(1) brightness(2.4);" /><span class="lbl">mono</span></div>
+        </div>
+      </div>
+      <span class="folio">MU — 02</span>
+    </div>
+  </section>
+
+  <!-- SPREAD: COLOR -->
+  <section class="plate spread rise d3">
+    <div class="left">
+      <span class="microlabel">03 · Color</span>
+      <h2>Purple leads,<br/>cyan answers.</h2>
+      <p>Unicorn Purple does the talking; cyan is the reply. Near-black keeps both honest. Tints are allowed only as gradient passages between the two.</p>
+      <ul class="rule-list">
+        <li><span class="t">R-05</span><span><b>Purple : cyan ratio</b> roughly 70:30 in any composition.</span></li>
+        <li><span class="t">R-06</span><span>Gradients travel the <b>hue arc</b> purple→cyan; never detour through red or green.</span></li>
+        <li><span class="t">R-07</span><span>Text sits on near-black or white only — never on mid-tones.</span></li>
+      </ul>
+    </div>
+    <div class="right">
+      <div class="paint-stack">
+        <div style="background:#b66eff; color:#1d0b33;"><span class="pname">Unicorn Purple</span><span class="pmeta">#b66eff · PMS 2645C · brand/primary</span></div>
+        <div style="background:#00d4ff; color:#002a33;"><span class="pname">Answer Cyan</span><span class="pmeta">#00d4ff · PMS 306C · brand/accent</span></div>
+        <div style="background:#0a0a0a; color:#f5f5fa; box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);"><span class="pname">Stage Black</span><span class="pmeta">#0a0a0a · surface/background</span></div>
+        <div style="background:#ffffff; color:#16161c;"><span class="pname">House White</span><span class="pmeta">#ffffff · text/foreground · 17.9 AAA</span></div>
+      </div>
+      <span class="folio" style="color:rgba(0,0,0,0.4);">MU — 03</span>
+    </div>
+  </section>
+
+  <!-- SPREAD: VOICE -->
+  <section class="plate spread rise d4">
+    <div class="left">
+      <span class="microlabel">05 · Voice</span>
+      <h2>Bold, direct,<br/>slightly amused.</h2>
+      <p>We ship to production and talk like it. Confident without armor, technical without a glossary. The linter enforces the bones; the steward carries the tone.</p>
+      <ul class="rule-list">
+        <li><span class="t">R-12</span><span><b>Banned:</b> revolutionary · game-changer · synergize · unleash.</span></li>
+        <li><span class="t">R-13</span><span><b>No em-dashes.</b> Periods. Commas. Confidence.</span></li>
+        <li><span class="t">R-14</span><span>Claims name a <b>number or a customer</b>, or they wait.</span></li>
+      </ul>
+    </div>
+    <div class="right">
+      <div class="voice-cols">
+        <div class="yes">
+          <h4>Sounds like us</h4>
+          <div class="vline">We build AI platforms that ship to production, not demo day.</div>
+          <div class="vline">Your infrastructure. Your models. Your call.</div>
+          <div class="vline">It works. We can prove it. Want the logs?</div>
+        </div>
+        <div class="no">
+          <h4>Caught by the gate</h4>
+          <div class="vline s">A revolutionary AI-powered paradigm shift!</div>
+          <div class="vline s">Unleash limitless synergistic potential.</div>
+          <div class="vline s">The game-changing future of everything.</div>
+        </div>
+      </div>
+      <span class="folio">MU — 05</span>
+    </div>
+  </section>
+
+  <!-- SPREAD: APPLICATIONS -->
+  <section class="plate spread rise d5">
+    <div class="left">
+      <span class="microlabel">06 · Applications</span>
+      <h2>In the wild</h2>
+      <p>Cards are composited with real type — the model never draws our words. Every application below rendered from tokens, so it is correct by construction.</p>
+      <ul class="rule-list">
+        <li><span class="t">R-15</span><span>OG: headline left, mark right, eyebrow in cyan.</span></li>
+        <li><span class="t">R-16</span><span>Social: mark anchored low-right, gradient ≤ 40% of field.</span></li>
+      </ul>
+    </div>
+    <div class="right">
+      <div class="apps-stage">
+        <div class="app-og">
+          <div class="t">Innovation that<br/>doesn't apologize.</div>
+          <div class="e">magicunicorn.tech</div>
+          <img src="assets/img/mu-unicorn.svg" alt="" />
+        </div>
+        <div class="app-sq">
+          <div class="t">Built in<br/>Charleston.</div>
+          <img src="assets/img/mu-unicorn.svg" alt="" />
+        </div>
+      </div>
+      <span class="folio">MU — 06</span>
+    </div>
+  </section>
+
+  <div class="wl-foot rise d6">
+    <span class="spec-note">SPEC · the book renders from the brand graph — a token change re-paginates it; "Export PDF" prints these plates; the portal link is a scoped read-only share for clients.</span>
+    <span class="spec-note">SPEC · white-label: an agency's chrome brand replaces "Brand-Ops" in the portal footer — "Prepared by &lt;your studio&gt;".</span>
+  </div>
+
+</main>
+</body>
+</html>

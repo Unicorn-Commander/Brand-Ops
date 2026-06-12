@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brand-Ops — Standards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  .head { padding: 44px 0 18px; display: flex; align-items: flex-end; gap: 20px; }
+  .head h1 { margin: 8px 0 0; font-family: var(--c-font-display); font-weight: 700; font-size: 38px; letter-spacing: -0.025em; }
+  .head .annotation { margin-top: 8px; }
+  .head .right { margin-left: auto; display: flex; gap: 10px; }
+
+  /* board */
+  .board { border: 1px solid var(--c-hairline-soft); border-radius: var(--radius); background: var(--c-surface); box-shadow: var(--shadow-paper); overflow: hidden; }
+  .b-row { display: grid; grid-template-columns: 240px 70px 1fr 90px 110px 100px; gap: 18px; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--c-hairline-soft); cursor: pointer; transition: background 0.12s; }
+  .b-row:hover { background: var(--c-bg-2); }
+  .b-row:last-child { border-bottom: 0; }
+  .b-row.head-row { background: transparent; cursor: default; padding: 11px 22px; }
+  .b-row.head-row span { font-size: 10px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--c-ink-3); }
+  .b-row.sel { background: var(--c-bg-2); box-shadow: inset 3px 0 0 var(--c-ink); }
+
+  .b-ident { display: flex; align-items: center; gap: 12px; }
+  .b-ident .cv { width: 40px; height: 40px; border-radius: 9px; display: grid; place-items: center; flex: none; overflow: hidden; }
+  .b-ident .cv img { max-width: 30px; max-height: 30px; object-fit: contain; }
+  .b-ident b { font-family: var(--c-font-display); font-size: 13.5px; letter-spacing: -0.01em; display: block; }
+  .b-ident span { font-size: 10.5px; color: var(--c-ink-3); }
+
+  .b-grade { font-family: var(--c-font-display); font-weight: 700; font-size: 21px; }
+
+  .dims { display: flex; gap: 8px; }
+  .dim { flex: 1; }
+  .dim .lbl { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-ink-3); margin-bottom: 4px; white-space: nowrap; }
+  .dim .bar { height: 4px; border-radius: 99px; background: var(--c-bg-2); overflow: hidden; }
+  .dim .bar i { display: block; height: 100%; border-radius: 99px; background: var(--c-ink-2); }
+  .dim .bar i.lo { background: var(--c-warn); }
+  .dim .bar i.vlo { background: var(--c-stop); }
+
+  .spark { width: 86px; height: 26px; }
+  .spark polyline { fill: none; stroke: var(--c-ink-3); stroke-width: 1.5; }
+  .spark .up { stroke: var(--c-go); }
+  .spark .dn { stroke: var(--c-stop); }
+
+  .iss { font-size: 12px; font-weight: 600; }
+  .iss.warn { color: var(--c-warn); }
+  .iss.ok { color: var(--c-go); }
+
+  /* report card */
+  .report { display: grid; grid-template-columns: 330px 1fr; gap: 26px; margin: 30px 0 20px; align-items: start; }
+  .score-card { border: 1px solid var(--c-hairline-soft); border-radius: var(--radius); background: var(--c-surface); box-shadow: var(--shadow-paper); padding: 26px; text-align: center; position: sticky; top: 80px; }
+  .ringwrap { position: relative; display: inline-grid; place-items: center; margin: 8px 0 4px; }
+  .ringwrap svg { transform: rotate(-90deg); }
+  .ringwrap .in { position: absolute; }
+  .ringwrap .in b { font-family: var(--c-font-display); font-size: 38px; font-weight: 700; letter-spacing: -0.03em; display: block; line-height: 1; color: #c4e08a; }
+  .ringwrap .in span { font-size: 11px; color: var(--c-ink-3); }
+  .score-card .brand-line { display: flex; align-items: center; justify-content: center; gap: 9px; margin-top: 6px; }
+  .score-card .brand-line img { height: 22px; border-radius: 5px; }
+  .score-card .brand-line b { font-family: var(--c-font-display); font-size: 14.5px; }
+  .score-card .meta { font-size: 11px; color: var(--c-ink-3); margin-top: 6px; }
+
+  .detail { display: flex; flex-direction: column; gap: 18px; }
+  .panel { border: 1px solid var(--c-hairline-soft); border-radius: var(--radius); background: var(--c-surface); box-shadow: var(--shadow-paper); padding: 22px 26px; }
+  .panel h3 { margin: 0 0 4px; font-family: var(--c-font-display); font-size: 16px; letter-spacing: -0.01em; }
+  .panel .sub { font-size: 12px; color: var(--c-ink-3); margin-bottom: 14px; }
+
+  .dimrow { display: grid; grid-template-columns: 150px 1fr 54px; gap: 16px; align-items: center; padding: 10px 0; border-top: 1px solid var(--c-hairline-soft); }
+  .dimrow:first-of-type { border-top: 0; }
+  .dimrow .nm { font-size: 13px; font-weight: 600; }
+  .dimrow .nm span { display: block; font-size: 10.5px; font-weight: 400; color: var(--c-ink-3); }
+  .dimrow .bar { height: 7px; border-radius: 99px; background: var(--c-bg-2); overflow: hidden; }
+  .dimrow .bar i { display: block; height: 100%; border-radius: 99px; }
+  .dimrow .val { font-family: var(--c-font-mono); font-size: 12px; text-align: right; color: var(--c-ink-2); }
+
+  /* issue cards */
+  .issue { border: 1px solid var(--c-hairline-soft); border-radius: var(--radius-sm); padding: 16px 18px; margin-top: 12px; }
+  .issue .i-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .issue .i-head b { font-size: 13px; }
+  .issue .i-head .when { margin-left: auto; font-family: var(--c-font-mono); font-size: 10.5px; color: var(--c-ink-3); }
+  .hue-arc { position: relative; height: 14px; border-radius: 99px; margin: 14px 6px 26px;
+    background: linear-gradient(90deg, hsl(150,70%,45%), hsl(170,75%,45%), hsl(190,80%,50%), hsl(210,80%,55%), hsl(235,75%,55%)); }
+  .hue-arc .win { position: absolute; top: -4px; bottom: -4px; left: 14%; width: 38%; border: 2px solid var(--c-ink); border-radius: 10px; }
+  .hue-arc .win::after { content: "allowed arc · teal → cyan"; position: absolute; top: -18px; left: 0; font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-ink-2); white-space: nowrap; }
+  .hue-arc .pin { position: absolute; top: -6px; bottom: -6px; left: 81%; width: 4px; border-radius: 99px; background: var(--c-stop); box-shadow: 0 0 0 3px rgba(179,64,46,0.25); }
+  .hue-arc .pin::after { content: "#1d4ed8 · found in deep-poster"; position: absolute; top: calc(100% + 6px); right: -8px; font-family: var(--c-font-mono); font-size: 9.5px; color: var(--c-stop); white-space: nowrap; }
+  .issue .i-acts { display: flex; gap: 8px; margin-top: 8px; }
+  .issue .swpair { display: inline-flex; align-items: center; gap: 5px; }
+  .issue .swpair i { width: 14px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18); }
+
+  .method { font-size: 11.5px; color: var(--c-ink-3); line-height: 1.6; }
+  footer { padding: 16px 0 60px; display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body class="grain">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(242,241,238,0.15);" />
+      <b>Brand-Ops</b>
+    </a>
+    <nav class="nav">
+      <a href="01-portfolio.html">Portfolio</a>
+      <a href="06-library.html">Library</a>
+      <a class="on" href="08-grade.html">Standards</a>
+      <a href="09-crew.html">Crew</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="workspace-chip"><span class="sw"></span> Magic Unicorn <span style="opacity:0.5;">▾</span></span>
+      <span class="kbd">⌘K</span>
+      <a class="btn btn-ink" href="05-new-brand.html">New brand</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="head rise">
+    <div>
+      <span class="microlabel">Standards · portfolio audit</span>
+      <h1>Graded like it ships.</h1>
+      <p class="annotation">Five measured dimensions, recomputed on every asset event. No vanity numbers — every score traces to a checkable rule.</p>
+    </div>
+    <div class="right">
+      <a class="btn btn-ghost" href="#">Audit history</a>
+      <a class="btn btn-ink" href="#">Re-grade all</a>
+    </div>
+  </section>
+
+  <!-- BOARD -->
+  <section class="board rise d1">
+    <div class="b-row head-row">
+      <span>Brand</span><span>Grade</span><span>Dimensions</span><span>Trend</span><span>Open issues</span><span>Last audit</span>
+    </div>
+
+    <div class="b-row">
+      <div class="b-ident"><span class="cv" style="background:#0a0a0a;"><img src="assets/img/mu-unicorn.svg" alt=""/></span><div><b>Magic Unicorn</b><span>masterbrand</span></div></div>
+      <span class="b-grade g-b">B</span>
+      <div class="dims">
+        <div class="dim"><div class="lbl">color</div><div class="bar"><i style="width:94%;"></i></div></div>
+        <div class="dim"><div class="lbl">type</div><div class="bar"><i style="width:88%;"></i></div></div>
+        <div class="dim"><div class="lbl">mark</div><div class="bar"><i style="width:85%;"></i></div></div>
+        <div class="dim"><div class="lbl">coverage</div><div class="bar"><i class="lo" style="width:33%;"></i></div></div>
+        <div class="dim"><div class="lbl">voice</div><div class="bar"><i style="width:96%;"></i></div></div>
+      </div>
+      <svg class="spark" viewBox="0 0 86 26"><polyline class="up" points="2,18 16,17 30,19 44,14 58,12 72,9 84,8"/></svg>
+      <span class="iss ok">0</span>
+      <span style="font-family:var(--c-font-mono); font-size:11px; color:var(--c-ink-3);">2h ago</span>
+    </div>
+
+    <div class="b-row sel">
+      <div class="b-ident"><span class="cv" style="background:#051937;"><img src="assets/img/cd-mark.png" alt=""/></span><div><b>Center Deep</b><span>division</span></div></div>
+      <span class="b-grade g-b">B−</span>
+      <div class="dims">
+        <div class="dim"><div class="lbl">color</div><div class="bar"><i style="width:92%;"></i></div></div>
+        <div class="dim"><div class="lbl">type</div><div class="bar"><i style="width:90%;"></i></div></div>
+        <div class="dim"><div class="lbl">mark</div><div class="bar"><i style="width:71%;"></i></div></div>
+        <div class="dim"><div class="lbl">coverage</div><div class="bar"><i class="lo" style="width:50%;"></i></div></div>
+        <div class="dim"><div class="lbl">voice</div><div class="bar"><i style="width:88%;"></i></div></div>
+      </div>
+      <svg class="spark" viewBox="0 0 86 26"><polyline points="2,14 16,13 30,15 44,12 58,13 72,11 84,11"/></svg>
+      <span class="iss warn">2</span>
+      <span style="font-family:var(--c-font-mono); font-size:11px; color:var(--c-ink-3);">2h ago</span>
+    </div>
+
+    <div class="b-row">
+      <div class="b-ident"><span class="cv" style="background:#0a0a0f;"><img src="assets/img/uc-colonel.png" alt=""/></span><div><b>Unicorn Commander</b><span>division</span></div></div>
+      <span class="b-grade g-c">C+</span>
+      <div class="dims">
+        <div class="dim"><div class="lbl">color</div><div class="bar"><i class="lo" style="width:64%;"></i></div></div>
+        <div class="dim"><div class="lbl">type</div><div class="bar"><i style="width:82%;"></i></div></div>
+        <div class="dim"><div class="lbl">mark</div><div class="bar"><i class="vlo" style="width:48%;"></i></div></div>
+        <div class="dim"><div class="lbl">coverage</div><div class="bar"><i class="lo" style="width:50%;"></i></div></div>
+        <div class="dim"><div class="lbl">voice</div><div class="bar"><i style="width:91%;"></i></div></div>
+      </div>
+      <svg class="spark" viewBox="0 0 86 26"><polyline class="dn" points="2,9 16,10 30,9 44,13 58,15 72,17 84,18"/></svg>
+      <span class="iss warn">3</span>
+      <span style="font-family:var(--c-font-mono); font-size:11px; color:var(--c-ink-3);">2h ago</span>
+    </div>
+
+    <div class="b-row">
+      <div class="b-ident"><span class="cv" style="background:#0a0a0a;"><img src="assets/img/mj-dj.png" alt=""/></span><div><b>Majik's Online</b><span>division</span></div></div>
+      <span class="b-grade g-b">B+</span>
+      <div class="dims">
+        <div class="dim"><div class="lbl">color</div><div class="bar"><i style="width:95%;"></i></div></div>
+        <div class="dim"><div class="lbl">type</div><div class="bar"><i style="width:92%;"></i></div></div>
+        <div class="dim"><div class="lbl">mark</div><div class="bar"><i style="width:89%;"></i></div></div>
+        <div class="dim"><div class="lbl">coverage</div><div class="bar"><i style="width:67%;"></i></div></div>
+        <div class="dim"><div class="lbl">voice</div><div class="bar"><i style="width:94%;"></i></div></div>
+      </div>
+      <svg class="spark" viewBox="0 0 86 26"><polyline class="up" points="2,16 16,15 30,13 44,12 58,10 72,9 84,7"/></svg>
+      <span class="iss ok">0</span>
+      <span style="font-family:var(--c-font-mono); font-size:11px; color:var(--c-ink-3);">2h ago</span>
+    </div>
+
+    <div class="b-row">
+      <div class="b-ident"><span class="cv" style="background:#030303;"><img src="assets/img/mjs-icon.png" alt=""/></span><div><b>Majik's Music Studio</b><span>product</span></div></div>
+      <span class="b-grade g-a">A−</span>
+      <div class="dims">
+        <div class="dim"><div class="lbl">color</div><div class="bar"><i style="width:97%;"></i></div></div>
+        <div class="dim"><div class="lbl">type</div><div class="bar"><i style="width:93%;"></i></div></div>
+        <div class="dim"><div class="lbl">mark</div><div class="bar"><i style="width:90%;"></i></div></div>
+        <div class="dim"><div class="lbl">coverage</div><div class="bar"><i style="width:67%;"></i></div></div>
+        <div class="dim"><div class="lbl">voice</div><div class="bar"><i style="width:95%;"></i></div></div>
+      </div>
+      <svg class="spark" viewBox="0 0 86 26"><polyline class="up" points="2,19 16,16 30,15 44,12 58,11 72,8 84,6"/></svg>
+      <span class="iss warn">8 in review</span>
+      <span style="font-family:var(--c-font-mono); font-size:11px; color:var(--c-ink-3);">1d ago</span>
+    </div>
+
+    <div class="b-row">
+      <div class="b-ident"><span class="cv" style="background:#0a1228;"><img src="assets/img/mo-lead.png" alt=""/></span><div><b>Meeting-Ops</b><span>product</span></div></div>
+      <span class="b-grade g-a">A−</span>
+      <div class="dims">
+        <div class="dim"><div class="lbl">color</div><div class="bar"><i style="width:98%;"></i></div></div>
+        <div class="dim"><div class="lbl">type</div><div class="bar"><i style="width:95%;"></i></div></div>
+        <div class="dim"><div class="lbl">mark</div><div class="bar"><i style="width:96%;"></i></div></div>
+        <div class="dim"><div class="lbl">coverage</div><div class="bar"><i style="width:67%;"></i></div></div>
+        <div class="dim"><div class="lbl">voice</div><div class="bar"><i style="width:97%;"></i></div></div>
+      </div>
+      <svg class="spark" viewBox="0 0 86 26"><polyline class="up" points="2,22 16,20 30,16 44,12 58,9 72,7 84,5"/></svg>
+      <span class="iss ok">0</span>
+      <span style="font-family:var(--c-font-mono); font-size:11px; color:var(--c-ink-3);">18h ago</span>
+    </div>
+  </section>
+
+  <!-- REPORT CARD -->
+  <section class="report">
+    <aside class="score-card rise d2">
+      <span class="microlabel">Report card</span>
+      <div class="ringwrap">
+        <svg width="150" height="150">
+          <circle cx="75" cy="75" r="64" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="9"/>
+          <circle cx="75" cy="75" r="64" fill="none" stroke="#9dc86b" stroke-width="9" stroke-linecap="round"
+                  stroke-dasharray="402" stroke-dashoffset="88"/>
+        </svg>
+        <div class="in"><b>B−</b><span>78 / 100</span></div>
+      </div>
+      <div class="brand-line"><img src="assets/img/cd-mark.png" alt="" /><b>Center Deep</b></div>
+      <p class="meta">Graded 2h ago · 5 assets · trend flat<br/>Biggest lever: <b style="color:var(--c-ink-2);">coverage</b> (3 types missing)</p>
+      <a class="btn btn-ink" href="04-studio.html" style="margin-top:12px;">Fix the biggest lever</a>
+    </aside>
+
+    <div class="detail">
+      <div class="panel rise d2">
+        <h3>Dimensions</h3>
+        <p class="sub">Each dimension is computed from rules in the brand record — click any row for the receipts.</p>
+        <div class="dimrow">
+          <span class="nm">Color fidelity<span>assets vs allowed hexes + hue arc</span></span>
+          <span class="bar"><i style="width:92%; background:var(--c-go);"></i></span>
+          <span class="val">92</span>
+        </div>
+        <div class="dimrow">
+          <span class="nm">Type discipline<span>declared families in rendered text</span></span>
+          <span class="bar"><i style="width:90%; background:var(--c-go);"></i></span>
+          <span class="val">90</span>
+        </div>
+        <div class="dimrow">
+          <span class="nm">Mark usage<span>clear space + min size at publish</span></span>
+          <span class="bar"><i style="width:71%; background:var(--c-warn);"></i></span>
+          <span class="val">71</span>
+        </div>
+        <div class="dimrow">
+          <span class="nm">Coverage<span>approved asset types / required</span></span>
+          <span class="bar"><i style="width:50%; background:var(--c-warn);"></i></span>
+          <span class="val">50</span>
+        </div>
+        <div class="dimrow">
+          <span class="nm">Voice<span>copy lint across published text</span></span>
+          <span class="bar"><i style="width:88%; background:var(--c-go);"></i></span>
+          <span class="val">88</span>
+        </div>
+      </div>
+
+      <div class="panel rise d3">
+        <h3>Open issues — 2</h3>
+        <p class="sub">Every issue shows its evidence and carries its own fix.</p>
+
+        <div class="issue">
+          <div class="i-head">
+            <span class="stamp stamp-fail">off-brand color</span>
+            <b>deep-poster.png drifts out of the hue arc</b>
+            <span class="when">found 2d ago</span>
+          </div>
+          <div class="hue-arc">
+            <span class="win"></span>
+            <span class="pin"></span>
+          </div>
+          <div style="display:flex; align-items:center; gap:18px; font-size:12px; color:var(--c-ink-2);">
+            <span class="swpair"><i style="background:#1d4ed8;"></i> found #1d4ed8</span>
+            <span>→ nearest allowed</span>
+            <span class="swpair"><i style="background:#0891b2;"></i> #0891b2 Current</span>
+            <span style="color:var(--c-ink-3);">23% of significant pixels affected</span>
+          </div>
+          <div class="i-acts">
+            <a class="btn btn-ink" href="04-studio.html" style="font-size:12px; padding:7px 13px;">Send to Refine — re-tint</a>
+            <a class="btn btn-ghost" href="#" style="font-size:12px; padding:7px 13px;">Allow as exception</a>
+            <a class="btn btn-ghost" href="#" style="font-size:12px; padding:7px 13px;">Archive asset</a>
+          </div>
+        </div>
+
+        <div class="issue">
+          <div class="i-head">
+            <span class="stamp stamp-flag">coverage gap</span>
+            <b>3 kit types missing — social, podcast, avatar</b>
+            <span class="when">standing</span>
+          </div>
+          <div style="font-size:12.5px; color:var(--c-ink-2);">Coverage is the grade's biggest drag (−14). The steward can close it in one run.</div>
+          <div class="i-acts">
+            <a class="btn btn-ink" href="04-studio.html" style="font-size:12px; padding:7px 13px;">Generate the 3 missing · ≈ $0.12</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel rise d4">
+        <h3>Methodology</h3>
+        <p class="method">Grade = weighted blend — color 25 · type 15 · mark 20 · coverage 25 · voice 15 — recomputed on every asset event and nightly audit. Mark usage currently measures min-size only; clear-space telemetry lands with publish-context capture (honest gap, scored conservatively). Exceptions are logged and expire — an allowance is a decision, not a leak.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="spec-note">SPEC · the hue-arc strip is generated from the brand's gradient rule (compliance/evaluator.py rule d) — the same math the gate runs.</span>
+    <span class="spec-note">SPEC · "Fix the biggest lever" = the grade engine names which dimension, and the CTA deep-links the steward action that moves it most.</span>
+  </footer>
+
+</main>
+</body>
+</html>

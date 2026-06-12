@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Majik's Online — Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  /* Majik's Online environment */
+  body {
+    --b-bg: #0a0a0a;
+    --b-bg-glow1: rgba(168, 85, 247, 0.26);
+    --b-bg-glow2: rgba(192, 132, 252, 0.12);
+    --b-ink: #fafafa;
+    --b-ink-2: rgba(250, 250, 250, 0.64);
+    --b-ink-3: rgba(250, 250, 250, 0.42);
+    --b-hairline: rgba(216, 180, 254, 0.13);
+    --b-primary: #a855f7;
+    --b-accent: #c084fc;
+    --b-font-display: "Inter", sans-serif;
+    --b-font-body: "Inter", sans-serif;
+  }
+
+  .studio { display: grid; grid-template-columns: 440px 1fr; gap: 24px; padding: 26px 0 50px; min-height: calc(100vh - 60px); }
+
+  /* -------------------------------------------------------- conversation -- */
+  .convo { border: 1px solid var(--b-hairline); border-radius: var(--radius); background: rgba(255,255,255,0.025); display: flex; flex-direction: column; overflow: hidden; }
+  .convo-head { padding: 16px 20px; border-bottom: 1px solid var(--b-hairline); display: flex; gap: 12px; align-items: center; }
+  .avatar { width: 44px; height: 44px; border-radius: 999px; overflow: hidden; background: #1c1226; display: grid; place-items: center; flex: none; position: relative; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .convo-head b { font-size: 14.5px; display: block; letter-spacing: -0.01em; }
+  .working { font-size: 11.5px; color: var(--b-accent); display: flex; align-items: center; gap: 6px; }
+  .working .w-dots span { display: inline-block; width: 3.5px; height: 3.5px; margin-right: 2.5px; border-radius: 99px; background: var(--b-accent); animation: wd 1.2s ease-in-out infinite; }
+  .working .w-dots span:nth-child(2) { animation-delay: 0.15s; } .working .w-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes wd { 0%,100% { opacity: 0.25; transform: translateY(0);} 50% { opacity: 1; transform: translateY(-2px);} }
+
+  .msgs { flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+  .msg { max-width: 92%; font-size: 13.5px; line-height: 1.55; }
+  .msg.you { align-self: flex-end; background: rgba(168,85,247,0.16); border: 1px solid rgba(168,85,247,0.3); border-radius: 14px 14px 4px 14px; padding: 11px 14px; }
+  .msg.them { align-self: flex-start; display: flex; gap: 10px; }
+  .msg.them .avatar { width: 30px; height: 30px; margin-top: 2px; }
+  .msg.them .bubble-c { background: rgba(255,255,255,0.04); border: 1px solid var(--b-hairline); border-radius: 4px 14px 14px 14px; padding: 11px 14px; }
+  .msg .hx { font-family: var(--c-font-mono); font-size: 12px; color: var(--b-accent); }
+  .msg .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3.5px; vertical-align: -1.5px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2); }
+
+  .plan { margin-top: 10px; border: 1px solid var(--b-hairline); border-radius: 10px; overflow: hidden; }
+  .plan-head { padding: 9px 13px; background: rgba(168,85,247,0.12); font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--b-accent); display: flex; justify-content: space-between; }
+  .plan-row { display: flex; align-items: center; gap: 9px; padding: 9px 13px; font-size: 12.5px; border-top: 1px solid rgba(216,180,254,0.07); }
+  .plan-row .st { margin-left: auto; font-family: var(--c-font-mono); font-size: 10px; }
+  .st.done { color: #8be3a8; } .st.run { color: var(--b-accent); } .st.q { color: var(--b-ink-3); }
+
+  .memo { align-self: center; font-size: 11px; color: var(--b-ink-3); border: 1px dashed var(--b-hairline); padding: 6px 12px; border-radius: 999px; }
+  .memo b { color: var(--c-warn); font-weight: 600; }
+
+  .composer { border-top: 1px solid var(--b-hairline); padding: 14px 16px; }
+  .composer .box { border: 1px solid var(--b-hairline); background: rgba(255,255,255,0.03); border-radius: 12px; padding: 12px 14px; font-size: 13.5px; color: var(--b-ink-3); display: flex; align-items: center; }
+  .composer .box .send { margin-left: auto; background: var(--b-primary); color: #fff; border-radius: 8px; padding: 6px 14px; font-size: 12.5px; font-weight: 600; }
+  .composer .meta { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+
+  /* ------------------------------------------------------------- staging -- */
+  .stage { display: flex; flex-direction: column; gap: 20px; }
+  .stage-head { display: flex; align-items: baseline; gap: 14px; }
+  .stage-head h1 { margin: 0; font-family: var(--b-font-display); font-weight: 800; font-size: 26px; letter-spacing: -0.02em; }
+  .stage-head .annotation { font-size: 14px; }
+  .run-meta { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  .variants { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .variant { border: 1px solid var(--b-hairline); border-radius: var(--radius); overflow: hidden; background: rgba(255,255,255,0.025); }
+  .variant .art { position: relative; aspect-ratio: 1.91 / 1; display: grid; place-items: center; overflow: hidden; }
+  .variant .art .stamped { position: absolute; top: 12px; right: 12px; z-index: 3; }
+  .variant .art .stamped .stamp { background: rgba(8,8,8,0.62); backdrop-filter: blur(6px); }
+  .variant-foot { display: flex; align-items: center; gap: 10px; padding: 12px 16px; font-size: 12px; color: var(--b-ink-2); }
+  .variant-foot .score { font-family: var(--c-font-mono); font-size: 11px; }
+  .variant-foot .acts { margin-left: auto; display: flex; gap: 8px; }
+  .mini-btn { font-size: 11.5px; font-weight: 600; padding: 6px 11px; border-radius: 8px; border: 1px solid var(--b-hairline); color: var(--b-ink); text-decoration: none; }
+  .mini-btn.go { background: var(--b-primary); border-color: transparent; color: #fff; }
+  .mini-btn.warn { color: var(--c-warn); border-color: rgba(176,124,31,0.45); }
+
+  /* fake "generated" social cards — composited like the real card engine */
+  .gen-card { position: relative; width: 100%; height: 100%; padding: 22px 26px; display: flex; flex-direction: column; justify-content: space-between; }
+  .gen-card .ttl { font-weight: 800; letter-spacing: -0.025em; line-height: 1.02; }
+  .gen-card .sub { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.75; }
+  .gen-card img { position: absolute; right: 18px; bottom: 14px; height: 58%; filter: drop-shadow(0 8px 18px rgba(0,0,0,0.5)); }
+
+  .variant .art.shimmering { background: rgba(255,255,255,0.03); }
+  .reveal-status { display: flex; flex-direction: column; gap: 8px; align-items: center; color: var(--b-ink-3); font-size: 12px; z-index: 2; }
+  .reveal-status .bar { width: 180px; height: 4px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .reveal-status .bar i { display: block; height: 100%; width: 62%; border-radius: 99px; background: linear-gradient(90deg, var(--b-primary), var(--b-accent)); animation: load 2.2s ease-in-out infinite alternate; }
+  @keyframes load { from { width: 38%; } to { width: 84%; } }
+  .variant .art.queued { border: 0; background: transparent; }
+  .queued-inner { border: 1.5px dashed var(--b-hairline); border-radius: 10px; width: 88%; height: 80%; display: grid; place-items: center; color: var(--b-ink-3); font-size: 12px; }
+
+  /* try-on strip */
+  .tryon { border: 1px solid var(--b-hairline); border-radius: var(--radius); background: rgba(255,255,255,0.02); padding: 18px 22px; }
+  .tryon-row { display: flex; gap: 22px; margin-top: 14px; align-items: flex-end; }
+  .phone { width: 124px; height: 226px; border-radius: 22px; border: 2px solid rgba(255,255,255,0.14); background: #050505; padding: 8px; }
+  .phone .scr { width: 100%; height: 100%; border-radius: 15px; overflow: hidden; position: relative; }
+  .og-prev { flex: 1; border: 1px solid var(--b-hairline); border-radius: 12px; overflow: hidden; background: rgba(255,255,255,0.035); }
+  .og-prev .og-art { aspect-ratio: 1.91/1; position: relative; overflow: hidden; }
+  .og-prev .og-txt { padding: 10px 14px; }
+  .og-prev .og-txt b { font-size: 12.5px; display: block; }
+  .og-prev .og-txt span { font-size: 11px; color: var(--b-ink-3); }
+  .sq { width: 158px; aspect-ratio: 1/1; border-radius: 12px; overflow: hidden; position: relative; border: 1px solid var(--b-hairline); }
+
+  .gencard-bg-a { background: radial-gradient(420px 260px at 18% 0%, rgba(168,85,247,0.55), transparent 60%), radial-gradient(360px 240px at 96% 110%, rgba(192,132,252,0.4), transparent 55%), #0a0a0a; color: #fafafa; }
+  .gencard-bg-b { background: radial-gradient(420px 260px at 18% 0%, rgba(232,121,249,0.6), transparent 60%), radial-gradient(360px 240px at 96% 110%, rgba(217,70,239,0.45), transparent 55%), #14060f; color: #fff0fa; }
+
+  footer { padding: 8px 0 60px; display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body class="grain" data-env="brand">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html" title="Back to Portfolio">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(255,255,255,0.15);" />
+      <b>‹ Portfolio</b>
+    </a>
+    <span style="display:flex; align-items:center; gap:9px;">
+      <img src="assets/img/mj-dj.png" alt="" style="height:26px;" />
+      <b style="font-family:var(--b-font-display); font-size:14.5px; letter-spacing:-0.01em;">Majik's Online</b>
+    </span>
+    <nav class="nav">
+      <a href="02-brand-hq.html">Overview</a>
+      <a href="03-mark.html">Mark</a>
+      <a href="07-book.html">Book</a>
+      <a href="06-library.html">Assets</a>
+      <a class="on" href="04-studio.html">Studio</a>
+      <a href="08-grade.html">Grade</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="chip"><span class="dot dot-live"></span> Steward composing</span>
+      <span class="kbd">⌘K</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="studio">
+
+    <!-- ================================================== CONVERSATION -->
+    <aside class="convo rise">
+      <div class="convo-head">
+        <span class="avatar"><img src="assets/img/mj-dj.png" alt="" /></span>
+        <div>
+          <b>Majik's Steward</b>
+          <span class="working"><span class="w-dots"><span></span><span></span><span></span></span> composing variant 3 of 4 · nano-banana · refs locked</span>
+        </div>
+      </div>
+
+      <div class="msgs">
+        <div class="msg you">
+          We're sponsoring the vinyl pop-up at Charleston Music Hall. I need the social kit — and talk to me about whether the lavender holds up in print.
+        </div>
+
+        <div class="msg them">
+          <span class="avatar"><img src="assets/img/mj-dj.png" alt="" /></span>
+          <div class="bubble-c">
+            Good instinct to ask. <span class="sw" style="background:#c084fc;"></span> <span class="hx">#c084fc</span> is a screen color — in CMYK it greys out about 12% and loses the glow that makes it ours. For print I'd anchor on <span class="sw" style="background:#a855f7;"></span> <span class="hx">#a855f7</span> at full strength and let lavender live only in the gradient field, never as type. That keeps us inside the brand's hue arc and printable.
+            <div class="plan">
+              <div class="plan-head"><span>Pop-up kit · 4 pieces</span><span>hands-free · ≈ $0.09</span></div>
+              <div class="plan-row">social_card · gradient direction <span class="st done">stamped 96</span></div>
+              <div class="plan-row">social_card · pink-shift direction <span class="st done">flagged 71</span></div>
+              <div class="plan-row">og_image · event banner <span class="st run">composing…</span></div>
+              <div class="plan-row">poster 18×24 · print CMYK <span class="st q">queued</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="memo">compliance memo · <b>"game-changer"</b> in your draft copy was replaced — banned by brand voice</div>
+
+        <div class="msg them">
+          <span class="avatar"><img src="assets/img/mj-dj.png" alt="" /></span>
+          <div class="bubble-c">
+            First two directions are on the staging wall. The pink-shift one flagged itself — <span class="hx">#e879f9</span> sits outside our arc, I left it up so you can see why. Poster runs after you pick a direction; print copy will carry the CMYK build.
+          </div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="box">Tell the steward what to make, or ask why…<span class="send">Send</span></div>
+        <div class="meta">
+          <span class="chip">refs · DJ mark + house unicorn</span>
+          <span class="chip">nano-banana 2</span>
+          <span class="chip" style="color:#b9d98a; border-color:rgba(196,224,138,0.35);">autonomy · auto in budget ▾</span>
+          <span class="chip">fine-tune ▾</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ======================================================= STAGING -->
+    <section class="stage">
+      <div class="stage-head rise">
+        <h1>Staging wall</h1>
+        <span class="annotation">Nothing reaches the Library without a stamp.</span>
+        <div class="run-meta">
+          <span class="chip">run #214</span>
+          <span class="chip">$0.09 metered</span>
+          <span class="chip"><span class="dot dot-live"></span> streaming</span>
+        </div>
+      </div>
+
+      <div class="variants">
+        <!-- V1: revealed + passed -->
+        <div class="variant rise d1">
+          <div class="art gencard-bg-a">
+            <span class="stamped"><span class="stamp stamp-pass fresh">On brand · 96</span></span>
+            <div class="gen-card">
+              <span class="sub">Majik's Online · Live</span>
+              <div>
+                <div class="ttl" style="font-size:30px;">VINYL<br/>NIGHT</div>
+                <div class="sub" style="margin-top:6px;">Charleston Music Hall · Jun 21</div>
+              </div>
+              <img src="assets/img/mj-dj.png" alt="" />
+            </div>
+          </div>
+          <div class="variant-foot">
+            <span>Direction A — gradient field</span>
+            <span class="score">1080×1080 · composited type</span>
+            <span class="acts">
+              <a class="mini-btn" href="#">Versions</a>
+              <a class="mini-btn go" href="06-library.html">Approve → Library</a>
+            </span>
+          </div>
+        </div>
+
+        <!-- V2: revealed + flagged -->
+        <div class="variant rise d2">
+          <div class="art gencard-bg-b">
+            <span class="stamped"><span class="stamp stamp-flag">Flagged · 71</span></span>
+            <div class="gen-card">
+              <span class="sub">Majik's Online · Live</span>
+              <div>
+                <div class="ttl" style="font-size:30px;">VINYL<br/>NIGHT</div>
+                <div class="sub" style="margin-top:6px;">Charleston Music Hall · Jun 21</div>
+              </div>
+              <img src="assets/img/mj-dj.png" alt="" />
+            </div>
+          </div>
+          <div class="variant-foot">
+            <span><span class="sw" style="display:inline-block;width:11px;height:11px;border-radius:3px;background:#e879f9;vertical-align:-1px;"></span> #e879f9 outside hue arc · 23% off-brand</span>
+            <span class="acts">
+              <a class="mini-btn warn" href="#">Send to Refine</a>
+              <a class="mini-btn" href="#">Archive</a>
+            </span>
+          </div>
+        </div>
+
+        <!-- V3: composing (shimmer) -->
+        <div class="variant rise d3">
+          <div class="art shimmering shimmer">
+            <div class="reveal-status">
+              <span>og_image · event banner — composing</span>
+              <span class="bar"><i></i></span>
+              <span style="font-family:var(--c-font-mono); font-size:10px;">nano-banana 2 · refs: DJ mark, house unicorn</span>
+            </div>
+          </div>
+          <div class="variant-foot"><span>Direction pending reveal</span><span class="acts"><a class="mini-btn" href="#">Cancel</a></span></div>
+        </div>
+
+        <!-- V4: queued -->
+        <div class="variant rise d4">
+          <div class="art queued">
+            <div class="queued-inner">poster 18×24 · waits for your pick — print CMYK build</div>
+          </div>
+          <div class="variant-foot"><span>Queued</span><span class="acts"><a class="mini-btn" href="#">Run now</a></span></div>
+        </div>
+      </div>
+
+      <!-- try on -->
+      <div class="tryon rise d4">
+        <span class="microlabel">Try it on — Direction A in the wild</span>
+        <div class="tryon-row">
+          <div class="phone"><div class="scr gencard-bg-a">
+            <img src="assets/img/mj-dj.png" alt="" style="position:absolute; right:8px; bottom:8px; height:42%;" />
+            <div style="padding:14px 12px; font-size:13px; font-weight:800; letter-spacing:-0.02em;">VINYL NIGHT</div>
+          </div></div>
+          <div class="og-prev">
+            <div class="og-art gencard-bg-a">
+              <img src="assets/img/mj-dj.png" alt="" style="position:absolute; right:16px; bottom:10px; height:62%;" />
+              <div style="padding:18px 20px; font-size:21px; font-weight:800; letter-spacing:-0.02em;">VINYL NIGHT<br/><span style="font-size:10.5px; font-weight:600; letter-spacing:0.13em; opacity:0.7;">CHARLESTON MUSIC HALL</span></div>
+            </div>
+            <div class="og-txt"><b>majiks.online — Vinyl Night</b><span>Stream free. Own what you love. No labels required.</span></div>
+          </div>
+          <div class="sq gencard-bg-a">
+            <img src="assets/img/mj-dj.png" alt="" style="position:absolute; right:10px; bottom:8px; height:52%;" />
+            <div style="padding:13px 13px; font-size:15px; font-weight:800; letter-spacing:-0.02em;">VINYL<br/>NIGHT</div>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        <span class="spec-note">SPEC · variants stream in over SSE; reveal = shimmer → crossfade; the stamp animates in on gate verdict (stamp-in spring).</span>
+        <span class="spec-note">SPEC · "Approve → Library" writes through the lifecycle gate; flagged work carries its reason and a one-click Refine handoff.</span>
+        <span class="spec-note">SPEC · conversation = the same engine as MCP/CLI; the plan card is the agent's actual DAG, not décor.</span>
+      </footer>
+    </section>
+  </div>
+</main>
+</body>
+</html>

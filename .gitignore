@@ -22,3 +22,6 @@ build/
 
 # OS
 .DS_Store
+
+# Curation quarantine: reversible holding pen for junk assets, not source.
+_asset-quarantine/

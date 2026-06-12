@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brand-Ops — Crew</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  .head { padding: 44px 0 18px; display: flex; align-items: flex-end; gap: 20px; }
+  .head h1 { margin: 8px 0 0; font-family: var(--c-font-display); font-weight: 700; font-size: 38px; letter-spacing: -0.025em; }
+  .head .annotation { margin-top: 8px; }
+  .head-right { margin-left: auto; }
+  .statline { display: flex; gap: 24px; justify-content: flex-end; }
+  .statline div b { display: block; font-family: var(--c-font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .statline div span { font-size: 11.5px; color: var(--c-ink-3); }
+
+  .sec { margin: 26px 0; }
+  .sec-h { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+  .sec-h h2 { margin: 0; font-family: var(--c-font-display); font-size: 19px; font-weight: 650; letter-spacing: -0.015em; }
+  .sec-h .annotation { font-size: 14px; }
+
+  .card { border: 1px solid var(--c-hairline-soft); border-radius: var(--radius); background: var(--c-surface); box-shadow: var(--shadow-paper); }
+
+  /* presence + autonomy chips */
+  .pres { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--c-ink-2); }
+  .auto-chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--c-font-mono); font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--c-hairline); border-radius: 6px; padding: 3px 8px; color: var(--c-ink-2); }
+  .auto-chip.a1 { color: var(--c-ink-3); }                               /* propose-only */
+  .auto-chip.a2 { color: #b9d98a; border-color: rgba(196,224,138,0.35); } /* auto w/ review */
+  .auto-chip.a3 { color: #7ce3a1; border-color: rgba(124,227,161,0.4); }  /* auto in budget */
+
+  /* ---- Iris / orchestration ---- */
+  .iris-card { display: grid; grid-template-columns: 1.2fr 1fr; }
+  .iris-left { padding: 22px 26px; border-right: 1px solid var(--c-hairline-soft); }
+  .iris-id { display: flex; gap: 14px; align-items: center; }
+  .orb { width: 52px; height: 52px; border-radius: 99px; background: radial-gradient(circle at 30% 28%, #d8b4fe, #7c3aed 58%, #2e1065); display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 19px; flex: none; box-shadow: 0 0 26px rgba(155,140,255,0.45); position: relative; }
+  .orb .st { position: absolute; right: 0; bottom: 1px; width: 12px; height: 12px; border-radius: 99px; background: var(--c-go); border: 2.5px solid var(--c-surface); }
+  .iris-id b { font-family: var(--c-font-display); font-size: 17px; display: block; letter-spacing: -0.01em; }
+  .iris-id .r { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: #b9a7ff; }
+  .iris-id .meta { margin-left: auto; text-align: right; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
+  .kvrow { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; padding: 7px 0; border-bottom: 1px solid var(--c-hairline-soft); }
+  .kvrow:last-child { border-bottom: 0; }
+  .kvrow .k { color: var(--c-ink-3); }
+  .kvrow .v { font-weight: 600; text-align: right; }
+  .kvrow .v.mono { font-family: var(--c-font-mono); font-weight: 500; font-size: 11px; }
+  .orders { margin: 14px 0 0; }
+  .orders li { font-size: 12px; color: var(--c-ink-2); padding: 4px 0 4px 16px; position: relative; list-style: none; line-height: 1.5; }
+  .orders { padding: 0; }
+  .orders li::before { content: "§"; position: absolute; left: 0; top: 4px; color: var(--c-ink-3); font-size: 10px; }
+  .iris-right { padding: 22px 26px; }
+  .decision { padding: 9px 0; border-bottom: 1px solid var(--c-hairline-soft); font-size: 12.5px; color: var(--c-ink-2); display: flex; gap: 10px; align-items: baseline; }
+  .decision:last-child { border-bottom: 0; }
+  .decision b { color: var(--c-ink); font-weight: 600; }
+  .decision .when { margin-left: auto; font-family: var(--c-font-mono); font-size: 10px; color: var(--c-ink-3); white-space: nowrap; }
+
+  /* ---- stewards ---- */
+  .stewards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .steward { overflow: hidden; }
+  .stw-top { display: flex; align-items: center; gap: 12px; padding: 16px 18px 12px; }
+  .stw-av { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center; flex: none; position: relative; overflow: visible; }
+  .stw-av img { max-width: 34px; max-height: 34px; object-fit: contain; }
+  .stw-av .st { position: absolute; right: -3px; bottom: -3px; width: 11px; height: 11px; border-radius: 99px; border: 2.5px solid var(--c-surface); }
+  .stw-top b { font-family: var(--c-font-display); font-size: 14px; display: block; letter-spacing: -0.01em; }
+  .stw-top .doing { font-size: 11px; color: var(--c-ink-3); }
+  .stw-top .doing.live { color: #b9d98a; }
+  .stw-orders { padding: 0 18px 10px; font-size: 11.5px; color: var(--c-ink-2); line-height: 1.55; }
+  .stw-orders span { color: var(--c-ink-3); }
+  .stw-stats { display: flex; gap: 0; border-top: 1px solid var(--c-hairline-soft); }
+  .stw-stats div { flex: 1; padding: 9px 0; text-align: center; border-right: 1px solid var(--c-hairline-soft); }
+  .stw-stats div:last-child { border-right: 0; }
+  .stw-stats b { display: block; font-family: var(--c-font-mono); font-size: 12px; font-weight: 600; }
+  .stw-stats span { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c-ink-3); }
+  .stw-foot { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-top: 1px solid var(--c-hairline-soft); }
+  .stw-foot .talk { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--c-ink); text-decoration: none; }
+
+  /* ---- specialists ---- */
+  .specs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .spec { padding: 13px 15px; }
+  .spec b { font-family: var(--c-font-mono); font-size: 12px; display: block; }
+  .spec .m { font-size: 10.5px; color: var(--c-ink-3); margin-top: 2px; }
+  .spec .calls { font-family: var(--c-font-mono); font-size: 10px; color: var(--c-ink-2); margin-top: 8px; }
+
+  /* ---- doors ---- */
+  .doors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .door { padding: 18px 20px; position: relative; }
+  .door .d-name { display: flex; align-items: center; gap: 9px; font-family: var(--c-font-display); font-size: 14.5px; font-weight: 650; }
+  .door .d-sub { font-size: 11.5px; color: var(--c-ink-3); margin-top: 3px; }
+  .door .d-stat { margin-top: 12px; display: flex; gap: 16px; }
+  .door .d-stat div b { display: block; font-family: var(--c-font-mono); font-size: 14px; }
+  .door .d-stat div span { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-ink-3); }
+  .door .d-list { margin-top: 10px; font-family: var(--c-font-mono); font-size: 10px; color: var(--c-ink-2); line-height: 1.8; }
+  .door.mcp { border-color: rgba(155,140,255,0.4); box-shadow: var(--shadow-paper), 0 0 40px -12px rgba(155,140,255,0.3); }
+
+  .traffic { margin-top: 18px; padding: 6px 0; }
+  .tr-row { display: flex; align-items: center; gap: 12px; padding: 9px 20px; font-family: var(--c-font-mono); font-size: 10.5px; color: var(--c-ink-2); border-bottom: 1px solid var(--c-hairline-soft); }
+  .tr-row:last-child { border-bottom: 0; }
+  .tr-row .who { color: var(--c-ink); font-weight: 600; }
+  .tr-row .door-tag { font-size: 9px; letter-spacing: 0.08em; border: 1px solid var(--c-hairline); border-radius: 5px; padding: 1.5px 6px; color: var(--c-ink-3); }
+  .tr-row .ok { color: var(--c-go); }
+  .tr-row .when { margin-left: auto; color: var(--c-ink-3); }
+
+  /* ---- house rules ---- */
+  .rules { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .rule { padding: 16px 20px; border-right: 1px solid var(--c-hairline-soft); }
+  .rule:last-child { border-right: 0; }
+  .rule b { font-family: var(--c-font-display); font-size: 13px; display: block; margin-bottom: 4px; }
+  .rule p { margin: 0; font-size: 11.5px; color: var(--c-ink-2); line-height: 1.55; }
+  .rule .no { font-family: var(--c-font-mono); font-size: 9.5px; color: #b9a7ff; display: block; margin-bottom: 6px; }
+
+  footer { padding: 16px 0 60px; display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body class="grain">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(242,241,238,0.15);" />
+      <b>Brand-Ops</b>
+    </a>
+    <nav class="nav">
+      <a href="01-portfolio.html">Portfolio</a>
+      <a href="06-library.html">Library</a>
+      <a href="08-grade.html">Standards</a>
+      <a class="on" href="09-crew.html">Crew</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="workspace-chip"><span class="sw"></span> Magic Unicorn <span style="opacity:0.5;">▾</span></span>
+      <span class="kbd">⌘K</span>
+      <a class="btn btn-ink" href="05-new-brand.html">New brand</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="head rise">
+    <div>
+      <span class="microlabel">Crew · agents on staff</span>
+      <h1>Staff, not features.</h1>
+      <p class="annotation">Every agent is hired, scoped, budgeted, and accountable — and reachable through the same doors you are.</p>
+    </div>
+    <div class="head-right">
+      <div class="statline">
+        <div><b>8</b><span>on duty</span></div>
+        <div><b>412</b><span>actions this week</span></div>
+        <div><b>96%</b><span>approval rate</span></div>
+        <div><b>$4.12</b><span>spend this week</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ORCHESTRATION -->
+  <section class="sec rise d1">
+    <div class="sec-h"><h2>Orchestration</h2><span class="annotation">One director. She plans, delegates, and answers for it.</span></div>
+    <div class="card iris-card">
+      <div class="iris-left">
+        <div class="iris-id">
+          <span class="orb">I<span class="st"></span></span>
+          <div>
+            <span class="r">Director</span>
+            <b>Iris</b>
+          </div>
+          <div class="meta">
+            <span class="auto-chip a2">autonomy · auto with review ▾</span>
+            <span class="pres"><span class="dot dot-live"></span> running intake #31 · Tidepool Labs</span>
+          </div>
+        </div>
+        <div style="margin-top:14px;">
+          <div class="kvrow"><span class="k">Model</span><span class="v mono">qwen3.6-35b · gateway, metered</span></div>
+          <div class="kvrow"><span class="k">Scope</span><span class="v">all brands · spawn stewards · no publish</span></div>
+          <div class="kvrow"><span class="k">Budget</span><span class="v mono">$10/wk cap · $1.84 used</span></div>
+          <div class="kvrow"><span class="k">Memory</span><span class="v">Brigade · per-brand decisions retained</span></div>
+        </div>
+        <ul class="orders">
+          <li>Research before proposing. Cite the dossier.</li>
+          <li>Three directions minimum, one recommendation, defend it.</li>
+          <li>Spawn a steward at every ratify; set its standing orders.</li>
+        </ul>
+      </div>
+      <div class="iris-right">
+        <span class="microlabel">Recent decisions</span>
+        <div style="margin-top:8px;">
+          <div class="decision"><b>Proposed 3 directions</b> for Tidepool Labs — recommended Still Water<span class="when">3m</span></div>
+          <div class="decision"><b>Spawned steward</b> for Meeting-Ops, set drift watch at 7%<span class="when">1d</span></div>
+          <div class="decision"><b>Declined a request</b> — "make the logo pop" failed the brief test; asked for a measurable goal<span class="when">2d</span></div>
+          <div class="decision"><b>Escalated to you</b> — Crisis-Ops name collision risk, wants a human call<span class="when">3d</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEWARDS -->
+  <section class="sec rise d2">
+    <div class="sec-h"><h2>Brand stewards</h2><span class="annotation">One per brand. It wears the brand, knows the rules, guards the line.</span></div>
+    <div class="stewards">
+
+      <div class="card steward">
+        <div class="stw-top">
+          <span class="stw-av" style="background:#0a0a0a;"><img src="assets/img/mu-unicorn.svg" alt=""/><span class="st" style="background:var(--c-go);"></span></span>
+          <div><b>Magic Unicorn</b><span class="doing">on watch · last action 2h</span></div>
+        </div>
+        <div class="stw-orders"><span>Standing orders:</span> guard the masterbrand · sub-brands inherit, never dilute · flag off-arc gradients</div>
+        <div class="stw-stats"><div><b>41</b><span>actions/wk</span></div><div><b>97%</b><span>approved</span></div><div><b>$0.38</b><span>spend</span></div></div>
+        <div class="stw-foot"><span class="auto-chip a2">auto with review</span><a class="talk" href="04-studio.html">Talk →</a></div>
+      </div>
+
+      <div class="card steward">
+        <div class="stw-top">
+          <span class="stw-av" style="background:#051937;"><img src="assets/img/cd-mark.png" alt=""/><span class="st" style="background:var(--c-go);"></span></span>
+          <div><b>Center Deep</b><span class="doing">on watch · 2 open issues</span></div>
+        </div>
+        <div class="stw-orders"><span>Standing orders:</span> close the kit gap · re-tint the poster · keep teal arc pure, no clinical blue</div>
+        <div class="stw-stats"><div><b>12</b><span>actions/wk</span></div><div><b>94%</b><span>approved</span></div><div><b>$0.21</b><span>spend</span></div></div>
+        <div class="stw-foot"><span class="auto-chip a1">propose only</span><a class="talk" href="04-studio.html">Talk →</a></div>
+      </div>
+
+      <div class="card steward">
+        <div class="stw-top">
+          <span class="stw-av" style="background:#0a0a0f;"><img src="assets/img/uc-colonel.png" alt=""/><span class="st" style="background:var(--c-go);"></span></span>
+          <div><b>Unicorn Commander</b><span class="doing">on watch · 3 flagged to clear</span></div>
+        </div>
+        <div class="stw-orders"><span>Standing orders:</span> the Colonel is canonical · rank insignia exact per doctrine · clear the C+ this month</div>
+        <div class="stw-stats"><div><b>29</b><span>actions/wk</span></div><div><b>92%</b><span>approved</span></div><div><b>$0.55</b><span>spend</span></div></div>
+        <div class="stw-foot"><span class="auto-chip a2">auto with review</span><a class="talk" href="04-studio.html">Talk →</a></div>
+      </div>
+
+      <div class="card steward">
+        <div class="stw-top">
+          <span class="stw-av" style="background:#0a0a0a;"><img src="assets/img/mj-dj.png" alt=""/><span class="st" style="background:#b9a7ff;"></span></span>
+          <div><b>Majik's Online</b><span class="doing live">composing · pop-up kit, run #214</span></div>
+        </div>
+        <div class="stw-orders"><span>Standing orders:</span> lavender never as type in print · DJ mark anchored low-right · artists before product</div>
+        <div class="stw-stats"><div><b>63</b><span>actions/wk</span></div><div><b>98%</b><span>approved</span></div><div><b>$1.02</b><span>spend</span></div></div>
+        <div class="stw-foot"><span class="auto-chip a3">auto in budget</span><a class="talk" href="04-studio.html">Talk →</a></div>
+      </div>
+
+      <div class="card steward">
+        <div class="stw-top">
+          <span class="stw-av" style="background:#030303;"><img src="assets/img/mjs-icon.png" alt="" style="border-radius:8px;"/><span class="st" style="background:var(--c-warn);"></span></span>
+          <div><b>Majik's Music Studio</b><span class="doing">waiting · 8 assets need your review</span></div>
+        </div>
+        <div class="stw-orders"><span>Standing orders:</span> Pro-Suite tools stay under Studio, never Online · purple-on-black only</div>
+        <div class="stw-stats"><div><b>22</b><span>actions/wk</span></div><div><b>95%</b><span>approved</span></div><div><b>$0.44</b><span>spend</span></div></div>
+        <div class="stw-foot"><span class="auto-chip a2">auto with review</span><a class="talk" href="04-studio.html">Talk →</a></div>
+      </div>
+
+      <div class="card steward">
+        <div class="stw-top">
+          <span class="stw-av" style="background:#0a1228;"><img src="assets/img/mo-lead.png" alt=""/><span class="st" style="background:var(--c-go);"></span></span>
+          <div><b>Meeting-Ops</b><span class="doing">on watch · kit fresh, grade A−</span></div>
+        </div>
+        <div class="stw-orders"><span>Standing orders:</span> Lt Col is canonical, insignia exact · navy/gold emblem ≠ UI palette · refresh cards monthly</div>
+        <div class="stw-stats"><div><b>18</b><span>actions/wk</span></div><div><b>100%</b><span>approved</span></div><div><b>$0.31</b><span>spend</span></div></div>
+        <div class="stw-foot"><span class="auto-chip a2">auto with review</span><a class="talk" href="04-studio.html">Talk →</a></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SPECIALISTS -->
+  <section class="sec rise d3">
+    <div class="sec-h"><h2>Specialists</h2><span class="annotation">Shared skills any steward can call.</span></div>
+    <div class="specs">
+      <div class="card spec"><b>research</b><div class="m">Qwen + Brigade deep-research</div><div class="calls">31 calls/wk</div></div>
+      <div class="card spec"><b>asset_pack</b><div class="m">plans kits, routes backends</div><div class="calls">18 calls/wk</div></div>
+      <div class="card spec"><b>critic</b><div class="m">taste, human-gated</div><div class="calls">26 calls/wk</div></div>
+      <div class="card spec"><b>compositor</b><div class="m">deterministic cards · $0</div><div class="calls">14 calls/wk</div></div>
+      <div class="card spec"><b>tagger</b><div class="m">re-files strays, propose-only</div><div class="calls">9 calls/wk</div></div>
+      <div class="card spec"><b>refine</b><div class="m">applies critic tweaks</div><div class="calls">7 calls/wk</div></div>
+    </div>
+  </section>
+
+  <!-- DOORS -->
+  <section class="sec rise d4">
+    <div class="sec-h"><h2>Doors</h2><span class="annotation">Three entrances, equal citizens. Agents don't use a side door.</span></div>
+    <div class="doors">
+      <div class="card door">
+        <div class="d-name">⌘ Console <span class="chip" style="margin-left:auto;">you</span></div>
+        <div class="d-sub">This GUI — the human seat. Approvals live here.</div>
+        <div class="d-stat"><div><b>1</b><span>human</span></div><div><b>3</b><span>awaiting sign-off</span></div></div>
+        <div class="d-list">last action · approved Lt Col → production · 1d</div>
+      </div>
+      <div class="card door mcp">
+        <div class="d-name">◇ MCP <span class="chip" style="margin-left:auto;">21 tools</span></div>
+        <div class="d-sub">Agent door — same engine, same gate, full parity.</div>
+        <div class="d-stat"><div><b>14</b><span>calls today</span></div><div><b>2</b><span>clients connected</span></div></div>
+        <div class="d-list">claude-code · generate_card ×3, check_compliance ×4<br/>brigade · get_brand_tokens ×7</div>
+      </div>
+      <div class="card door">
+        <div class="d-name">⟶ API <span class="chip" style="margin-left:auto;">REST</span></div>
+        <div class="d-sub">Service door — suite apps reading brand truth.</div>
+        <div class="d-stat"><div><b>122</b><span>reads today</span></div><div><b>4</b><span>service tokens</span></div></div>
+        <div class="d-list">email-ops · tokens+rules · campaign render check</div>
+      </div>
+    </div>
+
+    <div class="card traffic">
+      <div class="tr-row"><span class="who">claude-code</span><span class="door-tag">MCP</span><span>generate_card(meeting-ops, og_image, "self-host launch")</span><span class="ok">→ stamped 100</span><span class="when">12:14</span></div>
+      <div class="tr-row"><span class="who">steward·majiks</span><span class="door-tag">internal</span><span>generate_asset(social_card, direction A)</span><span class="ok">→ stamped 96</span><span class="when">12:02</span></div>
+      <div class="tr-row"><span class="who">email-ops</span><span class="door-tag">API</span><span>get_brand_rules(magic-unicorn) — campaign pre-check</span><span class="ok">→ 200</span><span class="when">11:48</span></div>
+      <div class="tr-row"><span class="who">brigade</span><span class="door-tag">MCP</span><span>check_compliance(uc, banner.png)</span><span style="color:var(--c-warn);">→ flagged 71</span><span class="when">11:31</span></div>
+    </div>
+  </section>
+
+  <!-- HOUSE RULES -->
+  <section class="sec rise d5">
+    <div class="sec-h"><h2>House rules</h2><span class="annotation">The contract every agent signs.</span></div>
+    <div class="card rules">
+      <div class="rule"><span class="no">HR-01</span><b>Propose, don't publish</b><p>Default posture. Production state changes need a human or an explicit auto-grant.</p></div>
+      <div class="rule"><span class="no">HR-02</span><b>The gate is universal</b><p>Every artifact through compliance — human-made, agent-made, or MCP-made. No exceptions, including you.</p></div>
+      <div class="rule"><span class="no">HR-03</span><b>Budgets are hard</b><p>Per-agent weekly caps, metered at the gateway. An agent that hits its cap stops and says so.</p></div>
+      <div class="rule"><span class="no">HR-04</span><b>Everything signs its work</b><p>Actor, model, refs, cost on every artifact. Provenance is the permission to act again.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="spec-note">SPEC · this page reads from the agent registry + Brigade manifests + gateway spend; standing orders are editable text on the agent record (the steward re-reads them every run).</span>
+    <span class="spec-note">SPEC · autonomy levels: propose-only / auto-with-review / auto-in-budget — a per-agent dial, enforced at the lifecycle gate, changes logged to provenance.</span>
+    <span class="spec-note">SPEC · the doors panel reads MCP/API access logs; "agents are first-class" means non-human users are VISIBLE users.</span>
+  </footer>
+
+</main>
+</body>
+</html>

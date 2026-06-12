@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Meeting-Ops — The Mark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  /* Meeting-Ops environment: navy field, gold accents, Space Grotesk */
+  body {
+    --b-bg: #0a1228;
+    --b-bg-glow1: rgba(27, 58, 107, 0.65);
+    --b-bg-glow2: rgba(212, 175, 55, 0.10);
+    --b-ink: #f0f3fa;
+    --b-ink-2: rgba(240, 243, 250, 0.66);
+    --b-ink-3: rgba(240, 243, 250, 0.44);
+    --b-hairline: rgba(170, 195, 240, 0.14);
+    --b-primary: #1b3a6b;
+    --b-accent: #d4af37;
+    --b-font-display: "Space Grotesk", sans-serif;
+    --b-font-body: "Inter", sans-serif;
+  }
+  h1, h2, h3, .display { font-family: var(--b-font-display); }
+
+  .page-head { padding: 46px 0 8px; display: flex; align-items: flex-end; gap: 24px; }
+  .page-head h1 { margin: 8px 0 0; font-size: 40px; font-weight: 700; letter-spacing: -0.025em; }
+  .page-head .annotation { margin: 8px 0 0; }
+  .page-head .acts { margin-left: auto; display: flex; gap: 10px; padding-bottom: 4px; }
+  .btn-gold { background: var(--b-accent); color: #1d1605; }
+  .btn-gold:hover { box-shadow: 0 8px 26px -8px rgba(212,175,55,0.7); }
+
+  /* -------------------------------------------------------------- anatomy -- */
+  .anatomy { position: relative; margin: 30px 0 14px; border: 1px solid var(--b-hairline); border-radius: var(--radius); background: rgba(255,255,255,0.02); padding: 60px 40px; display: grid; place-items: center; min-height: 540px; overflow: hidden; }
+  .anatomy::before { content: ""; position: absolute; inset: 0; background:
+      linear-gradient(rgba(170,195,240,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(170,195,240,0.05) 1px, transparent 1px);
+    background-size: 44px 44px; }
+  .anatomy .construction { position: absolute; width: 470px; height: 470px; border: 1px dashed rgba(212,175,55,0.22); border-radius: 999px; }
+  .anatomy .construction.c2 { width: 320px; height: 320px; border-color: rgba(212,175,55,0.16); }
+  .anatomy img.hero { position: relative; z-index: 2; height: 400px; width: auto; filter: drop-shadow(0 24px 60px rgba(0,0,0,0.55)); }
+
+  .callout { position: absolute; z-index: 3; max-width: 230px; }
+  .callout .line { position: absolute; background: rgba(212,175,55,0.55); }
+  .callout .dot { position: absolute; width: 7px; height: 7px; border-radius: 99px; background: var(--b-accent); box-shadow: 0 0 0 4px rgba(212,175,55,0.18); }
+  .callout b { font-family: var(--b-font-display); display: block; font-size: 13.5px; letter-spacing: 0; margin-bottom: 3px; }
+  .callout p { margin: 0; font-size: 11.5px; color: var(--b-ink-3); line-height: 1.45; }
+  .callout.left { text-align: right; }
+  .callout .line-h { height: 1px; width: 70px; top: 9px; }
+  .callout.left .line-h { right: -84px; }
+  .callout.right .line-h { left: -84px; }
+  .callout.left .dot { right: -94px; top: 6px; }
+  .callout.right .dot { left: -94px; top: 6px; }
+
+  /* --------------------------------------------------------- construction -- */
+  .row3 { display: grid; grid-template-columns: 1.1fr 1fr 1.1fr; gap: 22px; margin: 26px 0; }
+  .panel { border: 1px solid var(--b-hairline); border-radius: var(--radius); background: rgba(255,255,255,0.025); padding: 22px 26px; }
+  .panel h3 { margin: 0 0 14px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+
+  .clear-demo { position: relative; display: grid; place-items: center; height: 210px; }
+  .clear-demo .bound { position: relative; border: 1px dashed rgba(212,175,55,0.5); padding: 38px; border-radius: 8px; }
+  .clear-demo img { height: 92px; }
+  .mlabel { position: absolute; font-family: var(--c-font-mono); font-size: 9.5px; color: var(--b-accent); }
+
+  .minsize { display: flex; align-items: flex-end; gap: 26px; height: 210px; padding: 0 8px 14px; }
+  .minsize .step { text-align: center; }
+  .minsize img { display: block; margin: 0 auto 8px; }
+  .minsize .cap { font-family: var(--c-font-mono); font-size: 10px; color: var(--b-ink-3); }
+  .minsize .ok { color: #8be3a8; } .minsize .no { color: #f49b8a; }
+
+  .lineage { display: flex; align-items: center; gap: 12px; height: 210px; }
+  .lin-cell { text-align: center; flex: 1; }
+  .lin-cell .fr { height: 104px; border-radius: 10px; background: var(--mat-dark); display: grid; place-items: center; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); }
+  .lin-cell .fr img { height: 84px; width: auto; object-fit: contain; }
+  .lin-cell .cap { font-size: 10.5px; color: var(--b-ink-3); margin-top: 8px; line-height: 1.4; }
+  .lin-arrow { color: var(--b-ink-3); font-size: 17px; }
+
+  /* ------------------------------------------------------------- variants -- */
+  .variants4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin: 8px 0 26px; }
+  .v-cell .fr { height: 180px; border-radius: var(--radius-sm); display: grid; place-items: center; overflow: hidden; }
+  .v-cell img { height: 130px; width: auto; object-fit: contain; }
+  .v-cell .cap { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--b-ink-3); margin-top: 9px; }
+
+  /* ------------------------------------------------------------- do/don't -- */
+  .dd { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin: 8px 0 26px; }
+  .dd-cell .fr { position: relative; height: 150px; border-radius: var(--radius-sm); display: grid; place-items: center; overflow: hidden; background: #0e1730; box-shadow: inset 0 0 0 1px rgba(170,195,240,0.1); }
+  .dd-cell img { height: 96px; }
+  .dd-cell .cap { display: flex; align-items: center; gap: 7px; font-size: 11.5px; margin-top: 9px; color: var(--b-ink-2); }
+  .tick { width: 17px; height: 17px; border-radius: 99px; display: grid; place-items: center; font-size: 10px; font-weight: 800; flex: none; }
+  .tick.ok { background: rgba(47,125,79,0.2); color: #8be3a8; }
+  .tick.no { background: rgba(179,64,46,0.22); color: #f49b8a; }
+  .slash { position: absolute; inset: 0; pointer-events: none; }
+  .slash::after { content: ""; position: absolute; left: 8%; right: 8%; top: 50%; height: 2.5px; background: rgba(244,108,86,0.75); transform: rotate(-32deg); border-radius: 99px; }
+  .busy-bg { background:
+      repeating-linear-gradient(45deg, #21305c 0 14px, #2c1f4e 14px 28px, #523a10 28px 42px) !important; }
+
+  footer { padding: 10px 0 60px; display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body class="grain" data-env="brand">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html" title="Back to Portfolio">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(255,255,255,0.15);" />
+      <b>‹ Portfolio</b>
+    </a>
+    <span style="display:flex; align-items:center; gap:9px;">
+      <img src="assets/img/mo-lead.png" alt="" style="height:26px;" />
+      <b style="font-family:var(--b-font-display); font-size:14.5px;">Meeting-Ops</b>
+    </span>
+    <nav class="nav">
+      <a href="02-brand-hq.html">Overview</a>
+      <a class="on" href="03-mark.html">Mark</a>
+      <a href="07-book.html">Book</a>
+      <a href="06-library.html">Assets</a>
+      <a href="04-studio.html">Studio</a>
+      <a href="08-grade.html">Grade</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="chip"><span class="dot dot-live"></span> Steward online</span>
+      <span class="kbd">⌘K</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="page-head rise">
+    <div>
+      <span class="microlabel">The mark · production since Jun 10</span>
+      <h1>Lt Col “Minutes”</h1>
+      <p class="annotation">The comms officer of the *-Ops command — every aspect of her is a decision.</p>
+    </div>
+    <div class="acts">
+      <a class="btn btn-ghost" href="04-studio.html">Ask why she looks this way</a>
+      <a class="btn btn-ghost" href="#">Download set</a>
+      <a class="btn btn-gold" href="04-studio.html">Commission variant</a>
+    </div>
+  </section>
+
+  <!-- ========================================================== ANATOMY -->
+  <section class="anatomy rise d1">
+    <span class="construction"></span>
+    <span class="construction c2"></span>
+    <img class="hero" src="assets/img/mo-lead.png" alt="Meeting-Ops Lt Col mascot" />
+
+    <div class="callout left" style="left: 60px; top: 96px;">
+      <b>Navy beret</b>
+      <p>The house uniform. Shared by every *-Ops commander.</p>
+      <span class="line line-h"></span><span class="dot"></span>
+    </div>
+    <div class="callout left" style="left: 60px; top: 230px;">
+      <b>Silver oak leaf</b>
+      <p>Lt Col insignia — rank doctrine: each app's commander.</p>
+      <span class="line line-h"></span><span class="dot"></span>
+    </div>
+    <div class="callout left" style="left: 60px; top: 374px;">
+      <b>Bold sticker outline</b>
+      <p>House illustration style, inherited from the Colonel.</p>
+      <span class="line line-h"></span><span class="dot"></span>
+    </div>
+    <div class="callout right" style="right: 60px; top: 110px;">
+      <b>Gold spiral horn</b>
+      <p>House signature. Never recolored, never cropped.</p>
+      <span class="line line-h"></span><span class="dot"></span>
+    </div>
+    <div class="callout right" style="right: 60px; top: 248px;">
+      <b>Headset + boom mic</b>
+      <p>The role prop: this commander runs meeting comms.</p>
+      <span class="line line-h"></span><span class="dot"></span>
+    </div>
+    <div class="callout right" style="right: 60px; top: 380px;">
+      <b>Full rainbow mane</b>
+      <p>Persona spec — the rainbow IS the house, even in B2B navy.</p>
+      <span class="line line-h"></span><span class="dot"></span>
+    </div>
+  </section>
+
+  <!-- ===================================================== CONSTRUCTION -->
+  <section class="row3">
+    <div class="panel rise d1">
+      <h3>Clear space</h3>
+      <div class="clear-demo">
+        <div class="bound">
+          <img src="assets/img/mo-lead.png" alt="" />
+          <span class="mlabel" style="top:10px; left:50%; transform:translateX(-50%);">1×</span>
+          <span class="mlabel" style="bottom:10px; left:50%; transform:translateX(-50%);">1×</span>
+          <span class="mlabel" style="left:10px; top:50%; transform:translateY(-50%);">1×</span>
+          <span class="mlabel" style="right:10px; top:50%; transform:translateY(-50%);">1×</span>
+        </div>
+      </div>
+      <p style="font-size:11.5px; color:var(--b-ink-3); margin:6px 0 0;">≥ 1× mark height on all sides. The compliance gate measures this at publish.</p>
+    </div>
+
+    <div class="panel rise d2">
+      <h3>Minimum size</h3>
+      <div class="minsize">
+        <div class="step"><img src="assets/img/mo-lead.png" style="height:96px;" alt="" /><span class="cap ok">96px ✓</span></div>
+        <div class="step"><img src="assets/img/mo-lead.png" style="height:48px;" alt="" /><span class="cap ok">48px ✓</span></div>
+        <div class="step"><img src="assets/img/mo-lead.png" style="height:24px;" alt="" /><span class="cap ok">24px ✓ floor</span></div>
+        <div class="step"><img src="assets/img/mo-lead.png" style="height:14px; opacity:0.55;" alt="" /><span class="cap no">14px ✗</span></div>
+      </div>
+      <p style="font-size:11.5px; color:var(--b-ink-3); margin:6px 0 0;">Below 24px the insignia dies — use the headset glyph instead.</p>
+    </div>
+
+    <div class="panel rise d3">
+      <h3>Lineage — drawn from the house</h3>
+      <div class="lineage">
+        <div class="lin-cell">
+          <div class="fr"><img src="assets/img/uc-colonel.png" alt="" /></div>
+          <span class="cap">The Colonel<br/>style reference</span>
+        </div>
+        <span class="lin-arrow">→</span>
+        <div class="lin-cell">
+          <div class="fr"><img src="assets/img/mo-logo-v1.png" alt="" /></div>
+          <span class="cap">direction explored<br/><span style="color:var(--c-warn);">concept</span></span>
+        </div>
+        <span class="lin-arrow">→</span>
+        <div class="lin-cell">
+          <div class="fr"><img src="assets/img/mo-lead.png" alt="" /></div>
+          <span class="cap">Lt Col ratified<br/><span style="color:#8be3a8;">production</span></span>
+        </div>
+      </div>
+      <p style="font-size:11.5px; color:var(--b-ink-3); margin:6px 0 0;">Reference-conditioned generation: the steward feeds house art so every commander is a sibling.</p>
+    </div>
+  </section>
+
+  <!-- ========================================================= VARIANTS -->
+  <section class="rise">
+    <span class="microlabel">Approved uses</span>
+    <div class="variants4" style="margin-top:14px;">
+      <div class="v-cell">
+        <div class="fr" style="background:#0a1228; box-shadow: inset 0 0 0 1px rgba(170,195,240,0.12);"><img src="assets/img/mo-lead.png" alt="" /></div>
+        <span class="cap"><span>Primary · on navy</span><span>default</span></span>
+      </div>
+      <div class="v-cell">
+        <div class="fr mat"><img src="assets/img/mo-lead.png" alt="" /></div>
+        <span class="cap"><span>On light</span><span>print, docs</span></span>
+      </div>
+      <div class="v-cell">
+        <div class="fr mat dark"><img src="assets/img/mo-lead.png" alt="" style="filter: grayscale(1) contrast(1.1);" /></div>
+        <span class="cap"><span>Monochrome</span><span>engraving, 1-color</span></span>
+      </div>
+      <div class="v-cell">
+        <div class="fr" style="background:#0a1228; box-shadow: inset 0 0 0 1px rgba(212,175,55,0.25);"><img src="assets/img/mo-seal.png" alt="" /></div>
+        <span class="cap"><span>Ceremonial seal</span><span style="color:var(--b-accent);">hero use only</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= DO / DON'T -->
+  <section class="rise">
+    <span class="microlabel">Do / don't — enforced by the gate</span>
+    <div class="dd" style="margin-top:14px;">
+      <div class="dd-cell">
+        <div class="fr"><img src="assets/img/mo-lead.png" alt="" /></div>
+        <span class="cap"><span class="tick ok">✓</span> Flat navy or gold-lit fields</span>
+      </div>
+      <div class="dd-cell">
+        <div class="fr"><img src="assets/img/mo-lead.png" alt="" style="transform: scaleX(1.55);" /><span class="slash"></span></div>
+        <span class="cap"><span class="tick no">✗</span> Never stretch or skew</span>
+      </div>
+      <div class="dd-cell">
+        <div class="fr"><img src="assets/img/mo-lead.png" alt="" style="filter: hue-rotate(120deg) saturate(1.6);" /><span class="slash"></span></div>
+        <span class="cap"><span class="tick no">✗</span> Never recolor the uniform</span>
+      </div>
+      <div class="dd-cell">
+        <div class="fr busy-bg"><img src="assets/img/mo-lead.png" alt="" /><span class="slash"></span></div>
+        <span class="cap"><span class="tick no">✗</span> No busy fields — she needs air</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="spec-note">SPEC · callout positions anchor to fractional image coordinates, so annotations survive any mark swap.</span>
+    <span class="spec-note">SPEC · "Commission variant" opens Studio pre-loaded with the mark + its refs; the steward keeps insignia + uniform invariant.</span>
+    <span class="spec-note">SPEC · lineage reads from the asset catalog (concept → production lifecycle states) — it is real provenance, not copy.</span>
+  </footer>
+
+</main>
+</body>
+</html>

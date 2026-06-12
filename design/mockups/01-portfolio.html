@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brand-Ops — Portfolio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  /* ------------------------------------------------------------- header -- */
+  .head { padding: 46px 0 6px; display: flex; align-items: flex-end; gap: 28px; }
+  .head h1 {
+    margin: 10px 0 0; font-family: var(--c-font-display); font-weight: 700;
+    font-size: 46px; letter-spacing: -0.028em; line-height: 1.03;
+  }
+  .head .annotation { margin-top: 10px; }
+  .head-right { margin-left: auto; text-align: right; padding-bottom: 6px; }
+  .statline { display: flex; gap: 24px; justify-content: flex-end; }
+  .statline div b { display: block; font-family: var(--c-font-display); font-size: 23px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .statline div span { font-size: 11.5px; color: var(--c-ink-3); }
+  .statline .flag b { color: var(--c-warn); }
+  .statline .delta { font-size: 10px; color: var(--c-go); font-family: var(--c-font-mono); margin-left: 4px; }
+
+  /* ------------------------------------------------------------ command -- */
+  .command { margin: 26px 0 0; }
+  .quick { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+  .quick .microlabel { margin-right: 4px; }
+
+  .ticker-wrap { margin: 26px 0 6px; }
+
+  /* ------------------------------------------------------- duty + queue -- */
+  .duty { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin: 20px 0 0; }
+  .duty-card { border: 1px solid var(--c-hairline-soft); border-radius: var(--radius); background: var(--c-surface); box-shadow: var(--shadow-paper); padding: 14px 18px; display: flex; align-items: center; gap: 16px; }
+  .av-cluster { display: flex; align-items: center; }
+  .av-cluster .av { width: 32px; height: 32px; border-radius: 99px; display: grid; place-items: center; overflow: hidden; outline: 2.5px solid var(--c-surface); position: relative; }
+  .av-cluster .av + .av { margin-left: -9px; }
+  .av-cluster .av img { max-width: 24px; max-height: 24px; object-fit: contain; }
+  .duty-card .who-line { font-size: 12px; color: var(--c-ink-2); line-height: 1.5; }
+  .duty-card .who-line b { color: var(--c-ink); font-weight: 600; }
+  .duty-card .crew-link { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--c-ink); text-decoration: none; white-space: nowrap; }
+  .queue-card { border: 1px solid rgba(232,181,74,0.35); border-radius: var(--radius); background: var(--c-surface); box-shadow: var(--shadow-paper), 0 0 36px -14px rgba(232,181,74,0.3); padding: 12px 18px; display: flex; align-items: center; gap: 14px; }
+  .queue-card .q-head b { font-family: var(--c-font-display); font-size: 14px; display: block; }
+  .queue-card .q-head span { font-size: 10.5px; color: var(--c-ink-3); }
+  .queue-items { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+  .queue-items div { font-size: 11px; color: var(--c-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .queue-items b { color: var(--c-ink); font-weight: 600; }
+
+  /* -------------------------------------------------------------- shelf -- */
+  .shelf { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; padding: 26px 0 8px; }
+  .cover {
+    position: relative; display: block; text-decoration: none;
+    border-radius: var(--radius); overflow: hidden;
+    min-height: 332px;
+    box-shadow: var(--shadow-paper), 0 30px 90px -34px var(--glowc, transparent);
+    transition: transform 0.25s cubic-bezier(0.2,0.8,0.2,1), box-shadow 0.25s;
+    isolation: isolate;
+    outline: 1px solid rgba(255,255,255,0.07); outline-offset: -1px;
+  }
+  .cover:hover { transform: translateY(-5px); box-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 44px 110px -34px var(--glowc, transparent); }
+  .cover .env {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(560px 380px at 16% -10%, var(--g1), transparent 62%),
+      radial-gradient(520px 420px at 102% 18%, var(--g2), transparent 58%),
+      var(--bg);
+  }
+  .cover .env::after {
+    content: ""; position: absolute; inset: 0; opacity: 0.09; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+  }
+  .cover .inner { position: relative; z-index: 2; height: 100%; min-height: 332px; padding: 22px 22px 26px; display: flex; flex-direction: column; }
+  .cover-top { display: flex; align-items: center; gap: 8px; }
+  .parent-chip {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-3); border: 1px solid var(--ink-3a); padding: 3px 8px; border-radius: 999px;
+  }
+  .cover-grade { margin-left: auto; display: flex; align-items: baseline; gap: 5px; }
+  .cover-grade b { font-family: var(--c-font-display); font-size: 19px; font-weight: 700; }
+  .cover-grade span { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+
+  .cover-mark { flex: 1; display: grid; place-items: center; padding: 12px 0 6px; }
+  .cover-mark img { max-height: 132px; max-width: 56%; object-fit: contain; filter: drop-shadow(0 10px 24px rgba(0,0,0,0.4)); transition: transform 0.3s cubic-bezier(0.2,0.8,0.2,1); }
+  .cover:hover .cover-mark img { transform: translateY(-4px) scale(1.025); }
+
+  .cover-name { font-size: 27px; letter-spacing: -0.02em; line-height: 1.08; color: var(--ink); margin: 0; }
+  .cover-tag { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-2); max-width: 34ch; }
+  .cover-meta { margin-top: 12px; display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); }
+  .cover-meta .sep { opacity: 0.5; }
+  .pub { font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); border: 1px solid var(--ink-3a); border-radius: 5px; padding: 2px 6px; }
+  .cover .paint { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; display: flex; z-index: 3; }
+  .cover .paint span { flex: 1; }
+
+  /* brighter semantic grade colors on covers */
+  .cover .g-a { color: #8be3a8; } .cover .g-b { color: #c4e08a; }
+  .cover .g-c { color: #f0c264; } .cover .g-d { color: #f49b8a; }
+
+  /* the “new brand” ghost band */
+  .cover.ghost {
+    grid-column: 1 / -1; min-height: 0;
+    border: 1.5px dashed var(--c-hairline); box-shadow: none; background: transparent; outline: none;
+    display: block;
+  }
+  .cover.ghost:hover { transform: translateY(-3px); border-color: var(--c-ink-3); background: var(--c-surface); }
+  .ghost-inner { display: flex; align-items: center; gap: 18px; padding: 20px 26px; text-align: left; }
+  .ghost-plus { font-family: var(--c-font-display); font-size: 30px; font-weight: 300; color: var(--c-ink-3); line-height: 1; }
+  .ghost-inner h3 { margin: 0 0 2px; font-family: var(--c-font-display); font-size: 17px; font-weight: 650; letter-spacing: -0.01em; color: var(--c-ink); }
+  .ghost-inner p { margin: 0; font-size: 12.5px; color: var(--c-ink-2); }
+  .ghost-modes { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .ghost-arrow { font-size: 18px; color: var(--c-ink-3); margin-left: 6px; }
+
+  /* ------------------------------------------------------- architecture -- */
+  .arch { margin: 44px 0 30px; }
+  .arch-band { margin-top: 18px; border: 1px solid var(--c-hairline-soft); background: var(--c-surface); border-radius: var(--radius); padding: 26px 30px; box-shadow: var(--shadow-paper); }
+  .tree { list-style: none; margin: 0; padding: 0; }
+  .tree ul { list-style: none; margin: 0; padding-left: 34px; position: relative; }
+  .tree ul::before { content: ""; position: absolute; left: 13px; top: -6px; bottom: 14px; border-left: 1px solid var(--c-hairline); }
+  .tree li { position: relative; padding: 5px 0; }
+  .tree ul li::before { content: ""; position: absolute; left: -21px; top: 21px; width: 16px; border-top: 1px solid var(--c-hairline); }
+  .node { display: flex; align-items: center; gap: 12px; padding: 6px 10px; border-radius: 10px; transition: background 0.15s; }
+  .node:hover { background: var(--c-bg-2); }
+  .node-mark { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex: none; outline: 1px solid rgba(255,255,255,0.08); outline-offset: -1px; }
+  .node-mark img { max-width: 22px; max-height: 22px; object-fit: contain; }
+  .node b { font-family: var(--c-font-display); font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
+  .node .role { font-size: 11px; color: var(--c-ink-3); }
+  .node .ng { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .node .cov { font-family: var(--c-font-mono); font-size: 10.5px; color: var(--c-ink-3); }
+  .node .gl { font-family: var(--c-font-display); font-weight: 700; font-size: 14px; width: 28px; text-align: right; }
+
+  footer { padding: 26px 0 60px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body class="grain">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(242,241,238,0.15);" />
+      <b>Brand-Ops</b>
+    </a>
+    <nav class="nav">
+      <a class="on" href="01-portfolio.html">Portfolio</a>
+      <a href="06-library.html">Library</a>
+      <a href="08-grade.html">Standards</a>
+      <a href="09-crew.html">Crew</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="workspace-chip"><span class="sw"></span> Magic Unicorn <span style="opacity:0.5;">▾</span></span>
+      <span class="kbd">⌘K</span>
+      <a class="btn btn-ink" href="05-new-brand.html">New brand</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="head rise">
+    <div>
+      <span class="microlabel">Workspace · Magic Unicorn · 6 brands</span>
+      <h1>Six brands,<br/><span class="prism-text">standing by.</span></h1>
+      <p class="annotation">Machine-readable identity, agents on watch. Say the word.</p>
+    </div>
+    <div class="head-right">
+      <div class="statline">
+        <div><b>6</b><span>brands</span></div>
+        <div><b>143<span class="delta">+4</span></b><span>production assets</span></div>
+        <div><b>11</b><span>in review</span></div>
+        <div class="flag"><b>2</b><span>flagged today</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- the command surface -->
+  <section class="command rise d1">
+    <div class="omnibar">
+      <span class="orb">I</span>
+      <span class="ph"><b>Stand up a brand for the Crisis-Ops launch — research, kit, steward</b><span class="caret"></span></span>
+      <span class="hint">⏎ command · ⌘K palette</span>
+    </div>
+    <div class="quick">
+      <span class="microlabel">Or jump</span>
+      <a class="chip" href="05-new-brand.html">New brand</a>
+      <a class="chip" href="04-studio.html">Generate a kit</a>
+      <a class="chip" href="08-grade.html">Audit the portfolio</a>
+      <a class="chip" href="07-book.html">Draft a book</a>
+    </div>
+  </section>
+
+  <!-- live ops ticker -->
+  <div class="ticker-wrap rise d2">
+    <div class="ticker">
+      <div class="ticker-track">
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-go);"></span><b>Steward·Majik's</b> stamped social_card · 96 — 2m</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-warn);"></span><b>Gate</b> flagged deep-poster · #1d4ed8 off arc — 2h</span>
+        <span class="tick-item"><span class="t-dot" style="background:#9b8cff;"></span><b>Iris</b> proposed 3 directions for Tidepool Labs — 3h</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-go);"></span><b>Steward·Meeting-Ops</b> kit refreshed · 4 pieces — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:#4cc9f0;"></span><b>Compositor</b> rendered 2 cards · $0.00 — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-go);"></span><b>You</b> approved Lt Col “Minutes” → production — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-warn);"></span><b>Curator</b> 8 Majik's Studio assets queued for review — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:#9b8cff;"></span><b>Brigade</b> registered steward meeting-ops/lt-col — 1d</span>
+        <!-- duplicate for seamless loop -->
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-go);"></span><b>Steward·Majik's</b> stamped social_card · 96 — 2m</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-warn);"></span><b>Gate</b> flagged deep-poster · #1d4ed8 off arc — 2h</span>
+        <span class="tick-item"><span class="t-dot" style="background:#9b8cff;"></span><b>Iris</b> proposed 3 directions for Tidepool Labs — 3h</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-go);"></span><b>Steward·Meeting-Ops</b> kit refreshed · 4 pieces — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:#4cc9f0;"></span><b>Compositor</b> rendered 2 cards · $0.00 — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-go);"></span><b>You</b> approved Lt Col “Minutes” → production — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:var(--c-warn);"></span><b>Curator</b> 8 Majik's Studio assets queued for review — 1d</span>
+        <span class="tick-item"><span class="t-dot" style="background:#9b8cff;"></span><b>Brigade</b> registered steward meeting-ops/lt-col — 1d</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- crew on duty + your sign-off queue -->
+  <section class="duty rise d3">
+    <div class="duty-card">
+      <div class="av-cluster">
+        <span class="av" style="background:radial-gradient(circle at 30% 28%, #d8b4fe, #7c3aed 58%, #2e1065); color:#fff; font-weight:800; font-size:13px;">I</span>
+        <span class="av" style="background:#0a0a0a;"><img src="assets/img/mu-unicorn.svg" alt=""/></span>
+        <span class="av" style="background:#051937;"><img src="assets/img/cd-mark.png" alt=""/></span>
+        <span class="av" style="background:#0a0a0f;"><img src="assets/img/uc-colonel.png" alt=""/></span>
+        <span class="av" style="background:#0a0a0a;"><img src="assets/img/mj-dj.png" alt=""/></span>
+        <span class="av" style="background:#030303;"><img src="assets/img/mjs-icon.png" alt="" style="border-radius:6px;"/></span>
+        <span class="av" style="background:#0a1228;"><img src="assets/img/mo-lead.png" alt=""/></span>
+        <span class="av" style="background:var(--c-bg-2); color:var(--c-ink-3); font-size:10px; font-weight:700;">+6</span>
+      </div>
+      <div class="who-line"><b>On duty · 8</b> — Iris running intake #31 · <b>Majik's steward composing</b> run #214 · 5 on watch</div>
+      <a class="crew-link" href="09-crew.html">Crew →</a>
+    </div>
+    <div class="queue-card">
+      <div class="q-head"><b>Your sign-off · 3</b><span>agents propose, you decide</span></div>
+      <div class="queue-items">
+        <div><b>Iris</b> · 3 identity directions for Tidepool Labs</div>
+        <div><b>Center Deep steward</b> · re-tint plan for deep-poster</div>
+        <div><b>Curator</b> · 8 Majik's Studio assets to review</div>
+      </div>
+      <a class="btn btn-ink" href="05-new-brand.html" style="font-size:12px; padding:8px 14px; white-space:nowrap;">Review</a>
+    </div>
+  </section>
+
+  <section class="shelf">
+
+    <!-- Magic Unicorn -->
+    <a class="cover rise d2" href="02-brand-hq.html"
+       style="--bg:#0a0a0a; --g1:rgba(182,110,255,0.34); --g2:rgba(0,212,255,0.22); --ink:#ffffff; --ink-2:rgba(255,255,255,0.62); --ink-3:rgba(255,255,255,0.42); --ink-3a:rgba(255,255,255,0.2); --glowc:rgba(182,110,255,0.4);">
+      <div class="env"></div>
+      <div class="inner" style="font-family:'Inter',sans-serif;">
+        <div class="cover-top">
+          <span class="parent-chip">Root</span>
+          <span class="pub">Public</span>
+          <span class="cover-grade"><b class="g-b">B</b><span>grade</span></span>
+        </div>
+        <div class="cover-mark"><img src="assets/img/mu-unicorn.svg" alt="Magic Unicorn mark" /></div>
+        <h2 class="cover-name" style="font-weight:800;">Magic Unicorn</h2>
+        <p class="cover-tag">Innovation That Doesn't Apologize</p>
+        <div class="cover-meta"><span>10 assets</span><span class="sep">·</span><span>2 of 6 types covered</span></div>
+      </div>
+      <div class="paint"><span style="background:#b66eff"></span><span style="background:#00d4ff"></span><span style="background:#0a0a0a"></span><span style="background:#ffffff"></span><span style="background:#b3b3b3"></span></div>
+    </a>
+
+    <!-- Center Deep -->
+    <a class="cover rise d3" href="02-brand-hq.html"
+       style="--bg:#051937; --g1:rgba(8,145,178,0.45); --g2:rgba(34,211,238,0.25); --ink:#ffffff; --ink-2:rgba(235,248,255,0.66); --ink-3:rgba(235,248,255,0.45); --ink-3a:rgba(235,248,255,0.22); --glowc:rgba(34,211,238,0.32);">
+      <div class="env"></div>
+      <div class="inner" style="font-family:'Inter',sans-serif;">
+        <div class="cover-top">
+          <span class="parent-chip">Part of Magic Unicorn</span>
+          <span class="pub">Public</span>
+          <span class="cover-grade"><b class="g-b">B−</b><span>grade</span></span>
+        </div>
+        <div class="cover-mark"><img src="assets/img/cd-mark.png" alt="Center Deep mark" /></div>
+        <h2 class="cover-name" style="font-weight:700;">Center Deep</h2>
+        <p class="cover-tag">Search the deep, surface what matters.</p>
+        <div class="cover-meta"><span>5 assets</span><span class="sep">·</span><span>3 of 6 types covered</span></div>
+      </div>
+      <div class="paint"><span style="background:#0891b2"></span><span style="background:#22d3ee"></span><span style="background:#051937"></span><span style="background:#ffffff"></span><span style="background:#0a2463"></span></div>
+    </a>
+
+    <!-- Unicorn Commander -->
+    <a class="cover rise d4" href="02-brand-hq.html"
+       style="--bg:#0a0a0f; --g1:rgba(139,92,246,0.36); --g2:rgba(182,110,255,0.2); --ink:#f0f0f5; --ink-2:rgba(240,240,245,0.62); --ink-3:rgba(240,240,245,0.42); --ink-3a:rgba(240,240,245,0.2); --glowc:rgba(139,92,246,0.36);">
+      <div class="env"></div>
+      <div class="inner" style="font-family:'Inter',sans-serif;">
+        <div class="cover-top">
+          <span class="parent-chip">Part of Magic Unicorn</span>
+          <span class="cover-grade"><b class="g-c">C+</b><span>grade</span></span>
+        </div>
+        <div class="cover-mark"><img src="assets/img/uc-colonel.png" alt="The Colonel" /></div>
+        <h2 class="cover-name" style="font-weight:700;">Unicorn Commander</h2>
+        <p class="cover-tag">Mesh-distributed AI infrastructure you self-host.</p>
+        <div class="cover-meta"><span>27 assets</span><span class="sep">·</span><span>3 of 6 covered</span><span class="sep">·</span><span style="color:var(--c-warn);">3 flagged</span></div>
+      </div>
+      <div class="paint"><span style="background:#b66eff"></span><span style="background:#00d4ff"></span><span style="background:#0a0a0f"></span><span style="background:#f0f0f5"></span><span style="background:#a0a0b8"></span></div>
+    </a>
+
+    <!-- Majik's Online -->
+    <a class="cover rise d4" href="02-brand-hq.html"
+       style="--bg:#0a0a0a; --g1:rgba(168,85,247,0.36); --g2:rgba(192,132,252,0.22); --ink:#fafafa; --ink-2:rgba(250,250,250,0.62); --ink-3:rgba(250,250,250,0.42); --ink-3a:rgba(250,250,250,0.2); --glowc:rgba(168,85,247,0.38);">
+      <div class="env"></div>
+      <div class="inner" style="font-family:'Inter',sans-serif;">
+        <div class="cover-top">
+          <span class="parent-chip">Part of Magic Unicorn</span>
+          <span class="pub">Public</span>
+          <span class="cover-grade"><b class="g-b">B+</b><span>grade</span></span>
+        </div>
+        <div class="cover-mark"><img src="assets/img/mj-dj.png" alt="Majik's Online mark" /></div>
+        <h2 class="cover-name" style="font-weight:700;">Majik's Online</h2>
+        <p class="cover-tag">Discover, stream, and own music from independent creators.</p>
+        <div class="cover-meta"><span class="dot dot-live"></span><span>steward composing now</span><span class="sep">·</span><span>45 assets</span></div>
+      </div>
+      <div class="paint"><span style="background:#a855f7"></span><span style="background:#c084fc"></span><span style="background:#0a0a0a"></span><span style="background:#fafafa"></span><span style="background:#a1a1aa"></span></div>
+    </a>
+
+    <!-- Majik's Music Studio -->
+    <a class="cover rise d5" href="02-brand-hq.html"
+       style="--bg:#030303; --g1:rgba(168,85,247,0.32); --g2:rgba(147,51,234,0.26); --ink:#faf9f5; --ink-2:rgba(250,249,245,0.62); --ink-3:rgba(250,249,245,0.42); --ink-3a:rgba(250,249,245,0.2); --glowc:rgba(147,51,234,0.34);">
+      <div class="env"></div>
+      <div class="inner" style="font-family:'Plus Jakarta Sans',sans-serif;">
+        <div class="cover-top">
+          <span class="parent-chip">Part of Majik's Online</span>
+          <span class="cover-grade"><b class="g-a">A−</b><span>grade</span></span>
+        </div>
+        <div class="cover-mark"><img src="assets/img/mjs-icon.png" alt="Majik's Music Studio icon" style="border-radius:22px;" /></div>
+        <h2 class="cover-name" style="font-weight:800;">Majik's Music Studio</h2>
+        <p class="cover-tag">From prompt to full song with vocals, in minutes.</p>
+        <div class="cover-meta"><span class="dot" style="background:var(--c-warn);"></span><span>38 assets</span><span class="sep">·</span><span>8 in review</span></div>
+      </div>
+      <div class="paint"><span style="background:#a855f7"></span><span style="background:#9333ea"></span><span style="background:#030303"></span><span style="background:#faf9f5"></span><span style="background:#141413"></span></div>
+    </a>
+
+    <!-- Meeting-Ops -->
+    <a class="cover rise d6" href="02-brand-hq.html"
+       style="--bg:#0a1228; --g1:rgba(27,58,107,0.85); --g2:rgba(212,175,55,0.18); --ink:#f0f3fa; --ink-2:rgba(240,243,250,0.64); --ink-3:rgba(240,243,250,0.44); --ink-3a:rgba(240,243,250,0.22); --glowc:rgba(212,175,55,0.26);">
+      <div class="env"></div>
+      <div class="inner" style="font-family:'Space Grotesk',sans-serif;">
+        <div class="cover-top">
+          <span class="parent-chip">Part of Unicorn Commander</span>
+          <span class="cover-grade"><b class="g-a">A−</b><span>grade</span></span>
+        </div>
+        <div class="cover-mark"><img src="assets/img/mo-lead.png" alt="Meeting-Ops Lt Col mascot" /></div>
+        <h2 class="cover-name" style="font-weight:700;">Meeting-Ops</h2>
+        <p class="cover-tag">Meeting intelligence you self-host.</p>
+        <div class="cover-meta"><span class="dot dot-live"></span><span>kit refreshed yesterday</span><span class="sep">·</span><span>21 assets</span></div>
+      </div>
+      <div class="paint"><span style="background:#1b3a6b"></span><span style="background:#d4af37"></span><span style="background:#0a1228"></span><span style="background:#f0f3fa"></span><span style="background:#8895b3"></span></div>
+    </a>
+
+    <!-- New brand (ghost band) -->
+    <a class="cover ghost rise d6" href="05-new-brand.html">
+      <div class="ghost-inner">
+        <div class="ghost-plus">＋</div>
+        <div>
+          <h3>New brand</h3>
+          <p>The Director researches, proposes a full identity, and stands up the brand's steward.</p>
+        </div>
+        <div class="ghost-modes">
+          <span class="chip">Extend the house</span>
+          <span class="chip">From a brand</span>
+          <span class="chip">From nothing</span>
+          <span class="ghost-arrow">→</span>
+        </div>
+      </div>
+    </a>
+  </section>
+
+  <section class="arch rise d4">
+    <span class="microlabel">Brand architecture</span>
+    <div class="arch-band">
+      <ul class="tree">
+        <li>
+          <div class="node">
+            <span class="node-mark" style="background:#0a0a0a;"><img src="assets/img/mu-unicorn.svg" alt=""/></span>
+            <div><b>Magic Unicorn</b><div class="role">Masterbrand · Charleston, SC</div></div>
+            <span class="ng"><span class="cov">10 assets · 2/6</span><span class="gl g-b">B</span></span>
+          </div>
+          <ul>
+            <li>
+              <div class="node">
+                <span class="node-mark" style="background:#0a0a0f;"><img src="assets/img/uc-colonel.png" alt=""/></span>
+                <div><b>Unicorn Commander</b><div class="role">Division · the suite control plane</div></div>
+                <span class="ng"><span class="cov">27 assets · 3/6</span><span class="gl g-c">C+</span></span>
+              </div>
+              <ul>
+                <li>
+                  <div class="node">
+                    <span class="node-mark" style="background:#0a1228;"><img src="assets/img/mo-lead.png" alt=""/></span>
+                    <div><b>Meeting-Ops</b><div class="role">Product · *-Ops commission</div></div>
+                    <span class="ng"><span class="cov">21 assets · 4/6</span><span class="gl g-a">A−</span></span>
+                  </div>
+                </li>
+              </ul>
+            </li>
+            <li>
+              <div class="node">
+                <span class="node-mark" style="background:#051937;"><img src="assets/img/cd-mark.png" alt=""/></span>
+                <div><b>Center Deep</b><div class="role">Division · search intelligence</div></div>
+                <span class="ng"><span class="cov">5 assets · 3/6</span><span class="gl g-b">B−</span></span>
+              </div>
+            </li>
+            <li>
+              <div class="node">
+                <span class="node-mark" style="background:#0a0a0a;"><img src="assets/img/mj-dj.png" alt=""/></span>
+                <div><b>Majik's Online</b><div class="role">Division · music ecosystem</div></div>
+                <span class="ng"><span class="cov">45 assets · 4/6</span><span class="gl g-b">B+</span></span>
+              </div>
+              <ul>
+                <li>
+                  <div class="node">
+                    <span class="node-mark" style="background:#030303;"><img src="assets/img/mjs-icon.png" alt=""/></span>
+                    <div><b>Majik's Music Studio</b><div class="role">Product · desktop creation app</div></div>
+                    <span class="ng"><span class="cov">38 assets · 4/6</span><span class="gl g-a">A−</span></span>
+                  </div>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <span class="spec-note">SPEC · chrome = Brand-Ops' own "Obsidian" product brand (prism signature). The WORKSPACE (Magic Unicorn) is the tenant — its brands are content. White-label = swap the chrome brand record.</span>
+    <span class="spec-note">SPEC · "Public" brands serve a read-only showcase portal at their own URL — the workspace picks which brands publish.</span>
+    <span class="spec-note">SPEC · omnibar = the Director's command line (same engine as Studio chat); ticker = the live activity stream, hover to pause, click-through to the event.</span>
+    <span class="spec-note">SPEC · cover → HQ uses a shared-element View Transition: the cover expands into the hero.</span>
+  </footer>
+
+</main>
+</body>
+</html>

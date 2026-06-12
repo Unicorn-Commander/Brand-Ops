@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brand-Ops — New brand</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,650&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  .page-head { padding: 40px 0 6px; display: flex; align-items: flex-end; gap: 22px; }
+  .page-head h1 { margin: 8px 0 0; font-family: var(--c-font-display); font-weight: 700; font-size: 38px; letter-spacing: -0.025em; }
+  .page-head .annotation { margin-top: 8px; }
+  .run-id { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; padding-bottom: 4px; }
+
+  /* mode recap */
+  .modes { display: flex; gap: 10px; margin: 18px 0 24px; }
+  .mode { font-size: 12px; font-weight: 600; border: 1px solid var(--c-hairline); border-radius: 999px; padding: 7px 14px; color: var(--c-ink-3); }
+  .mode.on { background: var(--c-ink); color: #0a0a0e; border-color: var(--c-ink); }
+
+  /* ===================================================== PROCESS CHART -- */
+  .pipeline { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 38px 46px; margin: 8px 0 10px; }
+  .stage {
+    position: relative; border: 1px solid var(--c-hairline-soft); border-radius: var(--radius);
+    background: var(--c-surface); box-shadow: var(--shadow-paper); padding: 16px 18px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    --sc: var(--c-ink-3); /* stage hue: one prism color per stage, set inline */
+  }
+  /* the prism walk: a hairline top edge + tinted number chip per stage.
+     State (done green / active violet / dashed gate) stays the loud channel. */
+  .stage::before { content: ""; position: absolute; top: 0; left: 14px; right: 14px; height: 2.5px; border-radius: 0 0 4px 4px; background: var(--sc); opacity: 0.55; }
+  .stage.active { border-color: rgba(155,140,255,0.55); box-shadow: var(--shadow-paper), 0 0 44px -8px rgba(155,140,255,0.35); }
+  .stage.you-stage { border-style: dashed; border-color: rgba(242,241,238,0.35); }
+  .stage .s-head { display: flex; align-items: center; gap: 10px; }
+  .stage .s-no { font-family: var(--c-font-mono); font-size: 10px; color: var(--sc); border: 1px solid color-mix(in srgb, var(--sc) 45%, transparent); border-radius: 6px; padding: 2px 6px; }
+  .stage .s-head b { font-family: var(--c-font-display); font-size: 14.5px; letter-spacing: -0.01em; }
+  .stage .s-status { margin-left: auto; font-family: var(--c-font-mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .st-done { color: var(--c-go); } .st-active { color: #b9a7ff; } .st-wait { color: var(--c-ink-3); }
+
+  .stage .s-who { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--c-ink-2); }
+  .stage .s-who .av { width: 20px; height: 20px; border-radius: 99px; display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff; flex: none; overflow: hidden; }
+  .stage .s-who .av img { width: 100%; height: 100%; object-fit: cover; }
+  .stage .s-who .av + .av { margin-left: -9px; outline: 2px solid var(--c-surface); }
+
+  .stage ul { margin: 2px 0 0; padding: 0 0 0 2px; list-style: none; }
+  .stage ul li { font-size: 11.5px; color: var(--c-ink-2); padding: 3px 0 3px 14px; position: relative; line-height: 1.45; }
+  .stage ul li::before { content: ""; position: absolute; left: 0; top: 9px; width: 5px; height: 5px; border-radius: 2px; background: var(--c-ink-3); }
+  .stage ul li.done::before { background: var(--c-go); }
+  .stage ul li.doing::before { background: #b9a7ff; box-shadow: 0 0 0 3px rgba(155,140,255,0.2); }
+  .stage ul li b { color: var(--c-ink); font-weight: 600; }
+  .stage ul li .mono { font-family: var(--c-font-mono); font-size: 10px; color: var(--c-ink-3); }
+
+  .stage .s-art { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .art-chip { font-family: var(--c-font-mono); font-size: 9.5px; color: var(--c-ink-2); border: 1px solid var(--c-hairline); border-radius: 6px; padding: 3px 7px; }
+  .art-chip.ok { color: var(--c-go); border-color: rgba(111,219,150,0.35); }
+  .stage .s-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 8px; font-family: var(--c-font-mono); font-size: 10px; color: var(--c-ink-3); border-top: 1px solid var(--c-hairline-soft); }
+  .stage .s-foot .gate { color: var(--c-warn); }
+
+  /* --------------- the flow line: serpentine, stateful, real arrows ----- */
+  /* Row 1 flows →, the line drops down at stage 3, row 2 flows ← back.    */
+  /* Segments are colored by run state: solid green = traveled, pulsing     */
+  /* violet = the next transition, dashed = ahead.                          */
+  .fl { position: absolute; z-index: 6; pointer-events: none; --fl-c: rgba(242,241,238,0.3); }
+  .fl-h { top: 50%; transform: translateY(-50%); width: 46px; height: 0; }
+  .fl-h.out-r { right: -46px; }
+  .fl-h.out-l { left: -46px; }
+  .fl-v { left: 50%; transform: translateX(-50%); width: 0; height: 38px; bottom: -38px; }
+  .fl .ln { position: absolute; inset: 0; display: block; }
+  .fl-h .ln { border-top: 2.5px solid var(--fl-c); top: -1.25px; }
+  .fl-v .ln { border-left: 2.5px solid var(--fl-c); left: -1.25px; }
+  .fl.pend .ln { border-top-style: dashed; border-left-style: dashed; }
+  .fl .hd { position: absolute; display: block; width: 0; height: 0; }
+  .fl-h.out-r .hd { right: -2px; top: 50%; transform: translateY(-50%); border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 9px solid var(--fl-c); }
+  .fl-h.out-l .hd { left: -2px; top: 50%; transform: translateY(-50%); border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 9px solid var(--fl-c); }
+  .fl-v .hd { bottom: -2px; left: 50%; transform: translateX(-50%); border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 9px solid var(--fl-c); }
+  .fl.done { --fl-c: #6fdb96; }
+  .fl.live { --fl-c: #b9a7ff; }
+  .fl.live .ln, .fl.live .hd { animation: fl-pulse 1.5s ease-in-out infinite; }
+  @keyframes fl-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+  .fl .tag { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-family: var(--c-font-mono); font-size: 8.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fl-c); white-space: nowrap; }
+
+  .working-line { display: inline-flex; align-items: center; gap: 6px; }
+  .w-dots span { display: inline-block; width: 3.5px; height: 3.5px; margin-right: 2.5px; border-radius: 99px; background: #b9a7ff; animation: wd 1.2s ease-in-out infinite; }
+  .w-dots span:nth-child(2) { animation-delay: 0.15s; } .w-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes wd { 0%,100% { opacity: 0.25; transform: translateY(0);} 50% { opacity: 1; transform: translateY(-2px);} }
+
+  /* ======================================================== STAGE 3 LIVE -- */
+  .live-head { display: flex; align-items: baseline; gap: 14px; margin: 34px 0 16px; }
+  .live-head h2 { margin: 0; font-family: var(--c-font-display); font-size: 21px; font-weight: 650; letter-spacing: -0.015em; }
+
+  .stage-grid { display: grid; grid-template-columns: 360px 1fr; gap: 26px; align-items: start; }
+
+  /* Iris rail */
+  .iris { border: 1px solid var(--c-hairline-soft); background: var(--c-surface); border-radius: var(--radius); box-shadow: var(--shadow-paper); padding: 20px 22px; position: sticky; top: 80px; }
+  .iris-head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+  .orb { width: 44px; height: 44px; border-radius: 99px; background: radial-gradient(circle at 30% 28%, #d8b4fe, #7c3aed 58%, #2e1065); display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 17px; flex: none; box-shadow: 0 0 22px rgba(155,140,255,0.4); }
+  .iris-head b { display: block; font-family: var(--c-font-display); font-size: 15px; }
+  .iris-head span { font-size: 11px; color: var(--c-ink-3); }
+  .iris p { font-size: 13px; line-height: 1.6; color: var(--c-ink-2); margin: 0 0 12px; }
+  .iris .find { border-left: 2px solid #7c3aed; padding: 8px 12px; font-size: 12px; color: var(--c-ink-2); background: rgba(124,58,237,0.14); border-radius: 0 8px 8px 0; margin-bottom: 9px; }
+  .iris .find b { font-weight: 650; color: var(--c-ink); }
+
+  /* direction cards */
+  .directions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .dir { border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-paper); border: 1px solid transparent; transition: transform 0.22s cubic-bezier(0.2,0.8,0.2,1), box-shadow 0.22s; position: relative; }
+  .dir:hover { transform: translateY(-4px); box-shadow: 0 2px 4px rgba(0,0,0,0.5), 0 28px 70px -20px rgba(0,0,0,0.75); }
+  .dir .cover { min-height: 250px; padding: 20px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+  .dir .cover::after { content: ""; position: absolute; inset: 0; opacity: 0.08; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E"); }
+  .dir .glyph { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; margin-bottom: auto; }
+  .dir .nm { font-size: 30px; line-height: 1.05; margin: 14px 0 4px; position: relative; z-index: 2; }
+  .dir .tg { font-size: 12px; opacity: 0.72; position: relative; z-index: 2; }
+  .dir .strip { display: flex; height: 7px; }
+  .dir .strip span { flex: 1; }
+  .dir .body { background: var(--c-surface); padding: 16px 18px; border-top: 1px solid var(--c-hairline-soft); }
+  .dir .pair { font-size: 12px; color: var(--c-ink-2); margin: 0 0 8px; }
+  .dir .why { font-size: 12px; color: var(--c-ink-2); margin: 0 0 12px; line-height: 1.5; }
+  .dir .fit { display: flex; align-items: center; gap: 8px; margin-bottom: 13px; }
+  .dir .fit .bar { flex: 1; height: 4px; background: var(--c-bg-2); border-radius: 99px; overflow: hidden; }
+  .dir .fit .bar i { display: block; height: 100%; border-radius: 99px; background: var(--c-ink); }
+  .dir .fit b { font-family: var(--c-font-mono); font-size: 10.5px; font-weight: 500; color: var(--c-ink-2); }
+  .dir .acts { display: flex; gap: 8px; }
+  .dir.reco { border-color: rgba(124,58,237,0.5); }
+  .dir .reco-tag { position: absolute; top: 12px; right: 12px; z-index: 5; font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; background: #7c3aed; color: #fff; border-radius: 6px; padding: 4px 8px; }
+
+  /* other modes */
+  .other-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 34px 0 20px; }
+  .om { border: 1px solid var(--c-hairline-soft); border-radius: var(--radius); background: var(--c-surface); padding: 20px 24px; display: flex; gap: 18px; align-items: center; box-shadow: var(--shadow-paper); }
+  .om img { height: 56px; }
+  .om b { font-family: var(--c-font-display); font-size: 15px; display: block; margin-bottom: 3px; }
+  .om p { margin: 0; font-size: 12.5px; color: var(--c-ink-2); line-height: 1.5; }
+  .om .go { margin-left: auto; white-space: nowrap; }
+
+  footer { padding: 16px 0 60px; display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body class="grain">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(242,241,238,0.15);" />
+      <b>Brand-Ops</b>
+    </a>
+    <nav class="nav">
+      <a href="01-portfolio.html">Portfolio</a>
+      <a href="06-library.html">Library</a>
+      <a href="08-grade.html">Standards</a>
+      <a href="09-crew.html">Crew</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="workspace-chip"><span class="sw"></span> Magic Unicorn <span style="opacity:0.5;">▾</span></span>
+      <span class="kbd">⌘K</span>
+      <a class="btn btn-ghost" href="01-portfolio.html">Cancel</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="page-head rise">
+    <div>
+      <span class="microlabel">New brand · from nothing · intake run</span>
+      <h1>Tidepool Labs</h1>
+      <p class="annotation">"A personal health-data vault. People should feel calm trust — their data, on their shore."</p>
+    </div>
+    <div class="run-id">
+      <span class="chip"><span class="dot dot-live"></span> intake #31 · running 2m 41s</span>
+      <span class="spec-note">your only required click is Stage 4</span>
+    </div>
+  </section>
+
+  <div class="modes rise d1">
+    <span class="mode">Extend the house</span>
+    <span class="mode">From a brand</span>
+    <span class="mode on">From nothing</span>
+  </div>
+
+  <!-- ==================================================== THE PROCESS -->
+  <section class="pipeline rise d1">
+
+    <!-- 1 BRIEF -->
+    <div class="stage" style="grid-area: 1 / 1; --sc:#ff7a59;">
+      <span class="fl fl-h out-r done"><i class="ln"></i><i class="hd"></i></span>
+      <div class="s-head"><span class="s-no">01</span><b>Brief</b><span class="s-status st-done">done · 12s</span></div>
+      <div class="s-who"><span class="av" style="background:#3b3b46;">You</span><span class="av" style="background:radial-gradient(circle at 30% 28%, #d8b4fe, #7c3aed);">I</span> You × Iris</div>
+      <ul>
+        <li class="done"><b>Captured intent</b> — vault, "calm trust," consumer health</li>
+        <li class="done"><b>Constraints locked</b> — no clinical blue cliché, light-mode friendly, US market</li>
+        <li class="done"><b>Voice seeds</b> — plain, custodial, zero hype</li>
+      </ul>
+      <div class="s-art"><span class="art-chip ok">brief.json ✓</span></div>
+      <div class="s-foot"><span>conversation · 4 turns</span><span style="margin-left:auto;">$0.00</span></div>
+    </div>
+
+    <!-- 2 RESEARCH -->
+    <div class="stage" style="grid-area: 1 / 2; --sc:#ffd166;">
+      <span class="fl fl-h out-r done"><i class="ln"></i><i class="hd"></i></span>
+      <div class="s-head"><span class="s-no">02</span><b>Research</b><span class="s-status st-done">done · 2m 10s</span></div>
+      <div class="s-who"><span class="av" style="background:radial-gradient(circle at 30% 28%, #d8b4fe, #7c3aed);">I</span><span class="av" style="background:#22405c;">R</span> Iris → research specialist · Brigade deep-research</div>
+      <ul>
+        <li class="done"><b>17 competitors crawled</b> — palettes, type, voice sampled</li>
+        <li class="done"><b>Cluster found</b> — 14/17 clinical blue + geometric sans</li>
+        <li class="done"><b>Name check</b> — tidepool.io taken · <span class="mono">tidepoollabs.com free</span></li>
+        <li class="done"><b>Pre-flight</b> — AA pairs, CMYK gamut, trademark scan clean</li>
+      </ul>
+      <div class="s-art"><span class="art-chip ok">dossier.md ✓</span><span class="art-chip ok">competitor-matrix ✓</span></div>
+      <div class="s-foot"><span>23 sources</span><span style="margin-left:auto;">$0.04 metered</span></div>
+    </div>
+
+    <!-- 3 DIRECTIONS (active) -->
+    <div class="stage active" style="grid-area: 1 / 3; --sc:#7ce3a1;">
+      <span class="fl fl-v live"><i class="ln"></i><i class="hd"></i><span class="tag">then you</span></span>
+      <div class="s-head"><span class="s-no">03</span><b>Directions</b><span class="s-status st-active"><span class="working-line"><span class="w-dots"><span></span><span></span><span></span></span> drafting</span></span></div>
+      <div class="s-who"><span class="av" style="background:radial-gradient(circle at 30% 28%, #d8b4fe, #7c3aed);">I</span> Iris · 3 complete identities, not moodboards</div>
+      <ul>
+        <li class="done"><b>Tokens drafted ×3</b> — palette, type pairing, voice per direction</li>
+        <li class="done"><b>Validated</b> — every pair AA at body sizes, hexes in gamut</li>
+        <li class="doing"><b>Fit-scoring</b> vs brief — differentiation weighted 2×</li>
+        <li><b>Mark concepts</b> — sketch prompts queued per direction</li>
+      </ul>
+      <div class="s-art"><span class="art-chip ok">brand.yaml ×3 ✓</span><span class="art-chip">fit-report…</span></div>
+      <div class="s-foot"><span>output below ↓</span><span style="margin-left:auto;">$0.02</span></div>
+    </div>
+
+    <!-- 4 RATIFY (you) — sits under 3; row 2 flows back to the left -->
+    <div class="stage you-stage" style="grid-area: 2 / 3; --sc:#4cc9f0;">
+      <span class="fl fl-h out-l pend"><i class="ln"></i><i class="hd"></i></span>
+      <div class="s-head"><span class="s-no">04</span><b>Ratify</b><span class="s-status st-wait">your move</span></div>
+      <div class="s-who"><span class="av" style="background:#3b3b46;">You</span> You — the only human gate in the run</div>
+      <ul>
+        <li><b>Pick a direction</b> — or remix: lock palette, regenerate type</li>
+        <li><b>Tokens become law</b> — brand.yaml + rules.json written</li>
+        <li>Everything after this is delegated, gated, and logged</li>
+      </ul>
+      <div class="s-art"><span class="art-chip">brand.yaml final</span><span class="art-chip">rules.json</span></div>
+      <div class="s-foot"><span>1 click · remix optional</span><span class="gate" style="margin-left:auto;">human gate</span></div>
+    </div>
+
+    <!-- 5 KIT + STEWARD -->
+    <div class="stage" style="grid-area: 2 / 2; --sc:#9b8cff;">
+      <span class="fl fl-h out-l pend"><i class="ln"></i><i class="hd"></i></span>
+      <div class="s-head"><span class="s-no">05</span><b>Steward + kit</b><span class="s-status st-wait">queued</span></div>
+      <div class="s-who"><span class="av" style="background:#1d3b35;">S</span><span class="av" style="background:#3a2a52;">P</span><span class="av" style="background:#52351d;">C</span> new steward · asset_pack · compositor</div>
+      <ul>
+        <li><b>Steward spawned</b> — avatar drawn from house refs, Brigade-registered, memory init</li>
+        <li><b>Standing orders set</b> — keep kit full · flag drift &gt;7% · propose, never publish</li>
+        <li><b>6 asset types generated</b> — logo + icon via nano+refs · og/social composited <span class="mono">$0</span> · podcast · avatar</li>
+        <li><b>Every piece through the gate</b> — stamp or flag, no exceptions</li>
+      </ul>
+      <div class="s-art"><span class="art-chip">steward identity</span><span class="art-chip">6 assets</span><span class="art-chip">compliance stamps</span></div>
+      <div class="s-foot"><span>≈ 4m unattended</span><span style="margin-left:auto;">≈ $0.31 metered</span></div>
+    </div>
+
+    <!-- 6 LIVE -->
+    <div class="stage" style="grid-area: 2 / 1; --sc:#f15bb5;">
+      <div class="s-head"><span class="s-no">06</span><b>Live + on watch</b><span class="s-status st-wait">queued</span></div>
+      <div class="s-who"><span class="av" style="background:#1d3b35;">S</span> the steward, permanently</div>
+      <ul>
+        <li><b>Brand book v1 drafted</b> — plates from tokens, portal link ready</li>
+        <li><b>Showcase optional</b> — mark it Public to publish the portal</li>
+        <li><b>Watch begins</b> — drift monitor, coverage guard, weekly grade</li>
+        <li><b>Doors open</b> — steward reachable via Studio, MCP, API</li>
+      </ul>
+      <div class="s-art"><span class="art-chip">book v1</span><span class="art-chip">grade baseline</span><span class="art-chip">brigade manifest</span></div>
+      <div class="s-foot"><span>ongoing</span><span style="margin-left:auto;">grade A target</span></div>
+    </div>
+  </section>
+
+  <!-- ================================================== STAGE 3 OUTPUT -->
+  <div class="live-head rise d2">
+    <h2>Stage 3, live — Iris proposes</h2>
+    <span class="annotation">Three complete identities. Push back and she'll argue.</span>
+  </div>
+
+  <div class="stage-grid">
+
+    <aside class="iris rise d2">
+      <div class="iris-head">
+        <span class="orb">I</span>
+        <div><b>Iris</b><span>Director · proposing identities</span></div>
+      </div>
+      <p>I researched the space before drawing anything. Each direction is a complete identity — tokens, type, voice — not a moodboard.</p>
+      <div class="find"><b>Research:</b> 14 of 17 competitors cluster in clinical blue + geometric sans. Blue is the category's wallpaper.</div>
+      <div class="find"><b>Brief fit:</b> "calm trust" reads strongest in deep greens and low-contrast warmth; B keeps a glass-blue note without joining the cluster.</div>
+      <div class="find"><b>Pre-checked:</b> every pairing passes AA at body sizes; hexes validated against gamut drift in print.</div>
+      <p style="margin-top:12px;">My call is <b style="color:#b9a7ff;">Still Water</b> — it owns a color the category ignores. Push back and I'll argue.</p>
+    </aside>
+
+    <section class="directions">
+
+      <!-- A: Still Water (recommended) -->
+      <div class="dir reco rise d2">
+        <span class="reco-tag">Iris recommends</span>
+        <div class="cover" style="background: radial-gradient(420px 300px at 14% -8%, rgba(45,106,94,0.55), transparent 60%), #0c1f1c; color: #eef6f3;">
+          <span class="glyph" style="background: rgba(238,246,243,0.1); color:#7fc7b2; font-family:'Fraunces',serif; font-size:24px; font-weight:650;">◗</span>
+          <div class="nm" style="font-family:'Fraunces',serif; font-weight:650;">Tidepool Labs</div>
+          <div class="tg">Your health. Your shore.</div>
+        </div>
+        <div class="strip"><span style="background:#0c1f1c"></span><span style="background:#2d6a5e"></span><span style="background:#7fc7b2"></span><span style="background:#eef6f3"></span><span style="background:#d6a96a"></span></div>
+        <div class="body">
+          <p class="pair"><b>Fraunces</b> display · <b>Inter</b> body</p>
+          <p class="why">Deep tidal greens with a brass accent. Serif warmth = stewardship, not startup.</p>
+          <div class="fit"><span class="bar"><i style="width:92%;"></i></span><b>fit 92</b></div>
+          <div class="acts"><a class="btn btn-ink" href="#" style="font-size:12px; padding:8px 13px;">Ratify A</a><a class="btn btn-ghost" href="#" style="font-size:12px; padding:8px 13px;">Remix</a></div>
+        </div>
+      </div>
+
+      <!-- B: Signal Glass -->
+      <div class="dir rise d3">
+        <div class="cover" style="background: radial-gradient(420px 300px at 14% -8%, rgba(56,130,190,0.5), transparent 60%), #0a1622; color: #edf6fd;">
+          <span class="glyph" style="background: rgba(237,246,253,0.1); color:#7cc4f0; font-family:'Space Grotesk',sans-serif; font-size:22px; font-weight:700;">◈</span>
+          <div class="nm" style="font-family:'Space Grotesk',sans-serif; font-weight:700;">Tidepool Labs</div>
+          <div class="tg">Clarity below the surface.</div>
+        </div>
+        <div class="strip"><span style="background:#0a1622"></span><span style="background:#2b6c9f"></span><span style="background:#7cc4f0"></span><span style="background:#edf6fd"></span><span style="background:#9aa8b5"></span></div>
+        <div class="body">
+          <p class="pair"><b>Space Grotesk</b> display · <b>Inter</b> body</p>
+          <p class="why">Glass blues, engineered cool. Credible, precise — but near the category cluster.</p>
+          <div class="fit"><span class="bar"><i style="width:81%;"></i></span><b>fit 81</b></div>
+          <div class="acts"><a class="btn btn-ink" href="#" style="font-size:12px; padding:8px 13px;">Ratify B</a><a class="btn btn-ghost" href="#" style="font-size:12px; padding:8px 13px;">Remix</a></div>
+        </div>
+      </div>
+
+      <!-- C: Warm Harbor -->
+      <div class="dir rise d4">
+        <div class="cover" style="background: radial-gradient(420px 300px at 14% -8%, rgba(220,150,90,0.4), transparent 60%), #f4ece1; color: #3a2c20;">
+          <span class="glyph" style="background: rgba(58,44,32,0.08); color:#c4763a; font-family:'Plus Jakarta Sans',sans-serif; font-size:22px; font-weight:800;">●</span>
+          <div class="nm" style="font-family:'Plus Jakarta Sans',sans-serif; font-weight:800;">Tidepool Labs</div>
+          <div class="tg" style="opacity:0.6;">Health data, human hands.</div>
+        </div>
+        <div class="strip"><span style="background:#f4ece1"></span><span style="background:#c4763a"></span><span style="background:#7a9e7e"></span><span style="background:#3a2c20"></span><span style="background:#e8d4bb"></span></div>
+        <div class="body">
+          <p class="pair"><b>Plus Jakarta Sans</b> display · <b>Inter</b> body</p>
+          <p class="why">Sand and clay, light mode native. Warmest of the three; least clinical authority.</p>
+          <div class="fit"><span class="bar"><i style="width:74%;"></i></span><b>fit 74</b></div>
+          <div class="acts"><a class="btn btn-ink" href="#" style="font-size:12px; padding:8px 13px;">Ratify C</a><a class="btn btn-ghost" href="#" style="font-size:12px; padding:8px 13px;">Remix</a></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="other-modes">
+    <div class="om rise d5">
+      <img src="assets/img/uc-colonel.png" alt="" />
+      <div>
+        <b>Extend the house</b>
+        <p>Inherits Magic Unicorn tokens + the *-Ops recipe: a new commander gets the uniform, the rank, and a role prop. Next up: Crisis-Ops.</p>
+      </div>
+      <a class="btn btn-ghost go" href="#">Use this mode</a>
+    </div>
+    <div class="om rise d6">
+      <img src="assets/img/mj-dj.png" alt="" />
+      <div>
+        <b>From a brand</b>
+        <p>Derive from any record — a sub-brand that keeps the parent's DNA, or a sibling that rhymes without copying. Majik's Studio came from Majik's this way.</p>
+      </div>
+      <a class="btn btn-ghost go" href="#">Use this mode</a>
+    </div>
+  </section>
+
+  <footer>
+    <span class="spec-note">SPEC · the pipeline is the intake agent's REAL plan, streamed: stages flip done→active live, action bullets check off as events arrive, artifact chips link to the records they produced.</span>
+    <span class="spec-note">SPEC · stage cards carry owner avatars (human/agent), wall time, and metered cost — the run is auditable while it happens.</span>
+    <span class="spec-note">SPEC · direction cards are LIVE token previews (same renderer as covers), fed by Iris's draft brand.yamls; Remix = lock-what-you-like conversation.</span>
+  </footer>
+
+</main>
+</body>
+</html>

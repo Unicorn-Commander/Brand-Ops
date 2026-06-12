@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brand-Ops — Library</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  .lib { display: grid; grid-template-columns: 1fr 318px; gap: 26px; padding: 0 0 60px; align-items: start; }
+
+  .head { padding: 44px 0 18px; display: flex; align-items: flex-end; gap: 20px; }
+  .head h1 { margin: 8px 0 0; font-family: var(--c-font-display); font-weight: 700; font-size: 38px; letter-spacing: -0.025em; }
+  .head .annotation { margin-top: 8px; }
+  .drop-hint { margin-left: auto; }
+
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px; }
+  .f-chip { font-size: 12px; font-weight: 600; border: 1px solid var(--c-hairline); border-radius: 999px; padding: 7px 13px; color: var(--c-ink-2); cursor: pointer; }
+  .f-chip.on { background: var(--c-ink); color: var(--c-bg); border-color: var(--c-ink); }
+  .f-chip .sw { display: inline-block; width: 9px; height: 9px; border-radius: 99px; margin-right: 6px; }
+  .f-sep { width: 1px; background: var(--c-hairline); margin: 4px 6px; }
+
+  .group { margin-bottom: 30px; }
+  .group-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  .group-head h2 { margin: 0; font-family: var(--c-font-display); font-size: 19px; font-weight: 650; letter-spacing: -0.015em; }
+  .group-head .ct { font-family: var(--c-font-mono); font-size: 11px; color: var(--c-ink-3); }
+  .group-head .ln { flex: 1; border-top: 1px solid var(--c-hairline-soft); }
+
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .asset { cursor: pointer; transition: transform 0.18s; }
+  .asset:hover { transform: translateY(-3px); }
+  .asset .mat { height: 150px; position: relative; overflow: hidden; }
+  .asset .mat img { max-width: 72%; max-height: 70%; height: 96px; width: auto; object-fit: contain; }
+  .asset.selected .mat { outline: 2px solid var(--c-ink); outline-offset: 2px; }
+  .asset .cap { display: flex; align-items: center; gap: 7px; margin-top: 9px; font-size: 11.5px; color: var(--c-ink-2); }
+  .asset .cap .nm { font-weight: 600; color: var(--c-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .asset .cap .brand-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .asset .cap .life { margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 2.5px 7px; border-radius: 5px; flex: none; }
+  .life.ok { color: var(--c-go); background: rgba(47,125,79,0.1); }
+  .life.rev { color: var(--c-warn); background: rgba(176,124,31,0.12); }
+  .life.con { color: var(--c-ink-3); background: rgba(255,255,255,0.05); border: 1px dashed var(--c-hairline); }
+
+  /* concept look: pinned sketch */
+  .asset.concept .mat { background: repeating-linear-gradient(-45deg, #efece4 0 10px, #ece8df 10px 20px); }
+  .asset.concept .mat img { opacity: 0.85; }
+
+  /* ---------------------------------------------------------- detail rail -- */
+  .rail { position: sticky; top: 80px; border: 1px solid var(--c-hairline-soft); border-radius: var(--radius); background: var(--c-surface); box-shadow: var(--shadow-paper); overflow: hidden; }
+  .rail .preview { background: var(--mat-dark); display: grid; place-items: center; height: 210px; }
+  .rail .preview img { height: 150px; }
+  .rail .body { padding: 18px 20px; }
+  .rail h3 { margin: 0 0 2px; font-family: var(--c-font-display); font-size: 16px; letter-spacing: -0.01em; }
+  .rail .sub { font-size: 11.5px; color: var(--c-ink-3); }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--c-hairline-soft); font-size: 12px; }
+  .kv:last-of-type { border-bottom: 0; }
+  .kv .k { color: var(--c-ink-3); }
+  .kv .v { font-weight: 600; text-align: right; }
+  .kv .v.mono { font-family: var(--c-font-mono); font-weight: 500; font-size: 11px; }
+  .rail .acts { display: flex; gap: 8px; margin-top: 14px; }
+  .prov-title { margin: 16px 0 4px; }
+  .history { margin-top: 10px; display: flex; align-items: center; gap: 8px; }
+  .history .h-fr { width: 44px; height: 44px; border-radius: 8px; background: var(--mat-dark); display: grid; place-items: center; overflow: hidden; }
+  .history .h-fr img { height: 34px; }
+  .history .h-arrow { color: var(--c-ink-3); font-size: 13px; }
+
+  .bulkbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 60; background: var(--c-ink); color: var(--c-bg); border-radius: 999px; padding: 10px 10px 10px 20px; display: flex; align-items: center; gap: 16px; font-size: 12.5px; box-shadow: 0 18px 50px -12px rgba(0,0,0,0.85); }
+  .bulkbar .b-act { background: rgba(10,10,14,0.08); border-radius: 999px; padding: 6px 14px; font-weight: 600; cursor: pointer; }
+  .bulkbar .b-act.go { background: var(--c-bg); color: var(--c-ink); }
+</style>
+</head>
+<body class="grain">
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(242,241,238,0.15);" />
+      <b>Brand-Ops</b>
+    </a>
+    <nav class="nav">
+      <a href="01-portfolio.html">Portfolio</a>
+      <a class="on" href="06-library.html">Library</a>
+      <a href="08-grade.html">Standards</a>
+      <a href="09-crew.html">Crew</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="workspace-chip"><span class="sw"></span> Magic Unicorn <span style="opacity:0.5;">▾</span></span>
+      <span class="kbd">⌘K</span>
+      <a class="btn btn-ink" href="05-new-brand.html">New brand</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="head rise">
+    <div>
+      <span class="microlabel">Library · every brand</span>
+      <h1>The vault</h1>
+      <p class="annotation">Each asset lives with its brand; this is the lens across all of them. Neutral mats — judge the work, not the wall.</p>
+    </div>
+    <span class="spec-note drop-hint">Drop files anywhere — they stage to the active brand through the gate</span>
+  </section>
+
+  <div class="filters rise d1">
+    <span class="f-chip on">All brands</span>
+    <span class="f-chip"><span class="sw" style="background:linear-gradient(135deg,#b66eff,#00d4ff);"></span>Magic Unicorn</span>
+    <span class="f-chip"><span class="sw" style="background:linear-gradient(135deg,#0891b2,#22d3ee);"></span>Center Deep</span>
+    <span class="f-chip"><span class="sw" style="background:linear-gradient(135deg,#8b5cf6,#b66eff);"></span>Unicorn Commander</span>
+    <span class="f-chip"><span class="sw" style="background:linear-gradient(135deg,#a855f7,#c084fc);"></span>Majik's</span>
+    <span class="f-chip"><span class="sw" style="background:linear-gradient(135deg,#1b3a6b,#d4af37);"></span>Meeting-Ops</span>
+    <span class="f-sep"></span>
+    <span class="f-chip on">Production</span>
+    <span class="f-chip">In review · 11</span>
+    <span class="f-chip">Concepts · 19</span>
+    <span class="f-sep"></span>
+    <span class="f-chip">Type ▾</span>
+    <span class="f-chip">Backend ▾</span>
+  </div>
+
+  <div class="lib">
+    <div>
+      <!-- LOGOS -->
+      <div class="group rise d2">
+        <div class="group-head"><h2>Logos</h2><span class="ct">8 · 7 approved</span><span class="ln"></span></div>
+        <div class="grid">
+          <div class="asset selected">
+            <div class="mat dark"><img src="assets/img/mo-lead.png" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#1b3a6b;"></span><span class="nm">meeting-ops-lead</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat"><img src="assets/img/mu-unicorn.svg" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#b66eff;"></span><span class="nm">unicorn.svg</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat dark"><img src="assets/img/uc-colonel.png" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#8b5cf6;"></span><span class="nm">The_Colonel</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat dark"><img src="assets/img/cd-mark.png" alt="" style="border-radius:12px;" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#0891b2;"></span><span class="nm">center-deep-logo</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat dark"><img src="assets/img/uc-general.png" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#8b5cf6;"></span><span class="nm">The_General</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat dark"><img src="assets/img/uc-gunny.png" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#8b5cf6;"></span><span class="nm">Gunny</span><span class="life rev">review</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat dark"><img src="assets/img/mo-seal.png" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#1b3a6b;"></span><span class="nm">meeting-ops-seal</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset concept">
+            <div class="mat"><img src="assets/img/mo-logo-v1.png" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#1b3a6b;"></span><span class="nm">direction-b-explored</span><span class="life con">concept</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- APP ICONS -->
+      <div class="group rise d3">
+        <div class="group-head"><h2>App icons</h2><span class="ct">2 · 2 approved</span><span class="ln"></span></div>
+        <div class="grid">
+          <div class="asset">
+            <div class="mat dark"><img src="assets/img/mjs-icon.png" alt="" style="border-radius:18px;" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#a855f7;"></span><span class="nm">studio-icon-1024</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat dark"><img src="assets/img/mj-dj.png" alt="" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#a855f7;"></span><span class="nm">majiks-online-1024</span><span class="life ok">approved</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CARDS -->
+      <div class="group rise d4">
+        <div class="group-head"><h2>OG & social cards</h2><span class="ct">2 · composited · $0 to render</span><span class="ln"></span></div>
+        <div class="grid">
+          <div class="asset">
+            <div class="mat dark" style="padding:12px;"><img src="assets/img/mo-og.png" alt="" style="max-width:100%; height:auto; max-height:100%; border-radius:6px;" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#1b3a6b;"></span><span class="nm">og — self-host line</span><span class="life ok">approved</span></div>
+          </div>
+          <div class="asset">
+            <div class="mat dark" style="padding:12px;"><img src="assets/img/cd-poster.png" alt="" style="max-width:100%; height:auto; max-height:100%; border-radius:6px;" /></div>
+            <div class="cap"><span class="brand-dot" style="background:#0891b2;"></span><span class="nm">deep-poster</span><span class="life rev">review</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DETAIL RAIL -->
+    <aside class="rail rise d3">
+      <div class="preview"><img src="assets/img/mo-lead.png" alt="" /></div>
+      <div class="body">
+        <h3>meeting-ops-lead.png</h3>
+        <span class="sub">Meeting-Ops · logo · production mark</span>
+        <div style="margin-top:14px;">
+          <div class="kv"><span class="k">Lifecycle</span><span class="v" style="color:var(--c-go);">Approved</span></div>
+          <div class="kv"><span class="k">Compliance</span><span class="v">100 · pass</span></div>
+          <div class="kv"><span class="k">Made by</span><span class="v">Steward · nano-banana 2</span></div>
+          <div class="kv"><span class="k">References</span><span class="v">The Colonel · house unicorn</span></div>
+          <div class="kv"><span class="k">Cost</span><span class="v mono">$0.04 · OpenRouter direct</span></div>
+          <div class="kv"><span class="k">Dimensions</span><span class="v mono">1024×1024 · alpha</span></div>
+        </div>
+
+        <span class="microlabel prov-title">History</span>
+        <div class="history">
+          <span class="h-fr"><img src="assets/img/uc-colonel.png" alt="" /></span>
+          <span class="h-arrow">→</span>
+          <span class="h-fr"><img src="assets/img/mo-logo-v1.png" alt="" /></span>
+          <span class="h-arrow">→</span>
+          <span class="h-fr" style="outline:2px solid var(--c-go);"><img src="assets/img/mo-lead.png" alt="" /></span>
+          <span style="font-size:10.5px; color:var(--c-ink-3); margin-left:4px;">ref → explored → ratified</span>
+        </div>
+
+        <div class="acts">
+          <a class="btn btn-ink" href="#" style="font-size:12px; padding:8px 14px;">Download</a>
+          <a class="btn btn-ghost" href="03-mark.html" style="font-size:12px; padding:8px 14px;">Anatomy</a>
+          <a class="btn btn-ghost" href="04-studio.html" style="font-size:12px; padding:8px 14px;">Variants</a>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="bulkbar">
+    <span><b>3 selected</b> · 2 brands</span>
+    <span class="b-act">Re-tag</span>
+    <span class="b-act">Send to review</span>
+    <span class="b-act go">Approve all</span>
+  </div>
+
+</main>
+</body>
+</html>

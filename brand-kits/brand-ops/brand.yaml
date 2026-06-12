@@ -1,0 +1,53 @@
+# Brand-Ops. The suite app for brand identity itself - the app brand.
+# Identity: Obsidian dark + the prism signature (the tool that holds every
+# brand color owns the spectrum). Mascot: the quartermaster of identity.
+
+brand:
+  slug: brand-ops
+  display_name: Brand-Ops
+  tagline: Every brand, under command.
+  parent: unicorn-commander
+  mark:
+    asset_type: logo
+    file: brand-ops-mark.png
+    kind: imported
+  description: |
+    Brand-Ops is the Unicorn Commander suite app where brands live as
+    machine-readable truth and agents research, generate, guard, and grade
+    on-brand work. Its own identity is deliberately quiet: obsidian dark
+    surfaces with one signature, the prism, an iridescent diffraction line.
+    The mascot is the brand quartermaster of the *-Ops command.
+
+visual:
+  colors:
+    primary: "#9b8cff"
+    accent: "#4cc9f0"
+    background: "#07070b"
+    foreground: "#f2f1ee"
+    muted: "#26262f"
+  typography:
+    primary_font: Instrument Sans
+    display_font: Instrument Sans
+    mono_font: JetBrains Mono
+  style_keywords:
+    - match the EXACT art style of the reference images
+    - bold thick black-outlined sticker-style cartoon unicorn head
+    - white face, gold spiral horn, vibrant full rainbow mane
+    - navy military beret with silver oak leaf insignia like the reference
+    - holding up a fanned deck of color swatch cards spread like a hand of cards
+    - confident appraising expression with one raised eyebrow, clean flat colors, centered
+
+voice:
+  tone:
+    - professional
+    - exacting
+    - quietly confident
+  forbidden_phrases:
+    - revolutionary
+    - game-changer
+    - synergize
+    - unleash
+
+reference_images:
+  colonel: refs/colonel.png
+  canonical: refs/canonical-unicorn.png

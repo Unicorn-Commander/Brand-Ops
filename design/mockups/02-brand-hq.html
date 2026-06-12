@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Center Deep — Brand HQ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/system.css" />
+<style>
+  /* Center Deep environment — the app becomes the brand. */
+  body {
+    --b-bg: #051937;
+    --b-bg-glow1: rgba(8, 145, 178, 0.32);
+    --b-bg-glow2: rgba(34, 211, 238, 0.14);
+    --b-ink: #f2f9ff;
+    --b-ink-2: rgba(226, 244, 255, 0.66);
+    --b-ink-3: rgba(226, 244, 255, 0.44);
+    --b-hairline: rgba(180, 230, 255, 0.13);
+    --b-primary: #0891b2;
+    --b-accent: #22d3ee;
+    --b-font-display: "Inter", sans-serif;
+    --b-font-body: "Inter", sans-serif;
+  }
+
+  /* ambient: light rays from the surface + slow bubbles. whisper-subtle. */
+  .rays {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: 0.5;
+    background:
+      linear-gradient(172deg, rgba(34,211,238,0.10) 0%, transparent 34%),
+      linear-gradient(168deg, transparent 8%, rgba(34,211,238,0.05) 16%, transparent 30%),
+      linear-gradient(176deg, transparent 16%, rgba(255,255,255,0.035) 22%, transparent 38%);
+  }
+  .bubble { position: fixed; border-radius: 999px; border: 1px solid rgba(180,230,255,0.13); pointer-events: none; z-index: 0; animation: floatup linear infinite; }
+  @keyframes floatup { from { transform: translateY(30vh); opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } to { transform: translateY(-110vh); opacity: 0; } }
+
+  /* -------------------------------------------------------------- hero -- */
+  .hero { padding: 64px 0 44px; display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 40px; align-items: center; }
+  .crumb { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
+  .crumb a { color: var(--b-ink-3); text-decoration: none; font-size: 12.5px; }
+  .crumb a:hover { color: var(--b-ink-2); }
+  .crumb .chip { font-size: 10.5px; }
+  .hero h1 {
+    margin: 14px 0 0; font-family: var(--b-font-display); font-weight: 800;
+    font-size: clamp(56px, 7vw, 88px); line-height: 0.98; letter-spacing: -0.035em;
+    background: linear-gradient(120deg, #ffffff 30%, #22d3ee 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero .tagline { margin: 18px 0 0; font-size: 19px; color: var(--b-ink-2); font-weight: 500; }
+  .hero .desc { margin: 12px 0 0; font-size: 14px; color: var(--b-ink-3); max-width: 56ch; }
+  .hero-actions { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .hero-side { display: flex; flex-direction: column; align-items: center; gap: 20px; }
+  .hero-mark { position: relative; }
+  .hero-mark img { width: 300px; height: auto; border-radius: 26px; box-shadow: var(--shadow-deep), 0 0 80px rgba(34,211,238,0.18); animation: drift 9s ease-in-out infinite; }
+  @keyframes drift { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
+
+  .gradeboard {
+    display: flex; align-items: center; gap: 18px;
+    border: 1px solid var(--b-hairline); border-radius: var(--radius);
+    background: rgba(255,255,255,0.035); backdrop-filter: blur(8px);
+    padding: 16px 20px;
+  }
+  .gradeboard .big { font-family: var(--b-font-display); font-size: 40px; font-weight: 800; letter-spacing: -0.03em; color: #c4e08a; line-height: 1; }
+  .gradeboard .lbl { font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--b-ink-3); }
+  .gradeboard .num { font-family: var(--c-font-mono); font-size: 12px; color: var(--b-ink-2); }
+  .gradeboard a { color: var(--b-accent); font-size: 12px; text-decoration: none; }
+
+  /* ------------------------------------------------------------ section -- */
+  section.block { padding: 44px 0 10px; }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 20px; }
+  .sec-head h2 { margin: 0; font-family: var(--b-font-display); font-weight: 700; font-size: 24px; letter-spacing: -0.02em; }
+  .sec-head .annotation { font-size: 14.5px; }
+  .sec-head .discuss { margin-left: auto; }
+
+  /* ---------------------------------------------------------- paint wall -- */
+  .paint-wall { display: grid; grid-template-columns: 2fr 1.3fr 1.3fr 1fr 1fr; gap: 10px; height: 170px; }
+  .paint-field { position: relative; border-radius: var(--radius-sm); padding: 14px 16px; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; transition: transform 0.2s; cursor: pointer; }
+  .paint-field:hover { transform: translateY(-3px); }
+  .paint-field .nm { font-weight: 700; font-size: 13.5px; letter-spacing: -0.01em; }
+  .paint-field .hx { font-family: var(--c-font-mono); font-size: 11px; opacity: 0.75; }
+  .paint-field .ct { position: absolute; top: 12px; left: 16px; font-family: var(--c-font-mono); font-size: 10px; opacity: 0.65; }
+  .paint-field .copy { position: absolute; top: 10px; right: 12px; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; opacity: 0; transition: opacity 0.15s; }
+  .paint-field:hover .copy { opacity: 0.8; }
+
+  /* ----------------------------------------------------------- specimens -- */
+  .type-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 22px; }
+  .specimen { border: 1px solid var(--b-hairline); border-radius: var(--radius); padding: 26px 30px; background: rgba(255,255,255,0.025); }
+  .specimen .micro { display: flex; justify-content: space-between; align-items: baseline; }
+  .specimen .ag { font-size: 124px; line-height: 1; font-weight: 800; letter-spacing: -0.04em; margin: 8px 0 2px; }
+  .specimen .alpha { font-size: 17px; color: var(--b-ink-2); letter-spacing: 0.06em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .specimen .weights { margin-top: 16px; display: flex; gap: 18px; align-items: baseline; flex-wrap: wrap; }
+  .specimen .weights span { font-size: 21px; letter-spacing: -0.01em; }
+  .specimen.small .ag { font-size: 64px; font-weight: 500; }
+  .specimen .sample { margin-top: 10px; font-size: 14px; color: var(--b-ink-2); line-height: 1.6; }
+  .specimen .mono-sample { font-family: var(--c-font-mono); font-size: 12.5px; color: var(--b-ink-2); margin-top: 14px; }
+
+  /* ------------------------------------------------------------ the mark -- */
+  .mark-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 22px; align-items: stretch; }
+  .mark-cell { display: flex; flex-direction: column; gap: 10px; }
+  .mark-cell .mat { height: 200px; overflow: hidden; }
+  .mark-cell .mat img { height: 140px; width: auto; max-width: 82%; object-fit: contain; border-radius: 14px; }
+  .mark-cell .cap { font-size: 11.5px; color: var(--b-ink-3); display: flex; justify-content: space-between; }
+  .clear-space { position: relative; height: 200px; border-radius: var(--radius-sm); border: 1px solid var(--b-hairline); display: grid; place-items: center; background: rgba(255,255,255,0.02); }
+  .clear-space .bound { position: relative; border: 1px dashed rgba(34,211,238,0.5); padding: 34px; border-radius: 6px; }
+  .clear-space img { height: 84px; width: auto; border-radius: 12px; }
+  .clear-space .mlabel { position: absolute; font-family: var(--c-font-mono); font-size: 9.5px; color: var(--b-accent); }
+
+  /* ------------------------------------------------------------ coverage -- */
+  .kit { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+  .kit-cell { border: 1px solid var(--b-hairline); border-radius: var(--radius-sm); padding: 12px; background: rgba(255,255,255,0.025); display: flex; flex-direction: column; gap: 9px; }
+  .kit-cell .thumb { height: 86px; border-radius: 7px; background: var(--mat-dark); display: grid; place-items: center; overflow: hidden; }
+  .kit-cell .thumb img { max-width: 82%; max-height: 80%; object-fit: contain; }
+  .kit-cell .t { font-size: 11.5px; font-weight: 600; }
+  .kit-cell .s { font-size: 10.5px; color: var(--b-ink-3); }
+  .kit-cell.missing .thumb { background: transparent; border: 1.5px dashed var(--b-hairline); color: var(--b-ink-3); font-size: 22px; font-weight: 300; }
+  .kit-cell.missing .gen { font-size: 11px; font-weight: 600; color: var(--b-accent); text-decoration: none; }
+  .kit-foot { margin-top: 16px; display: flex; align-items: center; gap: 12px; }
+
+  /* --------------------------------------------------------------- voice -- */
+  .voice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .voice-card { border: 1px solid var(--b-hairline); border-radius: var(--radius); padding: 22px 26px; background: rgba(255,255,255,0.025); }
+  .tones { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .forbid { margin-top: 12px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .forbid s { color: var(--b-ink-3); font-size: 13px; text-decoration-color: var(--c-stop); text-decoration-thickness: 1.5px; }
+  .vsample { margin-top: 12px; padding: 12px 16px; border-left: 2px solid var(--b-accent); font-size: 13.5px; color: var(--b-ink-2); }
+  .vsample.bad { border-left-color: var(--c-stop); }
+  .vsample .vtag { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+  .vsample .vtag.ok { color: #8be3a8; } .vsample .vtag.no { color: #f49b8a; }
+
+  /* ----------------------------------------------------------- the team -- */
+  .team { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 22px; }
+  .agent-card { border: 1px solid var(--b-hairline); border-radius: var(--radius); padding: 20px 24px; background: rgba(255,255,255,0.03); display: flex; gap: 16px; align-items: center; }
+  .avatar { width: 54px; height: 54px; border-radius: 999px; overflow: hidden; background: radial-gradient(circle at 30% 28%, #22d3ee, #0891b2 58%, #051937); display: grid; place-items: center; flex: none; position: relative; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar .st { position: absolute; right: 1px; bottom: 1px; width: 11px; height: 11px; border-radius: 99px; background: var(--c-go); border: 2px solid #07203f; }
+  .agent-card b { font-family: var(--b-font-display); font-size: 15px; display: block; letter-spacing: -0.01em; }
+  .agent-card .r { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--b-accent); }
+  .agent-card p { margin: 4px 0 0; font-size: 12px; color: var(--b-ink-3); }
+  .specialists { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  /* ------------------------------------------------------------ activity -- */
+  .act { border: 1px solid var(--b-hairline); border-radius: var(--radius); background: rgba(255,255,255,0.025); padding: 8px 0; }
+  .act-row { display: flex; align-items: center; gap: 14px; padding: 11px 22px; font-size: 13px; border-bottom: 1px solid rgba(180,230,255,0.06); }
+  .act-row:last-child { border-bottom: 0; }
+  .act-row .who { font-weight: 600; }
+  .act-row .what { color: var(--b-ink-2); }
+  .act-row .when { margin-left: auto; font-family: var(--c-font-mono); font-size: 10.5px; color: var(--b-ink-3); }
+  .swatch-pair { display: inline-flex; align-items: center; gap: 4px; vertical-align: -2px; }
+  .swatch-pair i { width: 13px; height: 13px; border-radius: 4px; display: inline-block; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18); }
+
+  footer { padding: 36px 0 64px; display: flex; gap: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body class="grain" data-env="brand">
+
+<div class="rays"></div>
+<i class="bubble" style="left:8%; width:7px; height:7px; animation-duration: 23s; animation-delay: 0s;"></i>
+<i class="bubble" style="left:23%; width:4px; height:4px; animation-duration: 31s; animation-delay: 6s;"></i>
+<i class="bubble" style="left:67%; width:5px; height:5px; animation-duration: 27s; animation-delay: 11s;"></i>
+<i class="bubble" style="left:88%; width:8px; height:8px; animation-duration: 21s; animation-delay: 3s;"></i>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="01-portfolio.html" title="Back to Portfolio">
+      <img src="assets/img/bo-mark.jpg" alt="" style="height:27px;width:27px;object-fit:cover;object-position:50% 14%;border-radius:8px;outline:1px solid rgba(255,255,255,0.15);" />
+      <b>‹ Portfolio</b>
+    </a>
+    <span style="display:flex; align-items:center; gap:9px;">
+      <img src="assets/img/cd-mark.png" alt="" style="height:24px; border-radius:6px;" />
+      <b style="font-family:var(--b-font-display); font-size:14.5px; letter-spacing:-0.01em;">Center Deep</b>
+    </span>
+    <nav class="nav">
+      <a class="on" href="02-brand-hq.html">Overview</a>
+      <a href="03-mark.html">Mark</a>
+      <a href="07-book.html">Book</a>
+      <a href="06-library.html">Assets</a>
+      <a href="04-studio.html">Studio</a>
+      <a href="08-grade.html">Grade</a>
+    </nav>
+    <div class="topbar-right">
+      <span class="chip"><span class="dot dot-live"></span> Steward online</span>
+      <span class="kbd">⌘K</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ============================================================ HERO -->
+  <section class="hero">
+    <div class="rise">
+      <div class="crumb">
+        <span class="microlabel">Brand HQ</span>
+        <span class="chip">Part of Magic Unicorn</span>
+        <span class="chip">Steward · est. 2026</span>
+      </div>
+      <h1>Center<br/>Deep</h1>
+      <p class="tagline">Search the deep, surface what matters.</p>
+      <p class="desc">Privacy-first metasearch and data intelligence. Deep water, soft light rays, glass surfaces, and an astronaut unicorn who has seen the bottom.</p>
+      <div class="hero-actions">
+        <a class="btn btn-accent" href="04-studio.html">Open Studio</a>
+        <a class="btn btn-ghost" href="07-book.html">Brand book</a>
+        <a class="btn btn-ghost" href="04-studio.html">Discuss the brand</a>
+      </div>
+    </div>
+    <div class="hero-side rise d2">
+      <div class="hero-mark aura hud">
+        <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+        <img src="assets/img/cd-mark.png" alt="Center Deep mark" />
+        <span class="readout">MARK CD-01 · 1024 α · CANONICAL</span>
+      </div>
+      <div class="gradeboard">
+        <div>
+          <div class="big">B−</div>
+          <div class="lbl">Brand grade</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <span class="num">78 / 100 · graded 2h ago</span>
+          <span class="num" style="color:var(--c-warn);">2 open issues</span>
+          <a href="08-grade.html">Full report →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="hairline" />
+
+  <!-- ======================================================= THE PAINT -->
+  <section class="block">
+    <div class="sec-head rise">
+      <h2>Color</h2>
+      <span class="annotation">Five tokens, sea-floor to surface. Contrast measured against Deep Water.</span>
+      <a class="btn btn-ghost discuss" href="04-studio.html">Ask the steward why teal ↗</a>
+    </div>
+    <div class="paint-wall rise d1">
+      <div class="paint-field" style="background:#051937; color:#f2f9ff; border:1px solid var(--b-hairline);">
+        <span class="ct">surface/background</span>
+        <span class="copy">COPY HEX</span>
+        <span class="nm">Deep Water</span><span class="hx">#051937 · rgb 5 25 55</span>
+      </div>
+      <div class="paint-field" style="background:#0891b2; color:#03222b;">
+        <span class="ct">brand/primary · 4.9 AA</span>
+        <span class="copy">COPY HEX</span>
+        <span class="nm">Current</span><span class="hx">#0891b2</span>
+      </div>
+      <div class="paint-field" style="background:#22d3ee; color:#062a33;">
+        <span class="ct">brand/accent · 9.1 AAA</span>
+        <span class="copy">COPY HEX</span>
+        <span class="nm">Surface Light</span><span class="hx">#22d3ee</span>
+      </div>
+      <div class="paint-field" style="background:#ffffff; color:#13202c;">
+        <span class="ct">text/foreground · 17.4 AAA</span>
+        <span class="copy">COPY HEX</span>
+        <span class="nm">Foam</span><span class="hx">#ffffff</span>
+      </div>
+      <div class="paint-field" style="background:#0a2463; color:#cfe2ff;">
+        <span class="ct">surface/muted</span>
+        <span class="copy">COPY HEX</span>
+        <span class="nm">Abyss</span><span class="hx">#0a2463</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ TYPE -->
+  <section class="block">
+    <div class="sec-head rise">
+      <h2>Typography</h2>
+      <span class="annotation">Set tight, weighted heavy, read in the dark.</span>
+      <a class="btn btn-ghost discuss" href="04-studio.html">Discuss type ↗</a>
+    </div>
+    <div class="type-grid rise d1">
+      <div class="specimen">
+        <div class="micro"><span class="microlabel">Display · Inter</span><span class="microlabel">700–900</span></div>
+        <div class="ag">Aa</div>
+        <div class="alpha">ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789</div>
+        <div class="weights">
+          <span style="font-weight:400;">Depth</span>
+          <span style="font-weight:500;">Depth</span>
+          <span style="font-weight:600;">Depth</span>
+          <span style="font-weight:700;">Depth</span>
+          <span style="font-weight:800;">Depth</span>
+          <span style="font-weight:900;">Depth</span>
+        </div>
+      </div>
+      <div class="specimen small">
+        <div class="micro"><span class="microlabel">Body · Inter</span><span class="microlabel">Mono · JetBrains</span></div>
+        <div class="ag">Ag</div>
+        <p class="sample">The quick brown fox surfaces with exactly what you asked for, and nothing you didn't. No tracking. No noise. 0123456789.</p>
+        <p class="mono-sample">center-deep --query "signal" --depth full</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================================================== THE MARK -->
+  <section class="block">
+    <div class="sec-head rise">
+      <h2>The mark</h2>
+      <span class="annotation">The astronaut. One canonical file; everything derives.</span>
+      <a class="btn btn-ghost discuss" href="03-mark.html">Full anatomy →</a>
+    </div>
+    <div class="mark-row rise d1">
+      <div class="mark-cell">
+        <div class="mat"><img src="assets/img/cd-mark.png" alt="mark on light" /></div>
+        <span class="cap"><span>On light</span><span>min 24px</span></span>
+      </div>
+      <div class="mark-cell">
+        <div class="mat dark"><img src="assets/img/cd-mark.png" alt="mark on dark" /></div>
+        <span class="cap"><span>On dark</span><span>preferred</span></span>
+      </div>
+      <div class="mark-cell">
+        <div class="clear-space">
+          <div class="bound">
+            <img src="assets/img/cd-mark.png" alt="clear space" />
+            <span class="mlabel" style="top:8px; left:50%; transform:translateX(-50%);">1×</span>
+            <span class="mlabel" style="bottom:8px; left:50%; transform:translateX(-50%);">1×</span>
+            <span class="mlabel" style="left:8px; top:50%; transform:translateY(-50%);">1×</span>
+            <span class="mlabel" style="right:8px; top:50%; transform:translateY(-50%);">1×</span>
+          </div>
+        </div>
+        <span class="cap"><span>Clear space ≥ 1× mark height</span><span>enforced at publish</span></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= KIT -->
+  <section class="block">
+    <div class="sec-head rise">
+      <h2>The kit</h2>
+      <span class="annotation">Coverage counts only what compliance lets through.</span>
+    </div>
+    <div class="kit rise d1">
+      <div class="kit-cell">
+        <div class="thumb"><img src="assets/img/cd-mark.png" alt="" /></div>
+        <span class="t">Logo</span><span class="s">2 approved · imported</span>
+      </div>
+      <div class="kit-cell">
+        <div class="thumb"><img src="assets/img/cd-mark.png" alt="" style="border-radius:18px;" /></div>
+        <span class="t">App icon</span><span class="s">1 approved</span>
+      </div>
+      <div class="kit-cell">
+        <div class="thumb"><img src="assets/img/cd-poster.png" alt="" style="max-width:94%; border-radius:4px;" /></div>
+        <span class="t">OG image</span><span class="s">1 approved · composited</span>
+      </div>
+      <div class="kit-cell missing">
+        <div class="thumb">＋</div>
+        <span class="t">Social card</span><a class="gen" href="04-studio.html">Generate →</a>
+      </div>
+      <div class="kit-cell missing">
+        <div class="thumb">＋</div>
+        <span class="t">Podcast cover</span><a class="gen" href="04-studio.html">Generate →</a>
+      </div>
+      <div class="kit-cell missing">
+        <div class="thumb">＋</div>
+        <span class="t">Avatar</span><a class="gen" href="04-studio.html">Generate →</a>
+      </div>
+    </div>
+    <div class="kit-foot rise d2">
+      <a class="btn btn-accent" href="04-studio.html">Generate the 3 missing</a>
+      <span class="spec-note">runs through the steward · compliance-gated · ≈ $0.12 metered</span>
+    </div>
+  </section>
+
+  <!-- ============================================================ VOICE -->
+  <section class="block">
+    <div class="sec-head rise">
+      <h2>Voice</h2>
+      <span class="annotation">How the brand sounds when it speaks for itself.</span>
+      <a class="btn btn-ghost discuss" href="04-studio.html">Hear the steward ↗</a>
+    </div>
+    <div class="voice-grid rise d1">
+      <div class="voice-card">
+        <span class="microlabel">Tone</span>
+        <div class="tones">
+          <span class="chip">founder-direct</span>
+          <span class="chip">technical but accessible</span>
+          <span class="chip">privacy-forward</span>
+          <span class="chip">plain and concrete</span>
+        </div>
+        <span class="microlabel" style="display:block; margin-top:18px;">Never says</span>
+        <div class="forbid"><s>revolutionary</s><s>game-changer</s><s>synergize</s><s>unleash</s></div>
+      </div>
+      <div class="voice-card">
+        <div class="vsample"><span class="vtag ok">On voice</span>Your searches stay yours. We index the deep web's public corpus and return structured answers with sources.</div>
+        <div class="vsample bad"><span class="vtag no">Off voice — caught at publish</span>Unleash a revolutionary game-changing search experience!</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================= TEAM -->
+  <section class="block">
+    <div class="sec-head rise">
+      <h2>The team on this brand</h2>
+      <span class="annotation">Agents wear the brand they serve.</span>
+      <a class="btn btn-ghost discuss" href="09-crew.html">Full crew →</a>
+    </div>
+    <div class="team rise d1">
+      <div class="agent-card">
+        <span class="avatar"><img src="assets/img/cd-mark.png" alt="" /><span class="st"></span></span>
+        <div>
+          <span class="r">Brand steward</span>
+          <b>Center Deep Steward</b>
+          <p>Knows the palette, rules, and every asset. Watching uploads now.</p>
+          <p style="margin-top:6px; font-size:11px; color:var(--b-ink-3);"><span style="color:var(--b-accent); font-weight:700; letter-spacing:0.08em; font-size:9.5px;">STANDING ORDERS</span> · close the kit gap · re-tint the poster · keep the teal arc pure</p>
+        </div>
+      </div>
+      <div class="agent-card">
+        <span class="avatar" style="background:radial-gradient(circle at 30% 28%, #b66eff, #6d28d9 60%, #1b0a33);"><span style="font-weight:800; color:#fff; font-size:19px;">I</span><span class="st"></span></span>
+        <div>
+          <span class="r" style="color:#c9a4ff;">Director</span>
+          <b>Iris</b>
+          <p>Orchestrates the house. Spawned this steward at intake.</p>
+        </div>
+      </div>
+      <div class="agent-card" style="flex-direction:column; align-items:flex-start;">
+        <span class="microlabel">Specialists on call</span>
+        <div class="specialists">
+          <span class="chip"><span class="dot" style="background:var(--c-go);"></span> research</span>
+          <span class="chip"><span class="dot" style="background:var(--c-go);"></span> asset_pack</span>
+          <span class="chip"><span class="dot" style="background:var(--c-go);"></span> critic</span>
+          <span class="chip">tagger</span>
+          <span class="chip">refine</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========================================================= ACTIVITY -->
+  <section class="block">
+    <div class="sec-head rise">
+      <h2>Recent on this brand</h2>
+    </div>
+    <div class="act rise d1">
+      <div class="act-row">
+        <span class="stamp stamp-flag">flagged</span>
+        <span class="who">Compliance gate</span>
+        <span class="what">poster variant drifts blue <span class="swatch-pair"><i style="background:#1d4ed8;"></i>→<i style="background:#0891b2;"></i></span> outside the teal arc</span>
+        <span class="when">2d ago</span>
+      </div>
+      <div class="act-row">
+        <span class="stamp stamp-pass">pass</span>
+        <span class="who">Steward</span>
+        <span class="what">OG image recomposited with corrected headline contrast</span>
+        <span class="when">2d ago</span>
+      </div>
+      <div class="act-row">
+        <span class="chip">note</span>
+        <span class="who">Iris</span>
+        <span class="what">kit gap: social_card, podcast_cover, avatar missing for full coverage</span>
+        <span class="when">3d ago</span>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span class="spec-note">SPEC · entering this route loads the brand's real fonts (self-hosted) and sets --b-* tokens; View Transition morphs the portfolio cover into the hero.</span>
+    <span class="spec-note">SPEC · ambient layer derives from style_keywords (deep-sea → rays + bubbles), capped at 2 effects, reduced-motion: none.</span>
+    <span class="spec-note">SPEC · every "Discuss ↗" deep-links Studio with the section as context; the steward answers about THIS brand.</span>
+  </footer>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,346 @@
+/* ===========================================================================
+   Brand-Ops design system v2.1 — "The brand is the interface" / OBSIDIAN
+   ---------------------------------------------------------------------------
+   Two token layers:
+
+   1. CHROME tokens (--c-*): Brand-Ops' OWN product brand ("Obsidian"):
+      deep-space black, warm-white ink, and the PRISM — an iridescent
+      diffraction gradient that is the app's signature (the tool that holds
+      every brand's colors owns the whole spectrum). This layer is the
+      WHITE-LABEL slot: swap the chrome brand record, the product re-skins.
+
+   2. BRAND tokens (--b-*): the ACTIVE brand under management. Inside a
+      brand space, --b-* drives background, ink, fonts, accents. The app
+      re-skins to the brand. Set on <body data-env="brand"> per route.
+
+   The workspace (e.g. "Magic Unicorn") is the TENANT — its brands are
+   content, never the app's identity.
+
+   Asset judgment surfaces (mats) stay NEUTRAL in both environments.
+   =========================================================================== */
+
+:root {
+  /* -- Chrome brand: Brand-Ops "Obsidian" -- */
+  --c-bg: #07070b;
+  --c-bg-2: #0d0d14;
+  --c-surface: #0e0e16;
+  --c-ink: #f2f1ee;
+  --c-ink-2: rgba(242, 241, 238, 0.62);
+  --c-ink-3: rgba(242, 241, 238, 0.38);
+  --c-hairline: rgba(242, 241, 238, 0.13);
+  --c-hairline-soft: rgba(242, 241, 238, 0.07);
+  --c-font-display: "Instrument Sans", system-ui, sans-serif;
+  --c-font-body: "Instrument Sans", system-ui, sans-serif;
+  --c-font-serif: "Newsreader", Georgia, serif;
+  --c-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --c-go: #6fdb96;
+  --c-warn: #e8b54a;
+  --c-stop: #f07c66;
+
+  /* the prism: Brand-Ops' signature iridescent diffraction gradient */
+  --prism: linear-gradient(100deg, #ff7a59 0%, #ffd166 18%, #7ce3a1 38%, #4cc9f0 58%, #9b8cff 78%, #f15bb5 100%);
+
+  /* -- Active brand environment (pages set these) -- */
+  --b-bg: var(--c-bg);
+  --b-bg-glow1: transparent;
+  --b-bg-glow2: transparent;
+  --b-ink: var(--c-ink);
+  --b-ink-2: var(--c-ink-2);
+  --b-ink-3: var(--c-ink-3);
+  --b-primary: #9b8cff;
+  --b-accent: #4cc9f0;
+  --b-hairline: rgba(255, 255, 255, 0.12);
+  --b-font-display: var(--c-font-display);
+  --b-font-body: var(--c-font-body);
+
+  /* -- Neutral judgment mats (constant in both environments) -- */
+  --mat-light: #f1efe9;
+  --mat-dark: #15151a;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow-paper: 0 1px 2px rgba(0, 0, 0, 0.55), 0 18px 54px -20px rgba(0, 0, 0, 0.8);
+  --shadow-deep: 0 2px 6px rgba(0, 0, 0, 0.4), 0 26px 80px -26px rgba(0, 0, 0, 0.7);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  background:
+    radial-gradient(1200px 700px at 8% -12%, rgba(155, 140, 255, 0.07), transparent 60%),
+    radial-gradient(1000px 760px at 96% -4%, rgba(76, 201, 240, 0.055), transparent 58%),
+    radial-gradient(900px 700px at 50% 118%, rgba(241, 91, 181, 0.045), transparent 60%),
+    var(--c-bg);
+  color: var(--c-ink);
+  font-family: var(--c-font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Brand environment: the page becomes the brand. */
+body[data-env="brand"] {
+  background:
+    radial-gradient(1100px 700px at 12% -8%, var(--b-bg-glow1), transparent 60%),
+    radial-gradient(1000px 800px at 95% 12%, var(--b-bg-glow2), transparent 55%),
+    var(--b-bg);
+  color: var(--b-ink);
+  font-family: var(--b-font-body);
+}
+
+/* Film grain: kills flat-gradient sheen; print-grade texture in the dark. */
+.grain::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+}
+
+.wrap { max-width: 1340px; margin: 0 auto; padding: 0 36px; position: relative; z-index: 2; }
+
+/* ---------------------------------------------------------------- topbar -- */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  background: color-mix(in srgb, var(--c-bg) 72%, transparent);
+  border-bottom: 1px solid var(--c-hairline-soft);
+}
+body[data-env="brand"] .topbar {
+  background: color-mix(in srgb, var(--b-bg) 70%, transparent);
+  border-bottom: 1px solid var(--b-hairline);
+}
+.topbar-inner {
+  max-width: 1340px; margin: 0 auto; padding: 0 36px;
+  height: 58px; display: flex; align-items: center; gap: 26px;
+}
+.wordmark { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; position: relative; }
+.wordmark img { height: 24px; width: auto; }
+.wordmark b { font-family: var(--c-font-display); font-weight: 650; font-size: 14.5px; letter-spacing: -0.01em; position: relative; }
+/* the prism underline: the app's signature */
+.wordmark b::after { content: ""; position: absolute; left: 0; right: 0; bottom: -5px; height: 1.5px; background: var(--prism); border-radius: 99px; opacity: 0.9; }
+.wordmark span { font-size: 11px; color: var(--c-ink-3); }
+body[data-env="brand"] .wordmark span { color: var(--b-ink-3); }
+
+/* the workspace (tenant) chip — you use the product like a SaaS customer */
+.workspace-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; font-weight: 600; color: var(--c-ink-2);
+  border: 1px solid var(--c-hairline); border-radius: 999px; padding: 6px 12px;
+}
+.workspace-chip .sw { width: 10px; height: 10px; border-radius: 3px; background: linear-gradient(135deg, #b66eff, #00d4ff); }
+body[data-env="brand"] .workspace-chip { color: var(--b-ink-2); border-color: var(--b-hairline); }
+
+.nav { display: flex; gap: 4px; align-items: center; }
+.nav a {
+  text-decoration: none; color: var(--c-ink-2); font-size: 13.5px; font-weight: 500;
+  padding: 7px 12px; border-radius: 8px; transition: background 0.15s, color 0.15s;
+  position: relative;
+}
+.nav a:hover { color: var(--c-ink); background: rgba(255,255,255,0.05); }
+.nav a.on { color: var(--c-ink); background: rgba(255,255,255,0.07); }
+.nav a.on::after { content: ""; position: absolute; left: 12px; right: 12px; bottom: 2.5px; height: 1.5px; background: var(--prism); border-radius: 99px; opacity: 0.85; }
+body[data-env="brand"] .nav a { color: var(--b-ink-2); }
+body[data-env="brand"] .nav a:hover { color: var(--b-ink); background: rgba(255,255,255,0.07); }
+body[data-env="brand"] .nav a.on { color: var(--b-ink); background: rgba(255,255,255,0.1); }
+body[data-env="brand"] .nav a.on::after { background: var(--b-accent); }
+
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.kbd {
+  font-family: var(--c-font-mono); font-size: 11px; color: var(--c-ink-3);
+  border: 1px solid var(--c-hairline); border-radius: 7px; padding: 4px 8px;
+}
+body[data-env="brand"] .kbd { color: var(--b-ink-3); border-color: var(--b-hairline); }
+
+/* ------------------------------------------------------------ primitives -- */
+.microlabel {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--c-ink-3); font-family: var(--c-font-body);
+}
+body[data-env="brand"] .microlabel { color: var(--b-ink-3); }
+
+.annotation {
+  font-family: var(--c-font-serif); font-style: italic; font-size: 15.5px;
+  color: var(--c-ink-2); letter-spacing: 0.005em;
+}
+body[data-env="brand"] .annotation { color: var(--b-ink-2); }
+
+.hairline { border: 0; border-top: 1px solid var(--c-hairline-soft); margin: 0; }
+body[data-env="brand"] .hairline { border-top-color: var(--b-hairline); }
+
+.prism-text {
+  background: var(--prism);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.prism-line { height: 1.5px; background: var(--prism); border-radius: 99px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--c-font-body); font-size: 13.5px; font-weight: 600;
+  padding: 9px 16px; border-radius: 10px; border: 1px solid transparent;
+  cursor: pointer; text-decoration: none; transition: transform 0.12s, box-shadow 0.2s, background 0.15s;
+}
+.btn:active { transform: translateY(1px); }
+.btn-ink { background: var(--c-ink); color: #0a0a0e; }
+.btn-ink:hover { box-shadow: 0 8px 26px -8px rgba(242,241,238,0.45); }
+.btn-ghost { border-color: var(--c-hairline); color: var(--c-ink); background: transparent; }
+.btn-ghost:hover { background: rgba(255,255,255,0.05); }
+body[data-env="brand"] .btn-ink { background: var(--b-ink); color: var(--b-bg); }
+body[data-env="brand"] .btn-ghost { border-color: var(--b-hairline); color: var(--b-ink); }
+body[data-env="brand"] .btn-ghost:hover { background: rgba(255,255,255,0.06); }
+.btn-accent { background: var(--b-primary); color: #fff; }
+.btn-accent:hover { box-shadow: 0 8px 24px -8px var(--b-primary); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--c-hairline); color: var(--c-ink-2);
+  text-decoration: none;
+}
+a.chip:hover { background: rgba(255,255,255,0.06); color: var(--c-ink); }
+body[data-env="brand"] .chip { border-color: var(--b-hairline); color: var(--b-ink-2); }
+
+/* status dots */
+.dot { width: 7px; height: 7px; border-radius: 999px; display: inline-block; }
+.dot-live { background: var(--c-go); animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(111,219,150,0.4);} 50% { box-shadow: 0 0 0 5px rgba(111,219,150,0);} }
+
+/* ---------------------------------------------------------- the omnibar -- */
+/* Language-first command surface: tell the Director what you want.        */
+.omnibar {
+  position: relative;
+  display: flex; align-items: center; gap: 14px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--c-hairline);
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-paper);
+}
+.omnibar::before {
+  content: ""; position: absolute; inset: -1px; border-radius: 17px; padding: 1px;
+  background: var(--prism); opacity: 0.42;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  pointer-events: none;
+}
+.omnibar .orb { width: 34px; height: 34px; border-radius: 99px; background: radial-gradient(circle at 30% 28%, #d8b4fe, #7c3aed 58%, #2e1065); display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 14px; flex: none; box-shadow: 0 0 22px rgba(155,140,255,0.45); }
+.omnibar .ph { flex: 1; font-size: 14.5px; color: var(--c-ink-3); }
+.omnibar .ph b { color: var(--c-ink-2); font-weight: 500; }
+.omnibar .caret { display: inline-block; width: 1.5px; height: 17px; background: var(--c-ink-2); vertical-align: -3px; margin-left: 2px; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.omnibar .hint { font-family: var(--c-font-mono); font-size: 10.5px; color: var(--c-ink-3); white-space: nowrap; }
+
+/* ------------------------------------------------------------ the ticker -- */
+/* Live ops feed: the room is working even when you aren't.                 */
+.ticker { overflow: hidden; border-top: 1px solid var(--c-hairline-soft); border-bottom: 1px solid var(--c-hairline-soft); padding: 8px 0; position: relative; }
+.ticker-track { display: inline-flex; gap: 44px; white-space: nowrap; animation: crawl 46s linear infinite; will-change: transform; }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+@keyframes crawl { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.tick-item { display: inline-flex; align-items: center; gap: 9px; font-family: var(--c-font-mono); font-size: 10.5px; color: var(--c-ink-3); }
+.tick-item b { color: var(--c-ink-2); font-weight: 600; }
+.tick-item .t-dot { width: 5px; height: 5px; border-radius: 99px; }
+
+/* -------------------------------------------------------------- aura ring -- */
+/* Rotating conic halo behind hero marks — light as material.               */
+.aura { position: relative; display: grid; place-items: center; }
+.aura::before {
+  content: ""; position: absolute; width: 125%; aspect-ratio: 1; border-radius: 999px;
+  background: conic-gradient(from 0deg, var(--b-primary), var(--b-accent), transparent 38%, var(--b-primary) 62%, transparent 78%, var(--b-accent));
+  filter: blur(26px); opacity: 0.32;
+  animation: spin 36s linear infinite;
+}
+.aura::after {
+  content: ""; position: absolute; width: 112%; aspect-ratio: 1; border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--b-accent) 35%, transparent);
+  -webkit-mask: linear-gradient(180deg, #000 12%, transparent 55%);
+  mask: linear-gradient(180deg, #000 12%, transparent 55%);
+  animation: spin 60s linear infinite reverse;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.aura > * { position: relative; z-index: 2; }
+
+/* --------------------------------------------------------------- HUD ticks -- */
+.hud { position: relative; }
+.hud .tick { position: absolute; width: 14px; height: 14px; border-color: var(--c-ink-3); border-style: solid; border-width: 0; opacity: 0.7; }
+body[data-env="brand"] .hud .tick { border-color: var(--b-ink-3); }
+.hud .tick.tl { left: -7px; top: -7px; border-left-width: 1.5px; border-top-width: 1.5px; }
+.hud .tick.tr { right: -7px; top: -7px; border-right-width: 1.5px; border-top-width: 1.5px; }
+.hud .tick.bl { left: -7px; bottom: -7px; border-left-width: 1.5px; border-bottom-width: 1.5px; }
+.hud .tick.br { right: -7px; bottom: -7px; border-right-width: 1.5px; border-bottom-width: 1.5px; }
+.hud .readout { position: absolute; left: 0; top: calc(100% + 10px); font-family: var(--c-font-mono); font-size: 9.5px; letter-spacing: 0.08em; color: var(--b-ink-3, var(--c-ink-3)); }
+
+/* ------------------------------------------------------------ grade ring -- */
+.grade-letter {
+  font-family: var(--c-font-display); font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.g-a { color: #7ce3a1; } .g-b { color: #c4e08a; } .g-c { color: #f0c264; } .g-d { color: #f49b8a; }
+
+/* ------------------------------------------------- neutral judgment mats -- */
+.mat {
+  background: var(--mat-light);
+  border-radius: var(--radius-sm);
+  display: grid; place-items: center;
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(27,24,19,0.06);
+}
+.mat.dark { background: var(--mat-dark); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07); }
+.mat img { max-width: 78%; max-height: 74%; object-fit: contain; filter: drop-shadow(0 6px 16px rgba(0,0,0,0.18)); }
+
+/* ------------------------------------------------------ compliance stamp -- */
+.stamp {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 5px 10px; border-radius: 7px;
+  transform: rotate(-2deg);
+}
+.stamp-pass { color: var(--c-go); border: 1.5px solid var(--c-go); background: rgba(111,219,150,0.08); }
+.stamp-flag { color: var(--c-warn); border: 1.5px solid var(--c-warn); background: rgba(232,181,74,0.09); }
+.stamp-fail { color: var(--c-stop); border: 1.5px solid var(--c-stop); background: rgba(240,124,102,0.09); }
+@keyframes stamp-in {
+  0% { transform: rotate(-2deg) scale(1.6); opacity: 0; }
+  60% { transform: rotate(-2deg) scale(0.94); opacity: 1; }
+  100% { transform: rotate(-2deg) scale(1); }
+}
+.stamp.fresh { animation: stamp-in 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+
+/* --------------------------------------------------------------- shimmer -- */
+.shimmer {
+  position: relative; overflow: hidden;
+  background: linear-gradient(110deg, rgba(255,255,255,0.05) 8%, rgba(255,255,255,0.12) 18%, rgba(255,255,255,0.05) 33%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer { to { background-position-x: -200%; } }
+
+/* ------------------------------------------------------------ entrances -- */
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.d1 { animation-delay: 0.05s; } .d2 { animation-delay: 0.12s; } .d3 { animation-delay: 0.19s; }
+.d4 { animation-delay: 0.26s; } .d5 { animation-delay: 0.33s; } .d6 { animation-delay: 0.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* ------------------------------------------------------------ paint strip -- */
+.paint-strip { display: flex; height: 8px; border-radius: 999px; overflow: hidden; }
+.paint-strip span { flex: 1; }
+
+/* quiet, dark scrollbars */
+* { scrollbar-width: thin; scrollbar-color: #26262f transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background-color: #26262f; border-radius: 9999px; border: 2px solid transparent; background-clip: padding-box; }
+
+/* mockup-only helper: a labeled note for the implementing agent */
+.spec-note {
+  font-family: var(--c-font-mono); font-size: 10.5px; color: var(--c-ink-3);
+  border: 1px dashed var(--c-hairline); border-radius: 8px; padding: 6px 10px;
+}
+body[data-env="brand"] .spec-note { color: var(--b-ink-3); border-color: var(--b-hairline); }
