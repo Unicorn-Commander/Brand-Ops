@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LibraryBig, AlertTriangle } from "lucide-react";
-import { GlassPanel } from "../../components";
+import { LibraryBig, AlertTriangle, UploadCloud } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { Button } from "../../components/Button";
@@ -133,6 +132,26 @@ export default function LibraryPage() {
   );
   const groups = useMemo(() => groupAssets(filtered), [filtered]);
 
+  // The vault reads as editorial sections per asset type, each with its own
+  // header and approved count, instead of one flat grid.
+  const sections = useMemo(() => {
+    const by = new Map<string, AssetGroup[]>();
+    for (const g of groups) {
+      const key = g.current.asset_type;
+      const bucket = by.get(key);
+      if (bucket) bucket.push(g);
+      else by.set(key, [g]);
+    }
+    return [...by.entries()].map(([key, items]) => ({
+      key,
+      label: humanizeKey(key),
+      items,
+      approved: items.filter(
+        (i) => (i.current.lifecycle_status ?? "approved") === "approved",
+      ).length,
+    }));
+  }, [groups]);
+
   // Filter options. Brand comes from the brand list (the active brand may have
   // no assets yet); asset type and backend come from the loaded records.
   const brandOptions: SelectOption[] = useMemo(
@@ -239,46 +258,70 @@ export default function LibraryPage() {
   );
 
   return (
-    <div className="space-y-4">
-      <GlassPanel title="Add assets">
-        <UploadDropzone
-          brand={uploadBrand}
-          brandLabel={uploadBrandLabel}
-          onUploaded={handleUploaded}
-        />
-      </GlassPanel>
-
-      <GlassPanel
-        title="Library"
-        actions={
-          <div className="flex items-center gap-3">
-            {needsReviewCount > 0 && (
-              <button
-                type="button"
-                onClick={() =>
-                  setFilters((f) => ({ ...f, status: "needs_review" }))
-                }
-                className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
-                title="Show assets needing review"
-              >
-                <span className="tabular-nums">{needsReviewCount}</span> need
-                review
-              </button>
-            )}
-            {isFetching && !isLoading && (
-              <span className="flex items-center gap-2 text-xs text-text-muted">
-                <Spinner size={14} /> Refreshing
-              </span>
-            )}
-          </div>
-        }
-      >
-        <div className="space-y-5">
-          <p className="text-xs text-text-muted">
-            Every asset belongs to a brand. This is the cross-brand view of all
-            of them; filter by brand to see just one.
+    <div className="space-y-5">
+      <header className="flex flex-wrap items-end gap-5 pt-3">
+        <div>
+          <span className="microlabel">Library · every brand</span>
+          <h1
+            className="mt-1 font-bold"
+            style={{
+              fontFamily: "var(--c-font-display)",
+              fontSize: 38,
+              letterSpacing: "-0.025em",
+            }}
+          >
+            The vault
+          </h1>
+          <p className="annotation mt-2">
+            Each asset lives with its brand; this is the lens across all of
+            them. Neutral mats — judge the work, not the wall.
           </p>
-          <FilterBar
+        </div>
+        <div className="ml-auto flex items-center gap-3 pb-1">
+          {needsReviewCount > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setFilters((f) => ({ ...f, status: "needs_review" }))
+              }
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/50"
+              title="Show assets needing review"
+            >
+              <span className="tabular-nums">{needsReviewCount}</span> need
+              review
+            </button>
+          )}
+          {isFetching && !isLoading && (
+            <span className="flex items-center gap-2 text-xs text-text-muted">
+              <Spinner size={14} /> Refreshing
+            </span>
+          )}
+        </div>
+      </header>
+
+      <details className="rounded-2xl border border-white/8 bg-white/[0.02] open:bg-white/[0.03]">
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3 text-sm text-text-muted transition-colors hover:text-text [&::-webkit-details-marker]:hidden">
+          <UploadCloud size={15} />
+          <span>
+            Add assets — drop images into{" "}
+            <b className="font-medium text-text">
+              {uploadBrandLabel ?? "the active brand"}
+            </b>
+            , staged through the gate
+          </span>
+          <span className="ml-auto text-xs text-text-faint">expand ▾</span>
+        </summary>
+        <div className="px-5 pb-5">
+          <UploadDropzone
+            brand={uploadBrand}
+            brandLabel={uploadBrandLabel}
+            onUploaded={handleUploaded}
+          />
+        </div>
+      </details>
+
+      <div className="space-y-5">
+        <FilterBar
             filters={filters}
             onChange={setFilters}
             brandOptions={brandOptions}
@@ -338,16 +381,33 @@ export default function LibraryPage() {
               }
             />
           ) : (
-            <AssetGrid
-              groups={groups}
-              selectedKey={openKey}
-              onSelect={openAsset}
-              showBrand={showBrand}
-              brandName={brandName}
-            />
+            <div className="space-y-8">
+              {sections.map((section) => (
+                <section key={section.key}>
+                  <div className="mb-3 flex items-baseline gap-3">
+                    <h2
+                      className="text-lg font-semibold tracking-tight"
+                      style={{ fontFamily: "var(--c-font-display)" }}
+                    >
+                      {section.label}
+                    </h2>
+                    <span className="font-mono text-[11px] text-text-faint">
+                      {section.items.length} · {section.approved} approved
+                    </span>
+                    <span className="h-px flex-1 bg-white/8" />
+                  </div>
+                  <AssetGrid
+                    groups={section.items}
+                    selectedKey={openKey}
+                    onSelect={openAsset}
+                    showBrand={showBrand}
+                    brandName={brandName}
+                  />
+                </section>
+              ))}
+            </div>
           )}
         </div>
-      </GlassPanel>
 
       <AssetDetailDrawer
         group={openGroup}
