@@ -7,6 +7,8 @@ import {
   History,
   Copy,
   CheckCheck,
+  ShieldCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { spring } from "../../../lib/motion";
 import type { GeneratedFile, GenerateResult } from "../../../lib/types";
@@ -32,6 +34,11 @@ function aspectRatio(w: number, h: number): string {
   return w > 0 && h > 0 ? `${w} / ${h}` : "1 / 1";
 }
 
+function firstHex(values: string[]): string | null {
+  const joined = values.join(" ");
+  return joined.match(/#[0-9a-fA-F]{6}\b/)?.[0] ?? null;
+}
+
 /**
  * One generated asset in the results grid.
  *
@@ -52,6 +59,9 @@ export function ResultCard({
   const reduce = useReducedMotion();
   // GenerateResult does not carry dimensions; fall back to a square frame.
   const ratio = aspectRatio(1, 1);
+  const flagged = result.warnings.length > 0 || result.missing_refs.length > 0;
+  const swatch = firstHex([...result.warnings, ...result.missing_refs]);
+  const reason = result.warnings[0] ?? (result.missing_refs[0] ? `missing reference: ${result.missing_refs[0]}` : "gate pending");
 
   // A short "developing" reveal: when the card first mounts, a shimmer sweeps
   // over the placeholder (an image-gen riff on a print developing), then the
@@ -120,12 +130,28 @@ export function ResultCard({
         <span className="absolute left-2 top-2 rounded-md bg-chrome-bg/80 px-1.5 py-0.5 text-xs tabular-nums text-text-muted">
           v{index}
         </span>
+        <span
+          className={`absolute bottom-2 left-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.68rem] font-medium ring-1 ${
+            flagged
+              ? "bg-amber-500/15 text-amber-100 ring-amber-500/35"
+              : "bg-accent/15 text-accent ring-accent/35"
+          }`}
+        >
+          {flagged ? <AlertTriangle size={12} /> : <ShieldCheck size={12} />}
+          {flagged ? "flagged" : "gate pending"}
+        </span>
       </button>
 
-      <div className="mt-2 flex items-center justify-between gap-1 px-0.5">
-        <span className="truncate text-xs text-text-muted">
-          {result.model ?? result.backend}
-        </span>
+      <div className="mt-2 flex items-start justify-between gap-2 px-0.5">
+        <div className="min-w-0">
+          <span className="block truncate text-xs text-text-muted">
+            {result.model ?? result.backend}
+          </span>
+          <span className="mt-0.5 flex items-center gap-1 text-[0.68rem] text-text-faint">
+            {swatch && <i className="h-3 w-3 rounded-sm ring-1 ring-white/20" style={{ background: swatch }} />}
+            <span className="truncate">{reason}</span>
+          </span>
+        </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"

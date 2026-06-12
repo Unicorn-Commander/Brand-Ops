@@ -59,8 +59,9 @@ function PlannedRow({ item, index }: { item: PlannedItem; index: number }) {
   return (
     <motion.li
       variants={staggerItem}
-      className="overflow-hidden rounded-xl border border-white/8 bg-chrome-panel/80 backdrop-blur"
+      className="relative overflow-hidden rounded-xl border border-white/8 bg-chrome-panel/80 backdrop-blur"
     >
+      <span className="absolute bottom-0 left-6 top-9 w-px bg-white/10" aria-hidden />
       <div className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"
@@ -72,7 +73,7 @@ function PlannedRow({ item, index }: { item: PlannedItem; index: number }) {
           <span className="shrink-0 text-text-faint">
             {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </span>
-          <span className="shrink-0 rounded-md bg-chrome-raised px-1.5 py-0.5 font-mono text-[0.7rem] tabular-nums text-text-muted">
+          <span className="z-10 shrink-0 rounded-md bg-chrome-raised px-1.5 py-0.5 font-mono text-[0.7rem] tabular-nums text-text-muted ring-1 ring-white/10">
             {index + 1}
           </span>
           <span className="truncate text-sm font-medium text-text">
@@ -151,6 +152,15 @@ export function PlannedPackList({ plan }: PlannedPackListProps) {
             generation is held until a backend key is set.
           </p>
         )}
+        <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">
+          {plan.items.map((item, index) => (
+            <span key={`${item.asset_type}-${index}`} className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/10 bg-chrome-raised px-2 py-1 font-mono text-[0.68rem] text-text-muted">
+              <span className="tabular-nums">{index + 1}</span>
+              {item.asset_type}
+              <StatusPill status={item.status} />
+            </span>
+          ))}
+        </div>
       </div>
 
       <motion.ul

@@ -16,6 +16,12 @@ import { ResultCard } from "./ResultCard";
 import { PlannedPackList } from "./PlannedPackList";
 import type { GenerateResult } from "../../../lib/types";
 import type { PlannedPack } from "../lib/pack";
+import {
+  BusinessCardPreview,
+  LinkPreviewCard,
+  PhoneHomePreview,
+  TabPreview,
+} from "../../../components/Mockups";
 
 /** Discriminated canvas state the screen drives. */
 export type CanvasState =
@@ -178,25 +184,45 @@ export function ResultsCanvas({
                   ))}
                 </ul>
               )}
-              <motion.div
-                variants={staggerContainer}
-                initial="hidden"
-                animate="show"
-                className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
-              >
-                {state.result.files.map((file, i) => (
-                  <motion.div key={file.path} variants={staggerItem}>
-                    <ResultCard
-                      result={state.result}
-                      file={file}
-                      index={i + 1}
-                      selected={selectedIndex === i}
-                      onSelect={() => onSelect(i)}
-                      onVersion={onVersion}
-                    />
+              <div className="space-y-4">
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="font-display text-sm font-semibold text-text">Staging wall</span>
+                    <span className="text-xs text-text-faint">compliance stamps use returned warnings/missing refs</span>
+                  </div>
+                  <motion.div
+                    variants={staggerContainer}
+                    initial="hidden"
+                    animate="show"
+                    className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3"
+                  >
+                    {state.result.files.map((file, i) => (
+                      <motion.div key={file.path} variants={staggerItem}>
+                        <ResultCard
+                          result={state.result}
+                          file={file}
+                          index={i + 1}
+                          selected={selectedIndex === i}
+                          onSelect={() => onSelect(i)}
+                          onVersion={onVersion}
+                        />
+                      </motion.div>
+                    ))}
                   </motion.div>
-                ))}
-              </motion.div>
+                </div>
+                <div className="rounded-2xl border border-white/8 bg-chrome-panel/70 p-3">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="font-display text-sm font-semibold text-text">Try-on strip</span>
+                    <span className="text-xs text-text-faint">previews use generated file path when browser-servable</span>
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-1">
+                    <PhoneHomePreview icon={state.result.files[0]?.catalog_path ?? undefined} label={state.result.brand} />
+                    <TabPreview favicon={state.result.files[0]?.catalog_path ?? undefined} title={state.result.brand} domain={`${state.result.brand}.brand`} />
+                    <LinkPreviewCard ogImage={state.result.files[0]?.catalog_path ?? undefined} domain={`${state.result.brand}.brand`} title={`${state.result.brand} ${state.result.asset}`} description="Generated in Brand-Ops Studio." />
+                    <BusinessCardPreview logo={state.result.files[0]?.catalog_path ?? undefined} name={state.result.brand} tagline={state.result.variant} />
+                  </div>
+                </div>
+              </div>
             </>
           ))}
       </div>

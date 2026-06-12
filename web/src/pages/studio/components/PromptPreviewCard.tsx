@@ -27,7 +27,7 @@ interface PromptPreviewCardProps {
 
 function Pill({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-white/8 bg-chrome-raised/80 px-2 py-0.5 text-xs text-text-muted">
+    <span className="inline-flex items-center gap-1 rounded-md border border-white/12 bg-chrome-raised/90 px-2 py-0.5 text-xs font-medium text-text">
       {children}
     </span>
   );
@@ -103,6 +103,7 @@ export function PromptPreviewCard({
         {preview && (
           <>
             <div className="flex flex-wrap gap-1.5">
+              <Pill>refs: {preview.reference_images.length}</Pill>
               <Pill>{preview.backend}</Pill>
               <Pill>
                 <span className="tabular-nums">
@@ -111,6 +112,7 @@ export function PromptPreviewCard({
               </Pill>
               {preview.variant && <Pill>variant: {preview.variant}</Pill>}
               {preview.transparent && <Pill>transparent</Pill>}
+              <Pill>autonomy: auto with review · TODO(backend)</Pill>
             </div>
 
             <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-white/8 bg-chrome-bg/80 p-3 font-mono text-xs leading-relaxed text-text">
