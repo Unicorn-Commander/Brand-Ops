@@ -4,7 +4,7 @@ import { Send } from "lucide-react";
 import { Button } from "../../../components/Button";
 import { GlassPanel } from "../../../components/GlassPanel";
 import { AgentAvatar } from "../../../components/AgentAvatar";
-import { spring, staggerContainer, staggerItem } from "../../../lib/motion";
+import { spring } from "../../../lib/motion";
 import type { Agent } from "../../../lib/agents";
 import { AgentTranscript } from "./AgentTranscript";
 import type { Turn } from "../lib/transcript";
@@ -79,26 +79,20 @@ export function ConversationPanel({
               </p>
             </div>
             {suggestions.length > 0 && (
-              <motion.div
-                variants={staggerContainer}
-                initial="hidden"
-                animate="show"
-                className="flex w-full flex-col items-stretch gap-2"
-              >
+              <div className="flex w-full flex-col items-stretch gap-2">
                 {suggestions.map((s) => (
                   <motion.button
                     key={s}
-                    variants={staggerItem}
                     type="button"
                     onClick={() => onSend(s)}
                     whileHover={{ y: -2 }}
                     transition={spring.snap}
-                    className="rounded-xl border border-white/12 bg-chrome-raised px-3.5 py-2.5 text-left text-sm font-medium text-text shadow-sm transition-colors hover:border-accent/50 hover:bg-chrome-hover hover:text-text"
+                    className="rise rounded-xl border border-white/12 bg-chrome-raised px-3.5 py-2.5 text-left text-sm font-medium text-text shadow-sm transition-colors hover:border-accent/50 hover:bg-chrome-hover hover:text-text"
                   >
                     {s}
                   </motion.button>
                 ))}
-              </motion.div>
+              </div>
             )}
           </div>
         ) : (
