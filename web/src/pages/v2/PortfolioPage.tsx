@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { listActivity, listAssets, listAssetTypes, listBrands } from "../../api/client";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { getBrand, listActivity, listAssets, listAssetTypes, listBrands } from "../../api/client";
 import type { AssetRecord, AssetType, BrandDetail, BrandSummary } from "../../lib/types";
+import { MarkImg } from "../../components/MarkImg";
 import {
   assetsFor,
   brandColors,
@@ -13,31 +14,26 @@ import {
   gradeFromCoverage,
   relativeTime,
 } from "../../v2/metrics";
-
-const builtInFonts: Record<string, string> = {
-  Inter: "InterVariable, Inter, system-ui, sans-serif",
-  "Space Grotesk": '"Space Grotesk Variable", "Space Grotesk", InterVariable, system-ui, sans-serif',
-  "Plus Jakarta Sans": '"Plus Jakarta Sans", InterVariable, system-ui, sans-serif',
-};
+import { fontStack } from "../../v2/EnvProvider";
 
 function Cover({
   brand,
   assets,
   types,
   index,
+  parentName,
 }: {
   brand: BrandSummary & Partial<BrandDetail>;
   assets: AssetRecord[];
   types: AssetType[];
   index: number;
+  parentName?: string;
 }) {
   const colors = brandColors(brand);
   const coverage = coverageFor(assets, types);
   const flagged = flaggedCount(assets);
   const grade = gradeFromCoverage(coverage.pct, flagged);
-  const font = brand.visual?.typography.display_font
-    ? builtInFonts[brand.visual.typography.display_font] ?? brand.visual.typography.display_font
-    : "var(--c-font-display)";
+  const font = brand.visual?.typography.display_font ? fontStack(brand.visual.typography.display_font) : "var(--c-font-display)";
   return (
     <Link
       className={`brand-cover rise d${Math.min(index + 2, 6)}`}
@@ -59,14 +55,14 @@ function Cover({
       <div className="env" />
       <div className="inner">
         <div className="cover-top">
-          <span className="parent-chip">{brand.parent ? "Part of house" : "Root"}</span>
+          <span className="parent-chip">{brand.parent ? `Part of ${parentName ?? brand.parent}` : "Root"}</span>
           <span className="cover-grade">
             <b className={grade.className}>{grade.letter}</b>
             <span>grade</span>
           </span>
         </div>
         <div className="cover-mark">
-          {brand.mark_url ? <img src={brand.mark_url} alt={`${brand.display_name} mark`} /> : null}
+          <MarkImg brand={brand} />
         </div>
         <h2 className="cover-name">{brand.display_name}</h2>
         <p className="cover-tag">{brand.tagline || "Brand record loaded from the system."}</p>
@@ -105,6 +101,15 @@ export default function PortfolioPage() {
   });
 
   const brands = brandsQ.data ?? [];
+  const brandDetailQs = useQueries({
+    queries: brands.map((brand) => ({
+      queryKey: ["brand", brand.slug],
+      queryFn: ({ signal }: { signal: AbortSignal }) => getBrand(brand.slug, signal),
+      staleTime: 60_000,
+    })),
+  });
+  const detailedBrands = brands.map((brand, index) => brandDetailQs[index]?.data ?? brand);
+  const brandNameBySlug = new Map(detailedBrands.map((brand) => [brand.slug, brand.display_name]));
   const assets = assetsQ.data ?? [];
   const types = typesQ.data ?? [];
   const activity = activityQ.data ?? [];
@@ -124,8 +129,8 @@ export default function PortfolioPage() {
   }
 
   const ticker = activity.length ? activity : [];
-  const roots = brands.filter((brand) => !brand.parent);
-  const children = brands.filter((brand) => brand.parent);
+  const roots = detailedBrands.filter((brand) => !brand.parent);
+  const children = detailedBrands.filter((brand) => brand.parent);
 
   return (
     <>
@@ -207,13 +212,14 @@ export default function PortfolioPage() {
       </div>
 
       <section className="brand-shelf">
-        {brands.map((brand, index) => (
+        {detailedBrands.map((brand, index) => (
           <Cover
             key={brand.slug}
             brand={brand}
             assets={assetsFor(assets, brand.slug)}
             types={types}
             index={index}
+            parentName={brand.parent ? brandNameBySlug.get(brand.parent) : undefined}
           />
         ))}
         <Link className="brand-cover ghost rise d6" to="/brands/new">
@@ -239,9 +245,9 @@ export default function PortfolioPage() {
         <div style={{ marginTop: 18, border: "1px solid var(--c-hairline-soft)", background: "var(--c-surface)", borderRadius: "var(--radius)", padding: "26px 30px", boxShadow: "var(--shadow-paper)" }}>
           {[...roots, ...children].map((brand) => (
             <div key={brand.slug} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0 8px", marginLeft: brand.parent ? 34 : 0 }}>
-              {brand.mark_url && <img src={brand.mark_url} alt="" style={{ width: 30, height: 30, objectFit: "contain", borderRadius: 8 }} />}
+              <MarkImg brand={brand} style={{ width: 30, height: 30, borderRadius: 8 }} imgStyle={{ width: 30, height: 30, objectFit: "contain", borderRadius: 8 }} />
               <b>{brand.display_name}</b>
-              <span style={{ color: "var(--c-ink-3)", fontSize: 11 }}>{brand.parent ? `Part of ${brand.parent}` : "Root"}</span>
+              <span style={{ color: "var(--c-ink-3)", fontSize: 11 }}>{brand.parent ? `Part of ${brandNameBySlug.get(brand.parent) ?? brand.parent}` : "Root"}</span>
             </div>
           ))}
         </div>

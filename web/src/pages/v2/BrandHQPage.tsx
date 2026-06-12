@@ -10,6 +10,7 @@ import {
   listAssetTypes,
 } from "../../api/client";
 import { EmptyState } from "../../components/EmptyState";
+import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
 import { fontNote } from "../../v2/EnvProvider";
 import {
@@ -19,6 +20,7 @@ import {
   displayActivity,
   flaggedCount,
   gradeFromCoverage,
+  gradeFromScore,
   relativeTime,
 } from "../../v2/metrics";
 
@@ -68,7 +70,7 @@ export default function BrandHQPage() {
   const coverage = coverageFor(assets, types);
   const flagged = flaggedCount(assets);
   const score = complianceScore(complianceQ.data) ?? gradeFromCoverage(coverage.pct, flagged).score;
-  const grade = gradeFromCoverage(score, flagged);
+  const grade = gradeFromScore(score);
   const colors = brand.visual.colors;
   const palette = tokensQ.data?.color.length
     ? tokensQ.data.color
@@ -112,7 +114,7 @@ export default function BrandHQPage() {
         </div>
         <div className="hero-side rise d2">
           <div className="hero-mark aura">
-            {brand.mark_url && <img src={brand.mark_url} alt={`${brand.display_name} mark`} />}
+            <MarkImg brand={brand} />
           </div>
           <div className="gradeboard">
             <div>
@@ -188,16 +190,16 @@ export default function BrandHQPage() {
         </div>
         <div className="mark-row rise d1">
           <div className="mark-cell">
-            <div className="mat">{brand.mark_url && <img src={brand.mark_url} alt="mark on light" />}</div>
+            <div className="mat"><MarkImg brand={brand} /></div>
             <span className="microlabel">On light</span>
           </div>
           <div className="mark-cell">
-            <div className="mat dark">{brand.mark_url && <img src={brand.mark_url} alt="mark on dark" />}</div>
+            <div className="mat dark"><MarkImg brand={brand} /></div>
             <span className="microlabel">On dark</span>
           </div>
           <div className="mark-cell">
             <div className="mat dark" style={{ border: "1px dashed var(--b-accent)" }}>
-              {brand.mark_url && <img src={brand.mark_url} alt="clear space" />}
+              <MarkImg brand={brand} />
             </div>
             <span className="microlabel">Clear-space preview</span>
           </div>

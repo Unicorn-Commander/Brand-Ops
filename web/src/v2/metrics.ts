@@ -15,11 +15,96 @@ export function gradeFromCoverage(coveragePct: number, flagged: number): {
   score: number;
 } {
   const score = Math.max(0, Math.min(100, Math.round(coveragePct - flagged * 6)));
+  return gradeFromScore(score);
+}
+
+export function gradeFromScore(scoreValue: number): {
+  letter: string;
+  className: string;
+  score: number;
+} {
+  const score = Math.max(0, Math.min(100, Math.round(scoreValue)));
   if (score >= 90) return { letter: "A−", className: "g-a", score };
-  if (score >= 80) return { letter: "B+", className: "g-b", score };
-  if (score >= 70) return { letter: "B−", className: "g-b", score };
-  if (score >= 55) return { letter: "C+", className: "g-c", score };
+  if (score >= 85) return { letter: "B+", className: "g-b", score };
+  if (score >= 80) return { letter: "B", className: "g-b", score };
+  if (score >= 75) return { letter: "B−", className: "g-b", score };
+  if (score >= 65) return { letter: "C+", className: "g-c", score };
+  if (score >= 55) return { letter: "C", className: "g-c", score };
   return { letter: "D", className: "g-d", score };
+}
+
+export interface GradeDimension {
+  key: "color" | "type" | "mark" | "coverage" | "voice";
+  label: string;
+  score: number;
+  weight: number;
+  note: string;
+  measured: boolean;
+}
+
+export function gradeFromDimensions(dimensions: GradeDimension[]): {
+  letter: string;
+  className: string;
+  score: number;
+} {
+  const totalWeight = dimensions.reduce((sum, dim) => sum + dim.weight, 0);
+  const score = dimensions.reduce((sum, dim) => sum + dim.score * dim.weight, 0) / Math.max(1, totalWeight);
+  return gradeFromScore(score);
+}
+
+export function standardDimensions(
+  coveragePct: number,
+  rollup: BrandComplianceRollup | undefined,
+): GradeDimension[] {
+  const scoredAssets = rollup?.assets.filter((asset) => asset.status !== "skipped") ?? [];
+  const rollupScore = scoredAssets.length
+    ? Math.round(scoredAssets.reduce((sum, asset) => sum + asset.score, 0) / scoredAssets.length)
+    : rollup?.summary.score ?? 0;
+  const colorScore = rollupScore;
+  const voiceScore = rollup?.summary.total ? rollupScore : 0;
+
+  return [
+    {
+      key: "color",
+      label: "color",
+      score: colorScore,
+      weight: 25,
+      note: rollup?.summary.total ? "image checks from compliance rollup" : "no compliance assets yet",
+      measured: Boolean(rollup?.summary.total),
+    },
+    {
+      key: "type",
+      label: "type",
+      score: 75,
+      weight: 15,
+      note: "unmeasured · conservative default",
+      measured: false,
+    },
+    {
+      key: "mark",
+      label: "mark",
+      score: 75,
+      weight: 20,
+      note: "unmeasured · conservative default",
+      measured: false,
+    },
+    {
+      key: "coverage",
+      label: "coverage",
+      score: coveragePct,
+      weight: 25,
+      note: "required asset-type coverage",
+      measured: true,
+    },
+    {
+      key: "voice",
+      label: "voice",
+      score: voiceScore,
+      weight: 15,
+      note: rollup?.summary.total ? "text checks from compliance rollup where present" : "no compliance text checks yet",
+      measured: Boolean(rollup?.summary.total),
+    },
+  ];
 }
 
 export function assetsFor(assets: AssetRecord[], slug: string): AssetRecord[] {
@@ -56,7 +141,7 @@ export function flaggedCount(assets: AssetRecord[]): number {
   ).length;
 }
 
-export function brandColors(brand: BrandDetail | BrandSummary & Partial<BrandDetail>) {
+export function brandColors(brand: (Partial<BrandDetail> | BrandSummary) & { visual?: BrandDetail["visual"] }) {
   const visual = "visual" in brand ? brand.visual : undefined;
   const colors = visual?.colors;
   return {

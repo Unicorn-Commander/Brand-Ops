@@ -27,7 +27,7 @@ function alpha(hex: string, value: number): string {
   return `rgba(${r}, ${g}, ${b}, ${value})`;
 }
 
-function fontStack(name: string | null | undefined): string {
+export function fontStack(name: string | null | undefined): string {
   if (!name) return FONT_STACKS.Inter;
   return FONT_STACKS[name] ?? `${JSON.stringify(name)}, ${FONT_STACKS.Inter}`;
 }

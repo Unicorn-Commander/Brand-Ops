@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getBrand, listAssets } from "../../api/client";
 import { EmptyState } from "../../components/EmptyState";
+import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
 
 function assetCountByType(assets: { asset_type: string }[], key: string): number {
@@ -27,7 +28,6 @@ export default function MarkPage() {
 
   const brand = brandQ.data;
   const assets = assetsQ.data ?? [];
-  const markUrl = brand.mark_url ?? undefined;
 
   return (
     <div className="rise" style={{ padding: "40px 0 60px" }}>
@@ -75,7 +75,7 @@ export default function MarkPage() {
             backgroundSize: "44px 44px",
           }}
         >
-          {markUrl ? <img src={markUrl} alt={`${brand.display_name} mark`} style={{ maxHeight: 320, maxWidth: "70%", objectFit: "contain" }} /> : null}
+          <MarkImg brand={brand} imgStyle={{ maxHeight: 320, maxWidth: "70%", objectFit: "contain" }} style={{ width: 220, height: 220, fontSize: 96 }} />
         </div>
       </div>
 
@@ -100,15 +100,15 @@ export default function MarkPage() {
         <div className="voice-card">
           <span className="microlabel">Approved uses</span>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 12 }}>
-            <div className="mat" style={{ minHeight: 150 }}>{markUrl ? <img src={markUrl} alt="" /> : null}</div>
-            <div className="mat dark" style={{ minHeight: 150 }}>{markUrl ? <img src={markUrl} alt="" /> : null}</div>
+            <div className="mat" style={{ minHeight: 150 }}><MarkImg brand={brand} /></div>
+            <div className="mat dark" style={{ minHeight: 150 }}><MarkImg brand={brand} /></div>
           </div>
         </div>
         <div className="voice-card">
           <span className="microlabel">Do / don't</span>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 12 }}>
-            <div className="mat" style={{ minHeight: 150 }}>{markUrl ? <img src={markUrl} alt="" /> : null}</div>
-            <div className="mat dark" style={{ minHeight: 150 }}>{markUrl ? <img src={markUrl} alt="" /> : null}</div>
+            <div className="mat" style={{ minHeight: 150 }}><MarkImg brand={brand} /></div>
+            <div className="mat dark" style={{ minHeight: 150 }}><MarkImg brand={brand} /></div>
           </div>
           <p style={{ color: "var(--b-ink-3)", marginTop: 12 }}>
             Never stretch, recolor, or crop the mark. Busy backgrounds stay out of the way.

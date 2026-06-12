@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getAgentTeam, listActivity, listAgents, listBrands } from "../../api/client";
 import { useActiveBrand } from "../../brand-context";
 import { EmptyState } from "../../components/EmptyState";
+import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
 import { relativeTime } from "../../v2/metrics";
 
@@ -93,7 +94,7 @@ export default function CrewPage() {
           {teams.map(({ brand, team }) => (
             <div key={brand.slug} className="voice-card">
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span className="mat dark" style={{ width: 44, height: 44, flex: "none" }}>{brand.mark_url ? <img src={brand.mark_url} alt="" /> : null}</span>
+                <span className="mat dark" style={{ width: 44, height: 44, flex: "none" }}><MarkImg brand={brand} /></span>
                 <div>
                   <b style={{ display: "block" }}>{brand.display_name}</b>
                   <span style={{ color: "var(--b-ink-3)", fontSize: 12 }}>{team.steward.name}</span>

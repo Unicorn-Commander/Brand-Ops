@@ -3,8 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { getBrandCompliance, listAssets, listBrands } from "../../api/client";
 import { useActiveBrand } from "../../brand-context";
 import { EmptyState } from "../../components/EmptyState";
+import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
-import { assetsFor, flaggedCount, gradeFromCoverage, coverageFor } from "../../v2/metrics";
+import { assetsFor, flaggedCount, gradeFromDimensions, coverageFor, standardDimensions } from "../../v2/metrics";
 
 export default function StandardsPage() {
   const { activeSlug } = useActiveBrand();
@@ -41,13 +42,15 @@ export default function StandardsPage() {
   const selected = compliances.find((row) => row.slug === activeSlug) ?? compliances[0];
   const selectedAssets = assetsFor(assets, selected.slug);
   const selectedCoverage = coverageFor(selectedAssets, []);
-  const selectedGrade = gradeFromCoverage(selectedCoverage.pct, flaggedCount(selectedAssets));
+  const selectedDimensions = standardDimensions(selectedCoverage.pct, selected.compliance);
+  const selectedGrade = gradeFromDimensions(selectedDimensions);
   const board = compliances.map((row) => {
     const rowAssets = assetsFor(assets, row.slug);
     const coverage = coverageFor(rowAssets, []);
     const flagged = flaggedCount(rowAssets);
-    const grade = gradeFromCoverage(coverage.pct, flagged);
-    return { ...row, coverage, flagged, grade };
+    const dimensions = standardDimensions(coverage.pct, row.compliance);
+    const grade = gradeFromDimensions(dimensions);
+    return { ...row, coverage, flagged, dimensions, grade };
   });
 
   return (
@@ -103,7 +106,7 @@ export default function StandardsPage() {
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
               <span className="mat" style={{ width: 40, height: 40, flex: "none", background: "var(--mat-dark)" }}>
-                {row.brand.mark_url ? <img src={row.brand.mark_url} alt="" style={{ maxWidth: 30, maxHeight: 30 }} /> : null}
+                <MarkImg brand={row.brand} style={{ width: 30, height: 30, borderRadius: 9, fontSize: 16 }} imgStyle={{ maxWidth: 30, maxHeight: 30 }} />
               </span>
               <div style={{ minWidth: 0 }}>
                 <b style={{ display: "block" }}>{row.brand.display_name}</b>
@@ -112,18 +115,23 @@ export default function StandardsPage() {
             </div>
             <span className={`grade-letter ${row.grade.className}`}>{row.grade.letter}</span>
             <div style={{ display: "flex", gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--b-ink-3)" }}>color</div>
-                <div style={{ height: 4, borderRadius: 99, background: "var(--c-bg-2)", overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${row.compliance.summary.score}%`, background: "var(--c-go)" }} /></div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--b-ink-3)" }}>coverage</div>
-                <div style={{ height: 4, borderRadius: 99, background: "var(--c-bg-2)", overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${row.coverage.pct}%`, background: row.coverage.pct > 80 ? "var(--c-go)" : "var(--c-warn)" }} /></div>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--b-ink-3)" }}>voice</div>
-                <div style={{ height: 4, borderRadius: 99, background: "var(--c-bg-2)", overflow: "hidden" }}><i style={{ display: "block", height: "100%", width: `${Math.max(60, 100 - row.flagged * 7)}%`, background: row.flagged ? "var(--c-warn)" : "var(--c-go)" }} /></div>
-              </div>
+              {row.dimensions.map((dimension) => (
+                <div key={dimension.key} style={{ flex: 1 }} title={dimension.note}>
+                  <div style={{ fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--b-ink-3)", whiteSpace: "nowrap" }}>
+                    {dimension.label}{dimension.measured ? "" : " *"}
+                  </div>
+                  <div style={{ height: 4, borderRadius: 99, background: "var(--c-bg-2)", overflow: "hidden" }}>
+                    <i
+                      style={{
+                        display: "block",
+                        height: "100%",
+                        width: `${dimension.score}%`,
+                        background: dimension.score >= 80 ? "var(--c-go)" : dimension.score >= 60 ? "var(--c-warn)" : "var(--c-stop)",
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
             <span style={{ color: row.flagged ? "var(--c-warn)" : "var(--c-go)", fontWeight: 600 }}>{row.flagged}</span>
             <span style={{ fontFamily: "var(--c-font-mono)", fontSize: 11, color: "var(--b-ink-3)" }}>recent</span>
@@ -161,6 +169,32 @@ export default function StandardsPage() {
         </aside>
 
         <section style={{ display: "grid", gap: 18 }}>
+          <div className="voice-card">
+            <span className="microlabel">Dimensions</span>
+            <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+              {selectedDimensions.map((dimension) => (
+                <div key={dimension.key} style={{ display: "grid", gridTemplateColumns: "150px 1fr 44px", gap: 14, alignItems: "center" }}>
+                  <div>
+                    <b style={{ display: "block", fontSize: 13 }}>{dimension.label}</b>
+                    <span style={{ color: "var(--b-ink-3)", fontSize: 10.5 }}>{dimension.note}</span>
+                  </div>
+                  <div style={{ height: 7, borderRadius: 99, background: "var(--c-bg-2)", overflow: "hidden" }}>
+                    <i
+                      style={{
+                        display: "block",
+                        height: "100%",
+                        width: `${dimension.score}%`,
+                        borderRadius: 99,
+                        background: dimension.score >= 80 ? "var(--c-go)" : dimension.score >= 60 ? "var(--c-warn)" : "var(--c-stop)",
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontFamily: "var(--c-font-mono)", fontSize: 12, color: "var(--b-ink-2)", textAlign: "right" }}>{dimension.score}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="voice-card">
             <span className="microlabel">Issues</span>
             <div style={{ display: "grid", gap: 12, marginTop: 12 }}>

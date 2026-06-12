@@ -4,6 +4,7 @@ import { CommandPalette } from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { EnvProvider, useBrandEnv } from "../v2/EnvProvider";
 import { useActiveBrand } from "../brand-context";
+import { MarkImg } from "./MarkImg";
 
 const CHROME_NAV = [
   { to: "/", label: "Portfolio", end: true },
@@ -45,7 +46,12 @@ function Topbar({
 
         {isBrand && (
           <span className="v2-brand-id">
-            {markUrl && <img src={markUrl} alt="" />}
+            <MarkImg
+              brand={{
+                display_name: brandName ?? brandSlug ?? "Brand",
+                mark_url: markUrl ?? null,
+              }}
+            />
             <b>{brandName ?? brandSlug}</b>
           </span>
         )}
