@@ -727,8 +727,10 @@ export default function StudioPage() {
         />
       )}
 
-      {/* The hero: a large conversation beside the results canvas. */}
-      <div className="grid h-[calc(100vh-19rem)] min-h-[26rem] grid-cols-1 gap-4 lg:grid-cols-[1.15fr_1fr]">
+      {/* The hero: a large conversation beside the results canvas. On mobile the
+          two panels stack and take natural height (so the composer is never
+          clipped); from lg up they sit side by side in a fixed viewport pane. */}
+      <div className="grid grid-cols-1 gap-4 lg:h-[calc(100vh-19rem)] lg:min-h-[26rem] lg:grid-cols-[1.15fr_1fr]">
         <ConversationPanel
           agent={agent}
           opener={opener}

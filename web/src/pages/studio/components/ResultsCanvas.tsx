@@ -115,7 +115,7 @@ export function ResultsCanvas({
       actions={badge}
       flush
       glow={state.status === "results"}
-      className="flex h-full flex-col"
+      className="flex min-h-[40vh] flex-col lg:h-full lg:min-h-0"
     >
       <div
         className={`min-h-0 flex-1 overflow-y-auto p-4 ${

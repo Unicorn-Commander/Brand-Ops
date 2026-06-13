@@ -62,7 +62,7 @@ export function ConversationPanel({
   const firstName = agent.name.split(" ")[0];
 
   return (
-    <GlassPanel flush className="flex min-h-0 flex-col overflow-hidden">
+    <GlassPanel flush className="flex min-h-[60vh] flex-col overflow-hidden lg:min-h-0">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
         {turns.length === 0 ? (
           <div className="mx-auto flex max-w-xl flex-col items-center gap-5 px-2 py-8 text-center">
