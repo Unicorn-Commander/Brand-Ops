@@ -148,8 +148,9 @@ export function PlannedPackList({ plan }: PlannedPackListProps) {
         {plan.dryRun && (
           <p className="mt-1.5 flex items-center gap-1.5 text-xs text-text-muted">
             <Lock size={12} className="shrink-0 text-text-faint" />
-            Planned only. Each asset shows the prompt the engine would use;
-            generation is held until a backend key is set.
+            Planned. Each asset shows the prompt the engine would use. Card
+            assets (OG image, social card) can be composed on brand now; the
+            image-model assets generate once a key or the suite gateway is set.
           </p>
         )}
         <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1">

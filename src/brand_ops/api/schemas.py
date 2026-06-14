@@ -243,6 +243,22 @@ class GenerateRequest(BaseModel):
     count: int = Field(default=1, ge=1, le=8)
 
 
+class GenerateCardRequest(BaseModel):
+    """Body for the deterministic, keyless card compositor (POST /generate-card).
+
+    Composes ``og_image`` or ``social_card`` from the brand's real fonts, exact
+    colors, and mark, with no provider key and no spend. ``message`` defaults to
+    the brand tagline. ``mark`` overrides the composited mark; ``variant`` names
+    the output variant.
+    """
+
+    brand: str
+    asset: str
+    message: str | None = None
+    mark: str | None = None
+    variant: str | None = None
+
+
 class PromptPreview(BaseModel):
     """The dry-run result: the composed prompt and the plan, no spend."""
 
@@ -513,6 +529,10 @@ class DirectorReply(BaseModel):
                 brand; the route already created it via ``agent_identity`` and
                 ``agent`` carries {slug, name, role, brand} so the frontend can
                 show the created agent and offer to generate its avatar.
+      compliance the operator asked to CHECK existing work against the brand;
+                the route already ran the deterministic gate and ``compliance``
+                carries the verdict {brand, target, status, score, violations,
+                ...} so the frontend renders the result instead of generating.
 
     ``brand`` is the resolved brand slug (Iris echoes the active one unless the
     operator clearly means another). The asset/variant/pack/topic fields are
@@ -533,6 +553,9 @@ class DirectorReply(BaseModel):
     # Populated only for intent "agent": {slug, name, role, brand} of the agent
     # identity the route created or surfaced. Null for every other intent.
     agent: dict | None = None
+    # Populated only for intent "compliance": the deterministic gate's verdict
+    # ({brand, target, status, score, violations, counts}). Null otherwise.
+    compliance: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -853,8 +876,88 @@ class MeOut(BaseModel):
     uc_uid: str
     email: str | None = None
     name: str | None = None
-    org: str
+    # The active workspace for this request. ``workspace_id`` is the canonical
+    # uuid; ``workspace`` is its slug (the chip label); ``role`` is the caller's
+    # role in it. All None when the caller has no usable membership, or unscoped
+    # (local/CLI). ``org`` is kept as a back-compat alias for the slug so the
+    # existing user menu / settings rows keep rendering.
+    workspace_id: str | None = None
+    workspace: str | None = None
+    role: str | None = None
+    org: str | None = None
     issuer: str | None = None
     anonymous: bool
     scopes: list[str] = Field(default_factory=list)
     logout_url: str | None = None
+
+
+class WorkspaceOut(BaseModel):
+    """One workspace the caller belongs to -- the switcher's row."""
+
+    workspace_id: str
+    slug: str
+    role: str
+    is_default: bool = False
+
+
+class MeWorkspacesOut(BaseModel):
+    """The caller's workspaces (the switcher's data) and the active one."""
+
+    active_workspace_id: str | None = None
+    workspaces: list[WorkspaceOut] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Agent governance + spend (the Crew page's real controls).
+# Distinct from the AgentInfo/AgentList (runnable registry) and the
+# AgentIdentity* (a brand's agent branding) above: these are an agent's OPERATING
+# CONTRACT in a workspace -- its autonomy posture, standing orders, an optional
+# weekly budget, a model override -- plus the real metered 7-day spend rolled in.
+# ---------------------------------------------------------------------------
+
+
+class AgentGovernanceOut(BaseModel):
+    """One agent's governance + its 7-day spend (GET /api/governance/agents).
+
+    ``agent_kind``/``agent_ref`` identify the agent (e.g. director/iris,
+    steward/<brand slug>, specialist/<name>). ``autonomy`` is one of propose,
+    auto_with_review, autonomous. ``weekly_budget_cents`` is null when no cap is
+    set (v1 displays it; it does not enforce a stop at the cap), ``model`` is null
+    when the agent uses its own default. ``spend_cents_7d``/``tokens_7d``/
+    ``calls_7d`` are the rolled-up metered spend over the last 7 days.
+    ``is_default`` is true when no row is saved yet and these are the synthesized
+    defaults, so the GUI can show a subtle "defaults" hint.
+    """
+
+    agent_kind: str
+    agent_ref: str
+    autonomy: str = "propose"
+    standing_orders: str = ""
+    weekly_budget_cents: int | None = None
+    model: str | None = None
+    spend_cents_7d: float = 0
+    tokens_7d: int = 0
+    calls_7d: int = 0
+    is_default: bool = True
+
+
+class AgentGovernanceList(BaseModel):
+    """The response from GET /api/governance/agents: every governed agent."""
+
+    governance: list[AgentGovernanceOut] = Field(default_factory=list)
+
+
+class AgentGovernanceUpdate(BaseModel):
+    """Body for PUT /api/governance/agents/{agent_kind}/{agent_ref}.
+
+    Every field is optional: only the ones supplied are changed. ``autonomy``
+    must be one of the known levels and ``weekly_budget_cents`` must be zero or
+    positive (validated server-side -> 422). A null ``weekly_budget_cents`` or
+    ``model`` in the JSON clears that setting (no cap / the agent default); a
+    field simply omitted from the body leaves the stored value untouched.
+    """
+
+    autonomy: str | None = None
+    standing_orders: str | None = None
+    weekly_budget_cents: int | None = None
+    model: str | None = None

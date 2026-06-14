@@ -70,11 +70,16 @@ class BrandMeta(BaseModel):
     parent: str | None = None
     description: str | None = None
     mark: BrandMark | None = None
-    # Owning tenant. Defaults to "magic-unicorn" so the existing seed
-    # brand.yamls -- which carry no ``org`` -- load as the dogfood default org,
-    # and an open (anonymous) request whose org is also "magic-unicorn" sees
-    # them. A brand created by a tenant is stamped with that tenant's org at
-    # write time (see brand_clone), so future brands carry real ownership.
+    # Canonical owning tenant: the uc-registry workspace_id (uuid). A brand
+    # created by the scoped write path is stamped with the active workspace_id,
+    # so the file->DB importer assigns it to the right workspace on re-run; a
+    # seed brand carries none and the importer assigns it to the deploy's
+    # bootstrap workspace. The DB ``brand`` row keyed on (workspace_id, slug) is
+    # the authority for read scoping; this field is the file's record of it.
+    workspace_id: str | None = None
+    # Deprecated slug-org. Retained so existing brand.yamls still load and so old
+    # tooling does not break; it is NOT used for tenant scoping anymore (the
+    # workspace_id + membership + RLS path replaced it). Do not gate on it.
     org: str = "magic-unicorn"
 
 

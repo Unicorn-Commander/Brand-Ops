@@ -30,11 +30,11 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Annotated, Any
 
 import httpx
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 try:
@@ -43,8 +43,9 @@ except ImportError:  # pragma: no cover - python-jose is a hard dependency
     JWTError = Exception  # type: ignore[assignment]
     jwt = None  # type: ignore[assignment]
 
-from ..brand_loader import set_current_org
+from ..brand_loader import set_workspace_scope
 from ..config import get_settings
+from ..db.tenancy import resolve_context
 
 _log = logging.getLogger("brand_ops.api.auth")
 
@@ -75,10 +76,12 @@ class Principal:
     valid token was presented. ``uc_uid`` is the canonical Unicorn ecosystem
     user id (sub on a Keycloak token, the Brigade subject on a Brigade token).
     ``issuer`` records which path validated the token, for logging and audit.
-    ``org`` is the caller's tenant; it scopes which brands the request can see
-    (see ``brand_loader.current_org``). It defaults to the configured default
-    org so a principal built without an explicit org -- including the anonymous
-    one on the open dogfood -- is still scoped to the seed-brand tenant.
+    ``workspace_id`` is the caller's active workspace for this request (None when
+    unscoped -- the anonymous local/CLI path -- or when the caller has no usable
+    membership). ``role`` is the caller's canonical role in that workspace. Both
+    are resolved by :func:`require_principal` from the caller's memberships, not
+    carried on the token; the readable brand set is published to the
+    ``brand_loader`` scope at the same time.
     """
 
     uc_uid: str
@@ -86,76 +89,32 @@ class Principal:
     scopes: tuple[str, ...] = ()
     issuer: str | None = None
     anonymous: bool = False
-    org: str = "magic-unicorn"
+    workspace_id: str | None = None
+    workspace_slug: str | None = None
+    role: str | None = None
     claims: dict[str, Any] = field(default_factory=dict)
 
 
-def _default_org() -> str:
-    """The tenant a token with no org claim (and the anonymous caller) falls to.
+def _candidate_workspace(claims: dict[str, Any], x_workspace_id: str | None) -> str | None:
+    """The workspace the caller is asking to act in, by SUITE-IDENTITY D4 order.
 
-    ``BRAND_OPS_DEFAULT_ORG`` overrides it; the default is ``magic-unicorn`` so
-    the open dogfood (anonymous principal) sees the seed brands, whose own
-    default org is also ``magic-unicorn``. Read at call time so a test or a
-    deployment can set it via env with no reimport.
+    The ``X-Workspace-Id`` header (set by the GUI workspace switcher) wins; then
+    the token's ``workspace_id`` claim (a Brigade token carries one). Whatever is
+    returned is only a REQUEST -- the resolver honors it only if the caller is an
+    active member of it (D5: membership gates). Returns None when neither is
+    present, so the resolver falls to the caller's default membership. The
+    deprecated ``org``/``organization`` claims are intentionally NOT read: the
+    cross-app key is the ``workspace_id`` uuid, never a slug or org name.
     """
-    return os.getenv("BRAND_OPS_DEFAULT_ORG", "").strip() or "magic-unicorn"
-
-
-def _org_claim_name() -> str:
-    """The token claim that names the caller's org. ``org`` by default.
-
-    ``BRAND_OPS_ORG_CLAIM`` overrides it for issuers that stamp the tenant under
-    a different claim name.
-    """
-    return os.getenv("BRAND_OPS_ORG_CLAIM", "").strip() or "org"
-
-
-def _extract_org(claims: dict[str, Any]) -> str:
-    """Resolve the caller's org from verified claims, falling back to default.
-
-    Tolerant of how different issuers express tenancy:
-
-    * the configured claim (``BRAND_OPS_ORG_CLAIM``, default ``org``) as a
-      plain string;
-    * ``organization`` as a string, or as a Keycloak organization *object*
-      (``{"acme": {...}}``) whose first key is the org;
-    * ``organizations`` as a list (first non-empty entry wins) or a string.
-
-    If none yields a non-empty org, falls back to :func:`_default_org`. An
-    unexpected shape never raises -- it degrades to the default -- so a weird
-    token can only ever scope the caller to the default tenant, never wider.
-    """
-    # 1. The explicitly configured claim, as a string.
-    claim = claims.get(_org_claim_name())
+    if isinstance(x_workspace_id, str) and x_workspace_id.strip():
+        return x_workspace_id.strip()
+    claim = claims.get("workspace_id")
     if isinstance(claim, str) and claim.strip():
         return claim.strip()
-
-    # 2. ``organization``: a string, or a Keycloak org object keyed by name.
-    organization = claims.get("organization")
-    if isinstance(organization, str) and organization.strip():
-        return organization.strip()
-    if isinstance(organization, dict):
-        for key in organization:
-            if isinstance(key, str) and key.strip():
-                return key.strip()
-
-    # 3. ``organizations``: a list (first entry) or a string.
-    organizations = claims.get("organizations")
-    if isinstance(organizations, list):
-        for entry in organizations:
-            if isinstance(entry, str) and entry.strip():
-                return entry.strip()
-            if isinstance(entry, dict):
-                name = entry.get("name") or entry.get("id") or entry.get("slug")
-                if isinstance(name, str) and name.strip():
-                    return name.strip()
-    elif isinstance(organizations, str) and organizations.strip():
-        return organizations.strip()
-
-    return _default_org()
+    return None
 
 
-ANONYMOUS = Principal(uc_uid="anonymous", anonymous=True, issuer=None, org=_default_org())
+ANONYMOUS = Principal(uc_uid="anonymous", anonymous=True, issuer=None)
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +302,6 @@ async def _verify_keycloak(token: str) -> Principal | None:
         agent_id=agent_id,
         scopes=_extract_scopes(claims),
         issuer="keycloak",
-        org=_extract_org(claims),
         claims=claims,
     )
 
@@ -485,7 +443,6 @@ async def _verify_brigade(token: str) -> Principal | None:
         agent_id=agent_id,
         scopes=_extract_scopes(claims),
         issuer="brigade",
-        org=_extract_org(claims),
         claims=claims,
     )
 
@@ -505,18 +462,23 @@ async def authenticate(token: str) -> Principal | None:
 
 async def require_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    x_workspace_id: Annotated[str | None, Header()] = None,
 ) -> Principal:
-    """FastAPI dependency yielding the validated caller.
+    """FastAPI dependency yielding the validated, workspace-scoped caller.
 
-    When AUTH_REQUIRED is false (the default), a missing or invalid token
-    resolves to the anonymous principal so local dev and tests run with no
-    issuer. When AUTH_REQUIRED is true, a valid Keycloak or Brigade bearer is
-    mandatory and anything else is 401.
+    When AUTH_REQUIRED is false (the default) a missing or invalid token resolves
+    to the anonymous principal with NO workspace scope, so local dev, the CLI,
+    and tests see every brand (the original global view). When AUTH_REQUIRED is
+    true a valid Keycloak or Brigade bearer is mandatory and anything else is
+    401.
 
-    Whichever principal is resolved (authed or anonymous), its org is published
-    to the request-scoped ``current_org`` contextvar so every brand read inside
-    the request is scoped to that tenant. The anonymous principal carries the
-    default org, so the open dogfood still sees the seed brands.
+    For an authed caller the active workspace and the brands it may see are
+    resolved from the caller's memberships (SUITE-IDENTITY D4/D5): the requested
+    workspace (``X-Workspace-Id`` header or ``workspace_id`` claim) when they are
+    a member, else their default membership, else nothing. That scope is
+    published to the ``brand_loader`` for the life of the request, so every brand
+    read is confined to the active workspace -- and a caller with no membership
+    sees no brands (deny-by-default), never the seed tenant's.
     """
     required = auth_required()
     if credentials is None:
@@ -530,8 +492,7 @@ async def require_principal(
 
     principal = await authenticate(credentials.credentials)
     if principal is not None:
-        set_current_org(principal.org)
-        return principal
+        return await _scope_principal(principal, x_workspace_id)
     if required:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -543,17 +504,37 @@ async def require_principal(
     return _anonymous_principal()
 
 
-def _anonymous_principal() -> Principal:
-    """The anonymous caller, scoped to the *current* default org.
+async def _scope_principal(principal: Principal, x_workspace_id: str | None) -> Principal:
+    """Resolve the caller's active workspace + readable brands, and publish them.
 
-    Built fresh (rather than returning the module ``ANONYMOUS`` constant) so a
-    deployment or test that sets ``BRAND_OPS_DEFAULT_ORG`` at runtime takes
-    effect without a reimport, and so the contextvar is set as a side effect on
-    the open path exactly as it is on the authed path.
+    Returns a principal carrying the active ``workspace_id`` and ``role``, and
+    sets the request-scoped brand allow-list on the loader. A caller with no
+    usable membership gets ``workspace_id=None`` and an empty allow-list, so they
+    see no brands. The resolver fails closed (empty) on any database problem, so
+    this never leaks another tenant's brands and never raises.
     """
-    org = _default_org()
-    set_current_org(org)
-    return Principal(uc_uid="anonymous", anonymous=True, issuer=None, org=org)
+    candidate = _candidate_workspace(principal.claims or {}, x_workspace_id)
+    ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
+    set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
+    return replace(
+        principal,
+        workspace_id=ctx.workspace_id,
+        workspace_slug=ctx.workspace_slug,
+        role=ctx.role,
+    )
+
+
+def _anonymous_principal() -> Principal:
+    """The anonymous caller: unscoped, so the CLI / local dev see every brand.
+
+    Unscoped (allowed_brands None) is the original global view. AUTH_REQUIRED is
+    true on every real deployment, so the anonymous principal only ever appears
+    in local dev, the stdio MCP server, the CLI, and tests -- contexts where
+    seeing all brands is intended. The scope is set as a side effect here so the
+    open path behaves exactly like the authed path.
+    """
+    set_workspace_scope(None, None)
+    return Principal(uc_uid="anonymous", anonymous=True, issuer=None)
 
 
 __all__ = (

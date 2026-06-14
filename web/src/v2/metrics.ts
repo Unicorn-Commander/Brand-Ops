@@ -9,15 +9,6 @@ import type {
 
 const REQUIRED = ["logo", "app_icon", "og_image", "social_card", "podcast_cover", "avatar"];
 
-export function gradeFromCoverage(coveragePct: number, flagged: number): {
-  letter: string;
-  className: string;
-  score: number;
-} {
-  const score = Math.max(0, Math.min(100, Math.round(coveragePct - flagged * 6)));
-  return gradeFromScore(score);
-}
-
 export function gradeFromScore(scoreValue: number): {
   letter: string;
   className: string;
@@ -60,8 +51,16 @@ export function standardDimensions(
   const rollupScore = scoredAssets.length
     ? Math.round(scoredAssets.reduce((sum, asset) => sum + asset.score, 0) / scoredAssets.length)
     : rollup?.summary.score ?? 0;
-  const colorScore = rollupScore;
-  const voiceScore = rollup?.summary.total ? rollupScore : 0;
+  // When there is no compliance signal yet -- the rollup is still loading, or the
+  // brand has nothing scored -- treat color + voice as UNMEASURED with the same
+  // conservative default as type + mark (75), not 0. This keeps a brand's grade
+  // stable while its (often slow) compliance rollup loads: it no longer flashes a
+  // misleading low letter on the Portfolio and then jumps once the data arrives,
+  // and it matches the honest "unmeasured -> conservative default" treatment the
+  // type and mark dimensions already use. A loaded rollup uses the real score.
+  const hasCompliance = Boolean(rollup?.summary.total);
+  const colorScore = hasCompliance ? rollupScore : 75;
+  const voiceScore = hasCompliance ? rollupScore : 75;
 
   return [
     {
@@ -69,8 +68,8 @@ export function standardDimensions(
       label: "color",
       score: colorScore,
       weight: 25,
-      note: rollup?.summary.total ? "image checks from compliance rollup" : "no compliance assets yet",
-      measured: Boolean(rollup?.summary.total),
+      note: hasCompliance ? "image checks from compliance rollup" : "unmeasured · conservative default",
+      measured: hasCompliance,
     },
     {
       key: "type",
@@ -101,10 +100,35 @@ export function standardDimensions(
       label: "voice",
       score: voiceScore,
       weight: 15,
-      note: rollup?.summary.total ? "text checks from compliance rollup where present" : "no compliance text checks yet",
-      measured: Boolean(rollup?.summary.total),
+      note: hasCompliance ? "text checks from compliance rollup where present" : "unmeasured · conservative default",
+      measured: hasCompliance,
     },
   ];
+}
+
+/**
+ * The single canonical Brand Grade. Every surface (Portfolio, Brand HQ,
+ * Standards) MUST call this with the SAME inputs — the brand's assets, the live
+ * asset-type registry, and the compliance rollup — so one brand reads one grade
+ * everywhere. Coverage uses the real asset types (never the hardcoded fallback),
+ * blended with the compliance-derived dimensions. Returns the letter/score plus
+ * the dimensions, so the report card can render the (honestly labeled) breakdown
+ * without recomputing.
+ */
+export function brandGrade(
+  assets: AssetRecord[],
+  types: AssetType[],
+  rollup: BrandComplianceRollup | undefined,
+): {
+  letter: string;
+  className: string;
+  score: number;
+  dimensions: GradeDimension[];
+} {
+  const coverage = coverageFor(assets, types);
+  const dimensions = standardDimensions(coverage.pct, rollup);
+  const g = gradeFromDimensions(dimensions);
+  return { ...g, dimensions };
 }
 
 export function assetsFor(assets: AssetRecord[], slug: string): AssetRecord[] {

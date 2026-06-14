@@ -28,8 +28,14 @@ from pathlib import Path
 
 import yaml
 
-from .brand_loader import DEFAULT_KITS_DIR, BrandNotFound, get_current_org, load_brand
-from .models import Brand, BrandMeta
+from .brand_loader import (
+    DEFAULT_KITS_DIR,
+    BrandNotFound,
+    allow_brand,
+    get_current_workspace_id,
+    load_brand,
+)
+from .models import Brand
 
 # Same slug shape the rest of the kit enforces, matching brand_loader's read
 # guard exactly: a single segment of lowercase letters, digits, and hyphens that
@@ -94,19 +100,17 @@ def _validate_slug(slug: str) -> None:
         )
 
 
-def _owning_org() -> str:
-    """The org to stamp onto a newly written brand.
+def _owning_workspace() -> str | None:
+    """The workspace_id to stamp onto a newly written brand.
 
-    When a request is scoped to a tenant (``current_org`` set), a brand it
-    creates is owned by that tenant. Unscoped (CLI / MCP / tests), it falls to
-    the same default ``BrandMeta.org`` carries, so a brand created outside any
-    tenant context is owned by the default org -- exactly like the seed brands.
+    When a request is scoped to a workspace (the switcher / token resolved one),
+    a brand it creates records that workspace, so the file->DB importer assigns
+    it correctly on any later re-run. Unscoped (CLI / stdio MCP / tests) it is
+    None, and the importer assigns such a brand to the deploy's bootstrap
+    workspace. The DB ``brand`` row the route writes at creation is the
+    authority; this is just the file's record of ownership.
     """
-    org = get_current_org()
-    if org is not None:
-        return org
-    # Mirror BrandMeta's default so an unscoped create matches the seed brands.
-    return BrandMeta.model_fields["org"].default
+    return get_current_workspace_id()
 
 
 def clone_brand(
@@ -158,7 +162,7 @@ def clone_brand(
                 "slug": new_slug,
                 "display_name": display_name,
                 "parent": source_slug,
-                "org": _owning_org(),
+                "workspace_id": _owning_workspace(),
             }
         }
     else:
@@ -178,7 +182,7 @@ def clone_brand(
                 "slug": new_slug,
                 "display_name": display_name,
                 "parent": None,
-                "org": _owning_org(),
+                "workspace_id": _owning_workspace(),
             },
             "visual": visual,
             "voice": voice,
@@ -191,6 +195,11 @@ def clone_brand(
     brand_yaml.write_text(
         yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
     )
+
+    # Make the just-created brand visible for the rest of this (scoped) request,
+    # so the read-back below does not 404 under the workspace allow-list. No-op
+    # when unscoped (CLI / tests).
+    allow_brand(new_slug)
 
     # Load through the same path every surface uses, so the returned Brand is
     # exactly what GET /api/brands/<new_slug> will serve (and the as_child merge
@@ -282,7 +291,7 @@ def create_brand_from_draft(
         "slug": slug,
         "display_name": _display_name(draft) or slug,
         "parent": parent,
-        "org": _owning_org(),
+        "workspace_id": _owning_workspace(),
     }
     tagline = _clean(draft.get("tagline") if isinstance(draft, dict) else None)
     if tagline:
@@ -310,6 +319,10 @@ def create_brand_from_draft(
     brand_yaml.write_text(
         yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
     )
+
+    # Make the just-created brand visible for the rest of this (scoped) request
+    # so the validating read-back below does not 404 under the allow-list.
+    allow_brand(slug)
 
     # Load through the same path every surface uses. This is also where an
     # invalid drafted color is caught: load_brand validates the Brand, so a bad

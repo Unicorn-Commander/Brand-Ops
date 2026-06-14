@@ -16,12 +16,10 @@ import { Spinner } from "../../components/Spinner";
 import { fontNote } from "../../v2/EnvProvider";
 import {
   assetsFor,
-  complianceScore,
+  brandGrade,
   coverageFor,
   displayActivity,
   flaggedCount,
-  gradeFromCoverage,
-  gradeFromScore,
   relativeTime,
 } from "../../v2/metrics";
 
@@ -71,8 +69,9 @@ export default function BrandHQPage() {
   const types = typesQ.data ?? [];
   const coverage = coverageFor(assets, types);
   const flagged = flaggedCount(assets);
-  const score = complianceScore(complianceQ.data) ?? gradeFromCoverage(coverage.pct, flagged).score;
-  const grade = gradeFromScore(score);
+  const g = brandGrade(assets, types, complianceQ.data);
+  const grade = g;
+  const score = g.score;
   const colors = brand.visual.colors;
   const palette = tokensQ.data?.color.length
     ? tokensQ.data.color

@@ -18,47 +18,78 @@ from .models import Brand
 DEFAULT_KITS_DIR = Path(__file__).resolve().parents[2] / "brand-kits"
 
 # ---------------------------------------------------------------------------
-# Request-scoped tenant (org) scoping
+# Request-scoped tenant (workspace) scoping
 # ---------------------------------------------------------------------------
 #
-# Org scoping is centralized here, at the single read boundary every surface
-# flows through, so the REST routes do not each have to thread an org through.
-# ``require_principal`` sets ``current_org`` to the caller's org for the life of
-# a request; ``list_brands`` and ``load_brand`` then filter against it.
+# Scoping is centralized here, at the single read boundary every surface flows
+# through, so the REST routes do not each have to thread a workspace through.
+# ``require_principal`` resolves the caller's active workspace and the set of
+# brand slugs it owns (from the DB, under row level security) and sets that
+# here; ``list_brands`` and ``load_brand`` then reveal only those brands.
 #
-# The default is ``None``, which means "no scoping": the CLI, the MCP server,
-# and any test that never sets it keep the original global view, so this is
-# fully backward compatible. A contextvar (not a module global) is used so the
-# scope is per-request and never bleeds between concurrent async requests.
-_current_org: ContextVar[str | None] = ContextVar("brand_ops_current_org", default=None)
+# The scope is a (workspace_id, allowed_brands) pair:
+#   * ``allowed_brands is None``       -> UNSCOPED: the original global view, for
+#     the CLI, the stdio MCP server, and any test or local run that never sets a
+#     scope (AUTH_REQUIRED off). Backward compatible.
+#   * ``allowed_brands == frozenset()`` -> DENY: an authed caller with no usable
+#     membership sees nothing.
+#   * ``allowed_brands == frozenset({...})`` -> only those slugs are visible.
+# ``workspace_id`` is the active workspace, carried for the write path to stamp
+# new brands into the DB. A contextvar (not a module global) keeps the scope
+# per-request and prevents bleed between concurrent async requests.
+_scope: ContextVar[tuple[str | None, frozenset[str] | None]] = ContextVar(
+    "brand_ops_scope", default=(None, None)
+)
 
 
-def set_current_org(org: str | None):
-    """Set the request-scoped org. Returns the contextvar Token for reset.
+def set_workspace_scope(
+    workspace_id: str | None, allowed_brands: frozenset[str] | None
+):
+    """Set the request-scoped (workspace_id, allowed_brands). Returns the Token.
 
-    ``require_principal`` calls this with the resolved principal's org so every
-    brand read inside the request is scoped to that tenant. Passing ``None``
-    (or never calling this) disables scoping = the original global behavior.
+    ``require_principal`` calls this with the resolved workspace and its brand
+    slug set so every read inside the request is scoped to that tenant. Passing
+    ``allowed_brands=None`` (or never calling this) disables scoping = the
+    original global behavior.
     """
-    return _current_org.set(org)
+    return _scope.set((workspace_id, allowed_brands))
 
 
-def get_current_org() -> str | None:
-    """The org scoping the current request, or ``None`` when unscoped."""
-    return _current_org.get()
+def get_current_workspace_id() -> str | None:
+    """The active workspace id for this request, or None when unscoped/denied."""
+    return _scope.get()[0]
 
 
-def reset_current_org(token=None) -> None:
-    """Clear the request-scoped org.
+def get_allowed_brands() -> frozenset[str] | None:
+    """The brand slugs visible to this request: None = all (unscoped), else the set."""
+    return _scope.get()[1]
 
-    With a Token (from :func:`set_current_org`) it restores the prior value;
-    without one it hard-resets to ``None``. Tests use the no-arg form in a
-    fixture so org state never leaks between tests.
+
+def reset_workspace_scope(token=None) -> None:
+    """Clear the request-scoped workspace scope.
+
+    With a Token (from :func:`set_workspace_scope`) it restores the prior value;
+    without one it hard-resets to unscoped. Tests use the no-arg form so scope
+    never leaks between tests.
     """
     if token is not None:
-        _current_org.reset(token)
+        _scope.reset(token)
     else:
-        _current_org.set(None)
+        _scope.set((None, None))
+
+
+def allow_brand(slug: str) -> None:
+    """Add a freshly created brand to the current request's allow-list.
+
+    A scoped create (intake / clone) writes a new brand whose slug is not in the
+    allow-list the resolver loaded at the start of the request; without this the
+    create path's own read-back of the just-written brand would 404. No-op when
+    unscoped (allowed is None), where every brand is already visible. The DB row
+    the route records makes the brand visible on subsequent requests too.
+    """
+    workspace_id, allowed = _scope.get()
+    if allowed is not None and slug not in allowed:
+        _scope.set((workspace_id, allowed | {slug}))
 
 # A brand slug is one path segment of lowercase letters, digits, and hyphens —
 # the exact shape brand_clone enforces on a write. Validating it here, at the
@@ -96,22 +127,13 @@ def list_brands(kits_dir: Path | None = None) -> list[str]:
         for p in root.iterdir()
         if p.is_dir() and not p.name.startswith("_") and (p / "brand.yaml").exists()
     )
-    org = get_current_org()
-    if org is None:
-        # Unscoped (CLI / MCP / tests): the original global listing.
+    allowed = get_allowed_brands()
+    if allowed is None:
+        # Unscoped (CLI / stdio MCP / tests): the original global listing.
         return slugs
-    # Tenant-scoped: keep only brands owned by the current org. Loading each
-    # brand to read its meta.org is the price of file-based storage; a brand
-    # that fails to load is skipped rather than crashing the list, matching how
-    # the REST layer already tolerates an unparseable brand.
-    scoped: list[str] = []
-    for slug in slugs:
-        try:
-            if load_brand(slug, kits_dir=root).brand.org == org:
-                scoped.append(slug)
-        except (BrandNotFound, ValueError):
-            continue
-    return scoped
+    # Tenant-scoped: only the brands this workspace owns, per the DB allow-list
+    # the resolver loaded. A simple set membership test -- no per-brand load.
+    return [s for s in slugs if s in allowed]
 
 
 def _read_yaml(slug: str, kits_dir: Path) -> dict:
@@ -144,21 +166,20 @@ def _merge(parent: dict, child: dict) -> dict:
 
 
 def load_brand(slug: str, kits_dir: Path | None = None) -> Brand:
+    # Tenant guard first: a brand outside the request's workspace allow-list
+    # reads as "no such brand" (404, never a 403 leak), and we never even parse
+    # another tenant's file. Unscoped (allowed is None: CLI / stdio MCP / tests)
+    # this never fires.
+    allowed = get_allowed_brands()
+    if allowed is not None and slug not in allowed:
+        raise BrandNotFound(f"brand {slug!r} not found")
     root = kits_dir or DEFAULT_KITS_DIR
     raw = _read_yaml(slug, root)
     parent_slug = (raw.get("brand") or {}).get("parent")
     if parent_slug:
         parent_raw = _read_yaml(parent_slug, root)
         raw = _merge(parent_raw, raw)
-    brand = Brand.model_validate(raw)
-    # Tenant guard: a cross-tenant read is a 404, never a 403 leak. When the
-    # request is scoped to an org, a brand owned by a different org reads as
-    # "no such brand" -- the caller cannot even tell it exists. Unscoped
-    # (current_org is None: CLI / MCP / tests) this never fires.
-    org = get_current_org()
-    if org is not None and brand.brand.org != org:
-        raise BrandNotFound(f"brand {slug!r} not found")
-    return brand
+    return Brand.model_validate(raw)
 
 
 def resolve_reference_images(

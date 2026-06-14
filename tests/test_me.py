@@ -11,5 +11,8 @@ def test_me_anonymous_when_auth_off():
     assert r.status_code == 200
     body = r.json()
     assert body["anonymous"] is True
-    assert body["org"] == "magic-unicorn"
     assert body["uc_uid"] == "anonymous"
+    # Anonymous is now UNSCOPED (no active workspace), not scoped to a default
+    # org: there is no membership, so no workspace/role is reported.
+    assert body["workspace_id"] is None
+    assert body["org"] is None

@@ -23,6 +23,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -198,6 +199,85 @@ class BrandResearchRun(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class AgentGovernance(Base):
+    """Per-agent governance for a workspace: posture, orders, budget, model.
+
+    One row per (workspace, agent_kind, agent_ref). A missing row means "the
+    agent's defaults"; the API synthesizes a default-shaped record for the
+    well-known agents so the Crew page always renders. ``autonomy`` is one of
+    governance.AUTONOMY_LEVELS, ``weekly_budget_cents`` null = no cap (v1 stores
+    and displays the cap but does not enforce it), ``model`` null = the agent's
+    own default. Workspace-scoped: row level security filters on workspace_id
+    (policy created in migration 0003).
+    """
+
+    __tablename__ = "agent_governance"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "agent_kind",
+            "agent_ref",
+            name="uq_agent_governance_ws_kind_ref",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    agent_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    autonomy: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default=text("'propose'"), default="propose"
+    )
+    standing_orders: Mapped[str | None] = mapped_column(Text, nullable=True)
+    weekly_budget_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AgentSpendEvent(Base):
+    """One metered agent turn: the append-only spend ledger.
+
+    A row is recorded per metered turn (text chat in v1) carrying the gateway's
+    token usage and an ESTIMATED ``cost_cents`` (see governance.estimate_cost_cents).
+    ``kind`` is "chat" or "image". Indexed on workspace_id, created_at, and
+    (workspace_id, agent_kind, agent_ref) for the per-agent 7-day rollup.
+    Workspace-scoped: row level security filters on workspace_id (policy created
+    in migration 0003).
+    """
+
+    __tablename__ = "agent_spend_event"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    agent_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    agent_ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    brand_slug: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_cents: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+
 # Tables that carry a workspace_id and are guarded by row level security. The
 # migration enables RLS and creates a policy on each of these.
 WORKSPACE_SCOPED_TABLES = (
@@ -206,4 +286,6 @@ WORKSPACE_SCOPED_TABLES = (
     "asset",
     "generation_job",
     "brand_research_run",
+    "agent_governance",
+    "agent_spend_event",
 )

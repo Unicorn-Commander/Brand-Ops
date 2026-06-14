@@ -4,6 +4,7 @@ import { CommandPalette } from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { EnvProvider, useBrandEnv } from "../v2/EnvProvider";
 import { UserMenu } from "../v2/UserMenu";
+import { WorkspaceSwitcher } from "../v2/WorkspaceSwitcher";
 import { applyAmbient } from "../pages/v2/SettingsPage";
 import { useActiveBrand } from "../brand-context";
 import { MarkImg } from "./MarkImg";
@@ -87,9 +88,7 @@ function Topbar({
               <span className="dot dot-live" /> Steward online
             </span>
           ) : (
-            <span className="workspace-chip">
-              <span className="sw" /> Magic Unicorn <span style={{ opacity: 0.5 }}>▾</span>
-            </span>
+            <WorkspaceSwitcher />
           )}
           <button className="kbd" type="button" onClick={commandHint}>
             ⌘K

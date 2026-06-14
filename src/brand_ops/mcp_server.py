@@ -40,6 +40,7 @@ from .brand_clone import create_brand_from_draft as _create_brand_from_draft
 from .brand_loader import (
     DEFAULT_KITS_DIR,
     BrandNotFound,
+    get_allowed_brands,
     load_brand,
     resolve_reference_images,
 )
@@ -55,7 +56,14 @@ from .compliance import (
 from .models import Brand
 from .templates import list_templates as _list_templates
 
-mcp = FastMCP("brand-ops")
+# stateless_http=True is REQUIRED for tenant isolation on the HTTP transport.
+# In stateful mode FastMCP runs each tool handler on a long-lived task spawned at
+# session `initialize`, BEFORE the per-request workspace scope is set in the ASGI
+# task -- and a ContextVar only snapshots at task creation, so the tool would run
+# UNSCOPED (every tenant's brands). Stateless mode starts the server task from
+# within the per-request call, AFTER mcp_http sets the scope, so the tool task
+# inherits the caller's allow-list. The stdio transport is unaffected.
+mcp = FastMCP("brand-ops", stateless_http=True)
 
 # Exceptions the engine and loader raise for caller mistakes. We translate each
 # into a structured error rather than letting it cross the MCP boundary.
@@ -296,13 +304,21 @@ def list_generated_assets(
         if not root.exists():
             return {"assets": [], "count": 0}
 
+        # Tenant gate: the same workspace allow-list the brand loader uses, so the
+        # scoped MCP surface never lists another workspace's catalog. Unscoped
+        # (None: stdio / CLI / tests) every brand is read, exactly as before.
+        allowed = get_allowed_brands()
         if brand:
+            if allowed is not None and brand not in allowed:
+                return {"assets": [], "count": 0}
             brand_dirs = [root / brand] if (root / brand).is_dir() else []
         else:
             brand_dirs = [
                 p
                 for p in root.iterdir()
-                if p.is_dir() and not p.name.startswith("_")
+                if p.is_dir()
+                and not p.name.startswith("_")
+                and (allowed is None or p.name in allowed)
             ]
 
         records: list[dict[str, Any]] = []

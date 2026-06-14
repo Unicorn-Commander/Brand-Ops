@@ -205,6 +205,20 @@ export interface GenerateRequest {
   count?: number;
 }
 
+/**
+ * Body for POST /api/generate-card: the deterministic, keyless card compositor.
+ * Composes og_image / social_card from the brand's fonts, colors, and mark with
+ * no provider key. `message` defaults to the brand tagline. Returns a
+ * GenerateResult, same as /generate.
+ */
+export interface GenerateCardRequest {
+  brand: string;
+  asset: string;
+  message?: string | null;
+  mark?: string | null;
+  variant?: string | null;
+}
+
 /** Dry-run result from POST /api/prompt-preview: the composed prompt and plan. */
 export interface PromptPreview {
   brand: string;
@@ -473,7 +487,13 @@ export interface DirectorChatRequest {
  * "agent" creates an on-brand agent identity for the active brand (Iris creates
  * it server-side and returns it in `agent`).
  */
-export type DirectorIntent = "chat" | "single" | "pack" | "research" | "agent";
+export type DirectorIntent =
+  | "chat"
+  | "single"
+  | "pack"
+  | "research"
+  | "agent"
+  | "compliance";
 
 /**
  * The agent identity Iris created (or already had) for the active brand, on a
@@ -497,6 +517,22 @@ export interface DirectorAgentRef {
  * `agent` is set only on intent "agent" (the identity she created or already
  * had). Mirrors DirectorReply in schemas.py.
  */
+/**
+ * The deterministic compliance verdict on a DirectorReply with intent
+ * "compliance" (the route already ran the gate). `target` is "catalog" for a
+ * brand-wide check or the checked copy/asset; `status` is the rollup verdict and
+ * `score` the average. `counts` is present for a catalog check. Mirrors the
+ * `compliance` field on DirectorReply in schemas.py.
+ */
+export interface DirectorComplianceVerdict {
+  brand?: string;
+  target?: string;
+  status: string;
+  score: number;
+  violations?: unknown[];
+  counts?: Record<string, number>;
+}
+
 export interface DirectorReply {
   reply: string;
   intent: DirectorIntent;
@@ -506,6 +542,7 @@ export interface DirectorReply {
   pack: string | null;
   topic: string | null;
   agent?: DirectorAgentRef | null;
+  compliance?: DirectorComplianceVerdict | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -926,9 +963,92 @@ export interface Me {
   uc_uid: string;
   email: string | null;
   name: string | null;
-  org: string;
+  /** Active workspace for this session (null when unscoped / no membership). */
+  workspace_id: string | null;
+  /** Active workspace slug (the chip label). */
+  workspace: string | null;
+  /** The caller's role in the active workspace. */
+  role: string | null;
+  /** Back-compat alias for the active workspace slug. */
+  org: string | null;
   issuer: string | null;
   anonymous: boolean;
   scopes: string[];
   logout_url: string | null;
+}
+
+/** One workspace the caller belongs to (a switcher row). */
+export interface Workspace {
+  workspace_id: string;
+  slug: string;
+  role: string;
+  is_default: boolean;
+}
+
+/** GET /api/me/workspaces: the caller's workspaces and the active one. */
+export interface MeWorkspaces {
+  active_workspace_id: string | null;
+  workspaces: Workspace[];
+}
+
+// ---------------------------------------------------------------------------
+// Agent governance + spend (the Crew page's real controls)
+// ---------------------------------------------------------------------------
+
+/**
+ * An agent's autonomy posture, least to most autonomous. Mirrors
+ * governance.AUTONOMY_LEVELS:
+ *   - "propose": the agent drafts; a human ratifies any production change (the
+ *     suite default, House Rule HR-01).
+ *   - "auto_with_review": the agent acts and surfaces the work for review.
+ *   - "autonomous": the agent acts without a review gate.
+ * v1 stores and displays the posture; it does not yet enforce it.
+ */
+export type AutonomyLevel = "propose" | "auto_with_review" | "autonomous";
+
+/**
+ * The kind of agent a governance row attaches to. Mirrors governance.AGENT_KINDS:
+ * "director" (Iris), "steward" (per-brand; its ref is the brand slug),
+ * "specialist" (a registry agent; its ref is the agent name), or "identity" (a
+ * brand-owned agent identity; its ref can carry a slash).
+ */
+export type AgentKind = "director" | "steward" | "specialist" | "identity";
+
+/**
+ * GET /api/governance/agents -> one agent's operating contract plus its real
+ * 7-day spend. Mirrors AgentGovernanceOut in schemas.py. `weekly_budget_cents`
+ * is null when no cap is set (displayed, not enforced in v1); `model` is null
+ * when the agent uses its own default. `is_default` is true when no row is saved
+ * yet and these are the synthesized defaults.
+ */
+export interface AgentGovernance {
+  agent_kind: AgentKind;
+  agent_ref: string;
+  autonomy: AutonomyLevel;
+  standing_orders: string;
+  weekly_budget_cents: number | null;
+  model: string | null;
+  spend_cents_7d: number;
+  tokens_7d: number;
+  calls_7d: number;
+  is_default: boolean;
+}
+
+/** GET /api/governance/agents -> the list of governed agents. */
+export interface AgentGovernanceList {
+  governance: AgentGovernance[];
+}
+
+/**
+ * Body for PUT /api/governance/agents/{agent_kind}/{agent_ref}. Every field is
+ * optional; only the ones present are changed. A null `weekly_budget_cents` or
+ * `model` clears that setting (no cap / the agent default). Mirrors
+ * AgentGovernanceUpdate in schemas.py. The server validates `autonomy` against
+ * the known levels and rejects a negative budget (422).
+ */
+export interface AgentGovernanceUpdate {
+  autonomy?: AutonomyLevel;
+  standing_orders?: string;
+  weekly_budget_cents?: number | null;
+  model?: string | null;
 }

@@ -49,3 +49,19 @@ def test_mcp_http_disabled_by_default(monkeypatch):
     with TestClient(app) as client:
         assert client.get("/.well-known/mcps.json").status_code == 404
         assert client.get("/health").status_code == 200
+
+
+def test_mcp_server_is_stateless_for_tenant_scope():
+    """The HTTP MCP MUST be stateless so a tool inherits the per-request workspace
+    scope.
+
+    In stateful mode FastMCP runs each tool on a task spawned at session
+    `initialize`, before mcp_http sets the scope, and a ContextVar only snapshots
+    at task creation -- so the tool would run UNSCOPED (every tenant's brands).
+    Stateless mode starts the server task from the per-request call, after the
+    scope is set. This pins the fix; flipping it back to stateful re-opens a
+    critical cross-tenant read on mcp.brand-ops.*.
+    """
+    from brand_ops.mcp_server import mcp
+
+    assert mcp.settings.stateless_http is True

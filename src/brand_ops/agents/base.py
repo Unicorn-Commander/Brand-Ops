@@ -33,9 +33,27 @@ class Agent(ABC):
         *,
         brigade: BrigadeClient | None = None,
         settings: Settings | None = None,
+        workspace_id: str | None = None,
+        agent_kind: str = "specialist",
+        agent_ref: str | None = None,
+        brand_slug: str | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.brigade = brigade or BrigadeClient(self.settings)
+        # Optional metering context. When workspace_id is set, chat() records a
+        # best-effort spend event after each LLM turn (see _meter_chat). All four
+        # are optional and default to safe values so every existing call site
+        # (which passes none of them) is unaffected and unmetered. agent_ref
+        # defaults to the agent's stable name.
+        self.workspace_id = workspace_id
+        self.agent_kind = agent_kind
+        self.agent_ref = agent_ref or self.name
+        self.brand_slug = brand_slug
+
+    @property
+    def _meter_enabled(self) -> bool:
+        """True when this agent should record spend (a workspace is in scope)."""
+        return bool(self.workspace_id)
 
     def _resolve_model(self, model: str | None) -> str:
         return model or self.model or self.settings.agent_model_default
@@ -52,13 +70,71 @@ class Agent(ABC):
 
         Returns the assistant text, or None when no gateway is configured so the
         caller can fall back to a deterministic path.
+
+        When metering is enabled (this agent was constructed with a workspace_id),
+        a best-effort spend event is recorded from the gateway's reported token
+        usage AFTER the call. Metering never raises into this path and never
+        changes the returned text: a missing database, an unset DATABASE_URL, or
+        any error is swallowed, so an agent run is identical with or without it.
         """
-        return await self.brigade.llm_chat(
+        resolved_model = self._resolve_model(model)
+        reply = await self.brigade.llm_chat(
             messages,
-            model=self._resolve_model(model),
+            model=resolved_model,
             temperature=temperature,
             response_json=response_json,
         )
+        if self._meter_enabled:
+            await self._meter_chat(resolved_model)
+        return reply
+
+    async def _meter_chat(self, model: str) -> None:
+        """Record one best-effort spend event for the last LLM turn. Never raises.
+
+        Reads the usage the BrigadeClient captured on the just-completed
+        ``llm_chat`` (``self.brigade.last_usage``), estimates a cost, and writes
+        an ``agent_spend_event`` scoped to this agent's workspace. Everything is
+        lazy-imported and wrapped so a metering failure -- no gateway usage, no
+        database, an unset DATABASE_URL (get_sessionmaker raises), an RLS or
+        transport error -- is silently dropped. This is the worst-outcome guard:
+        a broken agent path is unacceptable, missing a spend row is not.
+        """
+        try:
+            usage = self.brigade.last_usage
+            # Lazy import so importing the agent never pulls in the DB stack and a
+            # CLI/test with no DATABASE_URL is unaffected.
+            from .. import governance
+            from ..db.base import get_sessionmaker, workspace_session
+            from ..db.repository import record_spend_event
+
+            def _as_int(value: Any) -> int | None:
+                return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+            prompt_tokens = completion_tokens = total_tokens = None
+            if isinstance(usage, dict):
+                prompt_tokens = _as_int(usage.get("prompt_tokens"))
+                completion_tokens = _as_int(usage.get("completion_tokens"))
+                total_tokens = _as_int(usage.get("total_tokens"))
+            cost_cents = governance.estimate_cost_cents(model, usage)
+
+            sessionmaker = get_sessionmaker()  # raises if DATABASE_URL is unset
+            async with sessionmaker() as session:
+                async with workspace_session(session, self.workspace_id) as scoped:
+                    await record_spend_event(
+                        scoped,
+                        self.workspace_id,
+                        agent_kind=self.agent_kind,
+                        agent_ref=self.agent_ref,
+                        kind="chat",
+                        brand_slug=self.brand_slug,
+                        model=model,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        cost_cents=cost_cents,
+                    )
+        except Exception:  # noqa: BLE001 - metering is best-effort; never break a run
+            pass
 
     @abstractmethod
     async def run(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -24,9 +24,10 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from .. import __version__
-from ..brand_loader import set_current_org
+from ..brand_loader import set_workspace_scope
+from ..db.tenancy import resolve_context
 from ..mcp_server import mcp
-from .auth import _default_org, authenticate
+from .auth import _candidate_workspace, authenticate
 
 
 def mcp_http_enabled() -> bool:
@@ -131,9 +132,13 @@ async def mcp_asgi_app(scope, receive, send) -> None:
         if principal is None:
             await _reject(send, 401, "invalid or untrusted token")
             return
-        set_current_org(principal.org)
+        x_ws = headers.get(b"x-workspace-id", b"").decode() or None
+        candidate = _candidate_workspace(principal.claims or {}, x_ws)
+        ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
+        set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
     else:
-        set_current_org(_default_org())
+        # Auth off (dev only; MCP_AUTH_REQUIRED defaults on): unscoped = all brands.
+        set_workspace_scope(None, None)
 
     await inner(scope, receive, send)
 

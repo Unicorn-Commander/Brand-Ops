@@ -105,9 +105,9 @@ export function UserMenu() {
             {who && !who.anonymous && who.email && who.email !== label && (
               <div style={{ fontSize: 11.5, color: "var(--c-ink-3)", marginTop: 2 }}>{who.email}</div>
             )}
-            {who && (
+            {who && (who.workspace || who.org) && (
               <div style={{ fontSize: 10.5, color: "var(--c-ink-3)", marginTop: 5 }}>
-                workspace <b style={{ color: "var(--c-ink-2)" }}>{who.org}</b>
+                workspace <b style={{ color: "var(--c-ink-2)" }}>{who.workspace ?? who.org}</b>
                 {who.issuer ? ` · via ${who.issuer}` : ""}
               </div>
             )}

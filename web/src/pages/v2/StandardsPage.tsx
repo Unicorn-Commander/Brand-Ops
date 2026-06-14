@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getBrandCompliance, listActivity, listAssets, listBrands } from "../../api/client";
+import { getBrandCompliance, listActivity, listAssets, listAssetTypes, listBrands } from "../../api/client";
 import { useActiveBrand } from "../../brand-context";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
-import { assetsFor, flaggedCount, gradeFromDimensions, coverageFor, standardDimensions, relativeTime } from "../../v2/metrics";
+import { assetsFor, brandGrade, flaggedCount, coverageFor, relativeTime } from "../../v2/metrics";
 
 function latest(values: Array<string | null | undefined>): string | null {
   const dates = values
@@ -20,6 +20,7 @@ export default function StandardsPage() {
   const { activeSlug } = useActiveBrand();
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const assetsQ = useQuery({ queryKey: ["assets", "all"], queryFn: ({ signal }) => listAssets({}, signal) });
+  const typesQ = useQuery({ queryKey: ["asset-types"], queryFn: ({ signal }) => listAssetTypes(signal) });
   const activityQ = useQuery({ queryKey: ["activity", "standards"], queryFn: ({ signal }) => listActivity({ limit: 80 }, signal) });
   const compliancesQ = useQuery({
     queryKey: ["compliance", "all"],
@@ -35,7 +36,7 @@ export default function StandardsPage() {
     },
   });
 
-  if (brandsQ.isLoading || assetsQ.isLoading || activityQ.isLoading || compliancesQ.isLoading) {
+  if (brandsQ.isLoading || assetsQ.isLoading || typesQ.isLoading || activityQ.isLoading || compliancesQ.isLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: "80px 0" }}>
         <Spinner size={28} />
@@ -48,20 +49,21 @@ export default function StandardsPage() {
   }
 
   const assets = assetsQ.data;
+  const types = typesQ.data ?? [];
   const activity = activityQ.data;
   const compliances = compliancesQ.data;
   const brandNameBySlug = new Map(brandsQ.data.map((brand) => [brand.slug, brand.display_name]));
   const selected = compliances.find((row) => row.slug === activeSlug) ?? compliances[0];
   const selectedAssets = assetsFor(assets, selected.slug);
-  const selectedCoverage = coverageFor(selectedAssets, []);
-  const selectedDimensions = standardDimensions(selectedCoverage.pct, selected.compliance);
-  const selectedGrade = gradeFromDimensions(selectedDimensions);
+  const selectedCoverage = coverageFor(selectedAssets, types);
+  const selectedGrade = brandGrade(selectedAssets, types, selected.compliance);
+  const selectedDimensions = selectedGrade.dimensions;
   const board = compliances.map((row) => {
     const rowAssets = assetsFor(assets, row.slug);
-    const coverage = coverageFor(rowAssets, []);
+    const coverage = coverageFor(rowAssets, types);
     const flagged = flaggedCount(rowAssets);
-    const dimensions = standardDimensions(coverage.pct, row.compliance);
-    const grade = gradeFromDimensions(dimensions);
+    const grade = brandGrade(rowAssets, types, row.compliance);
+    const dimensions = grade.dimensions;
     const newestAssetStamp = latest(rowAssets.map((asset) => asset.compliance ? asset.created_at : null));
     const newestActivityStamp = latest(activity.filter((event) => event.brand === row.slug).map((event) => event.ts));
     const lastAudit = newestAssetStamp ?? newestActivityStamp;

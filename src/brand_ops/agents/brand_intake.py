@@ -34,6 +34,7 @@ import re
 from typing import Any
 
 from .base import Agent
+from .web_fetch import PageExtract, fetch_page_text
 
 # The same hex rule the BrandColors validator enforces. Held here so the agent
 # rejects a bad color before it ever reaches the writer, rather than letting a
@@ -170,13 +171,27 @@ class BrandIntakeAgent(Agent):
         url: str,
         parent_block: str,
         mode: str,
+        captured: str = "",
     ) -> str:
-        """Assemble the user prompt asking the model for a full identity object."""
+        """Assemble the user prompt asking the model for a full identity object.
+
+        ``captured`` is the readable text pulled off the live site (see
+        ``_page_to_context``). When it is non-empty the model drafts from the real
+        page rather than guessing from the domain, so the onboard disclaimer about
+        not having the site captured is dropped for that branch.
+        """
         parts = [f"Brand name: {name}"]
         if description:
             parts.append(f"What the operator told me about it: {description}")
         if url:
-            if mode == "onboard":
+            if captured:
+                parts.append(
+                    f"Their website is {url}. I captured the live page; use it as "
+                    "the primary source for the brand's field, voice, and audience. "
+                    "Draw the palette and keywords from what the page actually says, "
+                    "not from generic assumptions."
+                )
+            elif mode == "onboard":
                 parts.append(
                     f"Their website is {url}. Use the name and domain as hints to "
                     "the brand's field and feel. I do not have the live site "
@@ -184,6 +199,8 @@ class BrandIntakeAgent(Agent):
                 )
             else:
                 parts.append(f"Related URL or domain: {url}")
+        if captured:
+            parts.append(f"Captured from the live site:\n{captured}")
         if parent_block:
             parts.append(parent_block)
 
@@ -264,10 +281,39 @@ class BrandIntakeAgent(Agent):
         notes: list[str] = []
         parent_block = self._parent_block(parent_brand)
         mode = (mode or "describe").strip().lower()
-        if mode == "onboard" and url:
+
+        # Research: fetch the live site so the draft is grounded in what the page
+        # actually says. Best-effort, no Brigade required; the fetcher never
+        # raises and returns None when the URL is blocked, non-HTML, or fails.
+        captured = ""
+        if url:
+            page = await fetch_page_text(url)
+            if page is not None:
+                captured = _page_to_context(page)
+
+        # FUTURE BRIGADE ATTACH POINT: when Brigade is configured, augment the
+        # captured context with its deep-research agent (broader web reading than
+        # a single page fetch). Brigade stays a future augmentation, layered on
+        # top of the page capture rather than replacing it. The shape it will
+        # take, guarded behind the existing readiness check so it stays a no-op
+        # until wired:
+        #
+        #     if url and self.brigade._research_ready():
+        #         try:
+        #             research = await self.brigade.research(url, depth="medium")
+        #             captured = _merge_research(captured, research)
+        #         except BrigadeUnavailable:
+        #             pass  # best-effort: fall back to the page capture
+        #
+        # (BrigadeUnavailable would be imported from ..brigade.client; not done
+        # here because the calls are not yet implemented.)
+
+        if captured:
+            notes.append("I read the live site and drafted from what it says.")
+        elif mode == "onboard" and url:
             notes.append(
-                "Live site capture needs Brigade connected. I drafted from the "
-                "name and the domain as hints, not the live page."
+                "I could not read the live site, so I drafted from the name and "
+                "the domain as hints, not the live page."
             )
         elif not description and not url:
             notes.append(
@@ -279,7 +325,9 @@ class BrandIntakeAgent(Agent):
             {"role": "system", "content": _SYSTEM},
             {
                 "role": "user",
-                "content": self._draft_prompt(name, description, url, parent_block, mode),
+                "content": self._draft_prompt(
+                    name, description, url, parent_block, mode, captured
+                ),
             },
         ]
         raw = await self.chat(messages, temperature=0.6, response_json=True)
@@ -440,6 +488,38 @@ def _default_description(name: str) -> str:
         f"{clean} is a new brand. This description is a starting point; refine it "
         "with the brand's real purpose and audience."
     )
+
+
+def _page_to_context(page: PageExtract, max_chars: int = 4000) -> str:
+    """Render a fetched page into a compact context block for the draft prompt.
+
+    Title, meta description, the h1/h2 headings, and a body-text excerpt, each on
+    its own labeled line with blank lines stripped, capped to ``max_chars`` so a
+    long page never dominates the prompt. Pure: takes a PageExtract, returns a
+    string, no network and no side effects. Returns "" when there is nothing
+    readable to show.
+    """
+    lines: list[str] = []
+    title = (page.title or "").strip()
+    if title:
+        lines.append(f"Title: {title}")
+    meta = (page.meta_description or "").strip()
+    if meta:
+        lines.append(f"Description: {meta}")
+    headings = [h.strip() for h in (page.headings or []) if h and h.strip()]
+    if headings:
+        lines.append(f"Headings: {'; '.join(headings)}")
+    body = (page.text or "").strip()
+    if body:
+        # Reserve room for the labeled lines above so the whole block stays under
+        # max_chars; the excerpt takes whatever budget remains.
+        used = sum(len(line) for line in lines) + len(lines)
+        remaining = max(0, max_chars - used - len("Page text: "))
+        excerpt = body[:remaining].strip() if remaining > 0 else ""
+        if excerpt:
+            lines.append(f"Page text: {excerpt}")
+    block = "\n".join(line for line in lines if line.strip())
+    return block[:max_chars].strip()
 
 
 def _coerce_typography(value: Any) -> dict[str, str]:

@@ -32,7 +32,10 @@ from .base import Agent
 # never send the frontend down a path it cannot handle. "agent" is the
 # conversational create-an-agent path: Iris stands up an on-brand agent identity
 # for the active brand and the route creates it through agent_identity.
-_VALID_INTENTS = ("chat", "single", "pack", "research", "agent")
+# "compliance" is the CHECK path: the operator wants existing work audited
+# against the brand rules, so the route runs the deterministic compliance gate
+# and Iris narrates the verdict. It produces nothing; it judges.
+_VALID_INTENTS = ("chat", "single", "pack", "research", "agent", "compliance")
 
 # The role assigned to a created agent when the operator names one but does not
 # say what it does. Mirrors the team's default persona so a bare "add an agent
@@ -106,7 +109,7 @@ _OUTPUT_CONTRACT = (
     "code fence. The object has exactly these keys:\n"
     "- reply: a string. You, Iris, speaking in your voice. This is shown to the "
     "operator. Always write a real reply, even when the intent is chat.\n"
-    "- intent: one of chat, single, pack, research, agent.\n"
+    "- intent: one of chat, single, pack, research, agent, compliance.\n"
     "    chat     you are just talking: answering, advising, asking a question. "
     "Nothing is generated.\n"
     "    single   the operator wants one asset made. Set asset to the asset "
@@ -118,6 +121,13 @@ _OUTPUT_CONTRACT = (
     "AGENT (a new on-brand team member) for the active brand. Set agent_name to "
     "the name they gave it and agent_role to what it does. This is not an asset "
     "and not a pack; it is a new agent identity on the brand's team.\n"
+    "    compliance the operator wants to CHECK or AUDIT existing work against "
+    "the brand, not make anything new. Phrasings like check this against the "
+    "brand rules, is this on brand, does this pass, audit these assets, run "
+    "compliance, score this copy, vet the launch kit. Nothing is generated: the "
+    "deterministic compliance gate scores it. If they pasted copy to check, set "
+    "topic to that copy text; otherwise leave topic null and the whole brand "
+    "catalog is checked.\n"
     "- brand: the brand slug this is about. Default to the active brand slug "
     "given below. Use a different slug only if the operator clearly names one of "
     "their brands. Null if there is genuinely no brand in play.\n"
@@ -134,9 +144,12 @@ _OUTPUT_CONTRACT = (
     "it does, set agent_role to \"brand steward\". Null for every other intent.\n"
     "\n"
     "Classify by what the operator is asking for, not how politely they phrase "
-    "it. An imperative verb (make, build, generate, create, design, produce, "
-    "draft, give me, I need) means they want work produced: pick single or pack, "
-    "never chat. Use chat only for genuine questions, advice, or small talk. "
+    "it. An imperative verb of PRODUCTION (make, build, generate, create, design, "
+    "produce, draft, give me, I need) means they want work produced: pick single "
+    "or pack, never chat. But a verb of INSPECTION (check, review, audit, score, "
+    "validate, vet, is this on brand, does this pass) means they want existing "
+    "work judged, not new work made: pick compliance, never single or pack. Use "
+    "chat only for genuine questions, advice, or small talk. "
     "Worked examples (message -> intent):\n"
     "  'Build the launch kit for Majiks' -> pack, pack=launch\n"
     "  'make the social set' -> pack, pack=social\n"
@@ -154,7 +167,11 @@ _OUTPUT_CONTRACT = (
     "agent_role=brand steward\n"
     "  'make me a new agent for the team' -> agent, agent_role=brand steward\n"
     "  'what can you do?' -> chat\n"
-    "  'is this color on brand?' -> chat\n"
+    "  'check these assets against the brand rules' -> compliance\n"
+    "  'audit the launch kit for off-brand colors' -> compliance\n"
+    "  'is this color on brand?' -> compliance\n"
+    "  'is this copy on brand?' -> compliance, topic=<the copy text>\n"
+    "  'run compliance on the homepage hero' -> compliance\n"
     "Asset type strings are: logo, app_icon, og_image, podcast_cover, "
     "social_card, avatar. When the operator clearly asked for work but the exact "
     "asset is ambiguous, still pick single (default asset=logo) or pack rather "
@@ -349,7 +366,7 @@ class DirectorAgent(Agent):
             variant = None
         if intent != "pack":
             pack = None
-        if intent not in ("single", "research"):
+        if intent not in ("single", "research", "compliance"):
             topic = None
         if intent == "agent":
             # An agent ask with no extractable name is not actionable as a

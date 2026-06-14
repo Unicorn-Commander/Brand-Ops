@@ -42,17 +42,24 @@ interface ResultsCanvasProps {
   onVersion: () => void;
 }
 
-/** The friendly "this backend needs a key" panel. Generation is parked. */
+/**
+ * The "this asset needs a model backend" panel. Only card assets (og_image,
+ * social_card) compose without a key; this asset type renders with a model, so
+ * it needs a provider key. The prompt above is already composed and on brand, so
+ * it will run unchanged the moment a key (or the suite gateway) is configured.
+ */
 function NeedsKey({ backend, detail }: { backend: string; detail: string }) {
   return (
     <EmptyState
       icon={<KeyRound size={28} />}
-      title={`The ${backend} backend needs a key`}
+      title={`This asset needs the ${backend} backend`}
       description={
         <>
-          {detail || "Add a credential for this backend to generate live."} The
-          prompt above is ready, so generation will run as soon as the key is in
-          place.
+          {detail ||
+            "This asset type renders with an image model, so it needs a provider key."}{" "}
+          Set a key for {backend}, or point the suite image gateway, and the
+          composed prompt above runs unchanged. Card assets (OG image, social
+          card) compose on brand without any key.
         </>
       }
     />

@@ -72,6 +72,17 @@ class Settings(BaseModel):
     agent_model_default: str = "qwen/qwen3.6-35b-a3b"
     agent_model_strong: str = "anthropic/claude-opus-4.1"
 
+    # Live-site capture for new-brand intake. The intake "Research" stage fetches
+    # the operator-supplied URL to ground the draft (no Brigade required). The
+    # suite has hit Cloudflare bot blocks with default/library User-Agents, so the
+    # fetcher presents as a real desktop browser by default; override per deploy
+    # when a target needs different UA tuning.
+    intake_fetch_user_agent: str = (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 BrandOps/0.3 "
+        "(+https://unicorncommander.ai; brand intake site capture)"
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -108,4 +119,7 @@ def get_settings() -> Settings:
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY", ""),
         agent_model_default=os.getenv("AGENT_MODEL_DEFAULT", d.agent_model_default),
         agent_model_strong=os.getenv("AGENT_MODEL_STRONG", d.agent_model_strong),
+        intake_fetch_user_agent=os.getenv(
+            "INTAKE_FETCH_USER_AGENT", d.intake_fetch_user_agent
+        ),
     )

@@ -44,6 +44,12 @@ class BrigadeClient:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+        # The usage object (prompt_tokens/completion_tokens/total_tokens) from the
+        # most recent llm_chat call, or None when none ran or the gateway returned
+        # none. This is the spend-capture point: llm_chat itself returns only the
+        # message text (its contract is unchanged), so a caller that wants to meter
+        # reads this AFTER the call. Reset to None at the start of every llm_chat.
+        self.last_usage: dict[str, Any] | None = None
 
     # -- Brigade deep research ------------------------------------------------
 
@@ -109,6 +115,10 @@ class BrigadeClient:
         response_json asks the gateway for a JSON object response where the
         backend supports it.
         """
+        # Reset usage at the top so last_usage always reflects THIS call: every
+        # early return below (no messages, no gateway, transport error) leaves it
+        # None, and only a parsed success sets it. Never affects the return value.
+        self.last_usage = None
         if not messages:
             return None
         if not self._chat_ready():
@@ -134,6 +144,10 @@ class BrigadeClient:
             # The gateway is optional from the agents' point of view: a network
             # or auth failure means "no LLM available", same as no key set.
             return None
+        # Capture the gateway's token usage for best-effort spend metering before
+        # discarding the rest of the payload. This does NOT change the return type
+        # or value: callers still get only the message text.
+        self.last_usage = payload.get("usage") if isinstance(payload, dict) else None
         return _first_message_content(payload)
 
 

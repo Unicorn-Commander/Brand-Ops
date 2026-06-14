@@ -131,15 +131,42 @@ function namedPack(text: string): PackName | null {
 }
 
 /**
+ * Verbs/phrases of INSPECTION: the operator wants existing work judged against
+ * the brand, not new work made. The deterministic chat backstop must never turn
+ * one of these into a pack plan (the check-vs-make bug), so inferPack bails on
+ * them. The Director's "compliance" intent is the real home for these; this is
+ * only the local backstop's safety net when the model under-classifies.
+ */
+const INSPECTION_WORDS = [
+  "check",
+  "audit",
+  "review",
+  "score",
+  "validate",
+  "vet",
+  "compliance",
+  "on brand",
+  "on-brand",
+  "off brand",
+  "off-brand",
+  "does this pass",
+  "is this ok",
+];
+
+/**
  * Decide whether a request is a pack request, and which pack. Returns null for a
  * single-asset request (the caller then falls back to a one-asset preview).
  *
- * Order: an explicit "<pack> pack/kit/set" wins; then a pack hint phrase (gated
- * by a set word unless the pack's words already imply a set); then a bare set
- * word with no specific pack falls back to DEFAULT_PACK.
+ * Order: an inspection request bails immediately (it is a check, not a make);
+ * then an explicit "<pack> pack/kit/set" wins; then a pack hint phrase (gated by
+ * a set word unless the pack's words already imply a set); then a bare set word
+ * with no specific pack falls back to DEFAULT_PACK.
  */
 export function inferPack(rawText: string): PackIntent | null {
   const text = normalize(rawText);
+
+  // A check is not a make: never plan a pack for an inspection ask.
+  if (INSPECTION_WORDS.some((w) => text.includes(w))) return null;
 
   const named = namedPack(text);
   if (named) {

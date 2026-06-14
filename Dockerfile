@@ -40,6 +40,11 @@ RUN uv sync --frozen --no-install-project --no-dev --extra backends
 
 # Now the source, then install the package into the same environment.
 COPY src ./src
+# Migrations ship in the image so the deploy can run `alembic upgrade head` as
+# the owner role from a one-off container (the runtime role is NOBYPASSRLS and
+# cannot create the schema).
+COPY alembic ./alembic
+COPY alembic.ini ./
 # Bake the curated brands as a SEED. The live brand-kits dir (DEFAULT_KITS_DIR =
 # /app/brand-kits) is a persistent volume on a server; seed_kits seeds it
 # copy-if-missing on boot so generated assets + agent identities survive rebuilds.

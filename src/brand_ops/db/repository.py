@@ -13,16 +13,26 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import Row, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
+    AgentGovernance,
+    AgentSpendEvent,
     Asset,
     AssetVersion,
     Brand,
     BrandResearchRun,
     GenerationJob,
+    Workspace,
+    WorkspaceMember,
 )
+
+# Sentinel for "argument not supplied" so a nullable column can be set to NULL
+# explicitly (value is None) and distinguished from "leave it unchanged" (value
+# is _UNSET). Used by upsert_agent_governance for weekly_budget_cents/model,
+# which are both legitimately nullable.
+_UNSET: Any = object()
 
 _UUID = uuid.UUID | str
 
@@ -343,3 +353,285 @@ async def update_research_run(
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
+
+# --- workspaces + memberships -----------------------------------------------
+# These back the tenancy resolver and the seed/mirror path. The ``workspace``
+# table is the tenant anchor (not row-level-secured); ``workspace_member`` is
+# user-scoped RLS, so a membership read/write needs app.current_user_key set to
+# the user (see db.base.scoped_session).
+
+
+async def upsert_workspace(
+    session: AsyncSession, *, workspace_id: _UUID, slug: str
+) -> Workspace:
+    """Insert the workspace row, or update its slug. A mirror of the registry.
+
+    Brand-Ops never mints a workspace id (uc-registry is the sole minter); it
+    receives the canonical id and records it here so brands/assets can foreign
+    key to it. Keyed on the supplied id, so calling twice is idempotent.
+    """
+    ws_id = _as_uuid(workspace_id)
+    existing = await session.get(Workspace, ws_id)
+    if existing is None:
+        ws = Workspace(id=ws_id, slug=slug)
+        session.add(ws)
+    else:
+        existing.slug = slug
+        ws = existing
+    await session.flush()
+    return ws
+
+
+async def list_user_memberships(
+    session: AsyncSession, user_key: str
+) -> Sequence[Row[Any]]:
+    """Active memberships for a user (default first), joined to the workspace slug.
+
+    Reads the user-scoped workspace_member policy, so app.current_user_key must
+    equal ``user_key`` on the transaction; the explicit user_key predicate is
+    belt-and-suspenders. Returns rows of (workspace_id, slug, role, is_default,
+    status) -- the raw material for the switcher and the default resolution.
+    """
+    stmt = (
+        select(
+            WorkspaceMember.workspace_id,
+            Workspace.slug,
+            WorkspaceMember.role,
+            WorkspaceMember.is_default,
+            WorkspaceMember.status,
+        )
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .where(
+            WorkspaceMember.user_key == user_key,
+            WorkspaceMember.status == "active",
+        )
+        .order_by(WorkspaceMember.is_default.desc(), Workspace.slug)
+    )
+    result = await session.execute(stmt)
+    return result.all()
+
+
+async def is_active_member(
+    session: AsyncSession, user_key: str, workspace_id: _UUID
+) -> bool:
+    """True when ``user_key`` has an active membership in ``workspace_id``."""
+    stmt = select(WorkspaceMember.role).where(
+        WorkspaceMember.user_key == user_key,
+        WorkspaceMember.workspace_id == _as_uuid(workspace_id),
+        WorkspaceMember.status == "active",
+    )
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+
+async def upsert_membership(
+    session: AsyncSession,
+    *,
+    user_key: str,
+    workspace_id: _UUID,
+    role: str = "member",
+    status: str = "active",
+    is_default: bool = False,
+) -> WorkspaceMember:
+    """Insert or update one membership row.
+
+    The user-scoped RLS policy requires app.current_user_key to equal
+    ``user_key`` for both the read and the write check, so seed/mirror a row only
+    inside ``scoped_session(session, user_key=user_key)``.
+    """
+    ws_id = _as_uuid(workspace_id)
+    existing = await session.get(
+        WorkspaceMember, {"user_key": user_key, "workspace_id": ws_id}
+    )
+    if existing is None:
+        member = WorkspaceMember(
+            user_key=user_key,
+            workspace_id=ws_id,
+            role=role,
+            status=status,
+            is_default=is_default,
+        )
+        session.add(member)
+    else:
+        existing.role = role
+        existing.status = status
+        existing.is_default = is_default
+        member = existing
+    await session.flush()
+    return member
+
+
+async def list_brand_slugs(
+    session: AsyncSession, workspace_id: _UUID
+) -> frozenset[str]:
+    """The set of brand slugs a workspace owns -- the read-scope allow-list.
+
+    The tenancy resolver loads this once per request and hands it to the file
+    brand loader, which then only ever reveals brands in the set. Empty for a
+    workspace with no brands (or for a caller with no active workspace).
+    """
+    stmt = select(Brand.slug).where(Brand.workspace_id == _as_uuid(workspace_id))
+    result = await session.execute(stmt)
+    return frozenset(result.scalars().all())
+
+
+# --- agent governance + spend -----------------------------------------------
+# Both tables are workspace-scoped RLS (migration 0003). As everywhere in this
+# module, each query also filters by workspace_id explicitly (belt-and-suspenders
+# over RLS) and none of these commit; the caller owns the transaction via
+# ``workspace_session``.
+
+
+async def get_agent_governance(
+    session: AsyncSession,
+    workspace_id: _UUID,
+    *,
+    agent_kind: str,
+    agent_ref: str,
+) -> AgentGovernance | None:
+    """The saved governance row for one agent, or None when it has none yet."""
+    stmt = select(AgentGovernance).where(
+        AgentGovernance.workspace_id == _as_uuid(workspace_id),
+        AgentGovernance.agent_kind == agent_kind,
+        AgentGovernance.agent_ref == agent_ref,
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def list_agent_governance(
+    session: AsyncSession, workspace_id: _UUID
+) -> Sequence[AgentGovernance]:
+    """Every saved governance row in the workspace (a stable order)."""
+    stmt = (
+        select(AgentGovernance)
+        .where(AgentGovernance.workspace_id == _as_uuid(workspace_id))
+        .order_by(AgentGovernance.agent_kind, AgentGovernance.agent_ref)
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+async def upsert_agent_governance(
+    session: AsyncSession,
+    workspace_id: _UUID,
+    *,
+    agent_kind: str,
+    agent_ref: str,
+    autonomy: str | None = None,
+    standing_orders: str | None = _UNSET,
+    weekly_budget_cents: int | None = _UNSET,
+    model: str | None = _UNSET,
+    updated_by: str | None = None,
+) -> AgentGovernance:
+    """Insert or update one agent's governance row, keyed by (ws, kind, ref).
+
+    Only supplied fields are applied. ``weekly_budget_cents`` and ``model`` use
+    the ``_UNSET`` sentinel so passing ``None`` clears the column (no cap / the
+    agent default) while omitting the argument leaves the stored value untouched
+    -- the two are different intents on a nullable column. ``autonomy`` and
+    ``standing_orders`` use ``None``/``_UNSET`` the same way; on first insert any
+    omitted field falls to the column default (autonomy -> 'propose'). Flushes so
+    the caller can read server-side defaults back, but does not commit.
+    """
+    ws_id = _as_uuid(workspace_id)
+    existing = await session.execute(
+        select(AgentGovernance).where(
+            AgentGovernance.workspace_id == ws_id,
+            AgentGovernance.agent_kind == agent_kind,
+            AgentGovernance.agent_ref == agent_ref,
+        )
+    )
+    row = existing.scalar_one_or_none()
+    if row is None:
+        row = AgentGovernance(
+            workspace_id=ws_id,
+            agent_kind=agent_kind,
+            agent_ref=agent_ref,
+        )
+        if autonomy is not None:
+            row.autonomy = autonomy
+        if standing_orders is not _UNSET:
+            row.standing_orders = standing_orders
+        if weekly_budget_cents is not _UNSET:
+            row.weekly_budget_cents = weekly_budget_cents
+        if model is not _UNSET:
+            row.model = model
+        row.updated_by = updated_by
+        session.add(row)
+    else:
+        if autonomy is not None:
+            row.autonomy = autonomy
+        if standing_orders is not _UNSET:
+            row.standing_orders = standing_orders
+        if weekly_budget_cents is not _UNSET:
+            row.weekly_budget_cents = weekly_budget_cents
+        if model is not _UNSET:
+            row.model = model
+        if updated_by is not None:
+            row.updated_by = updated_by
+    await session.flush()
+    return row
+
+
+async def record_spend_event(
+    session: AsyncSession,
+    workspace_id: _UUID,
+    *,
+    agent_kind: str,
+    agent_ref: str,
+    kind: str,
+    brand_slug: str | None = None,
+    model: str | None = None,
+    prompt_tokens: int | None = None,
+    completion_tokens: int | None = None,
+    total_tokens: int | None = None,
+    cost_cents: float | None = None,
+) -> AgentSpendEvent:
+    """Append one spend event to the ledger. Caller owns the transaction."""
+    event = AgentSpendEvent(
+        workspace_id=_as_uuid(workspace_id),
+        agent_kind=agent_kind,
+        agent_ref=agent_ref,
+        kind=kind,
+        brand_slug=brand_slug,
+        model=model,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        cost_cents=cost_cents,
+    )
+    session.add(event)
+    await session.flush()
+    return event
+
+
+async def agent_spend_since(
+    session: AsyncSession, workspace_id: _UUID, since: Any
+) -> Sequence[Row[Any]]:
+    """Per-agent spend totals since ``since``, grouped by (agent_kind, agent_ref).
+
+    Returns rows of (agent_kind, agent_ref, total_tokens, cost_cents, calls)
+    where total_tokens and cost_cents are SUMs (NULL when a group has no numeric
+    values) and calls is the row count. ``since`` is a timezone-aware datetime;
+    only events at or after it are counted. The API joins these onto the agent
+    list to show real 7-day spend per agent.
+    """
+    stmt = (
+        select(
+            AgentSpendEvent.agent_kind,
+            AgentSpendEvent.agent_ref,
+            func.coalesce(func.sum(AgentSpendEvent.total_tokens), 0).label(
+                "total_tokens"
+            ),
+            func.coalesce(func.sum(AgentSpendEvent.cost_cents), 0).label("cost_cents"),
+            func.count().label("calls"),
+        )
+        .where(
+            AgentSpendEvent.workspace_id == _as_uuid(workspace_id),
+            AgentSpendEvent.created_at >= since,
+        )
+        .group_by(AgentSpendEvent.agent_kind, AgentSpendEvent.agent_ref)
+    )
+    result = await session.execute(stmt)
+    return result.all()

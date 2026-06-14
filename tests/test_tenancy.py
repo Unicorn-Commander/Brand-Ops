@@ -1,20 +1,25 @@
-"""Org-scoped multi-tenancy tests: the contextvar flow, the dogfood-open case,
-and cross-tenant isolation.
+"""Workspace-scoped multi-tenancy tests for the file brand-loader boundary.
 
-Brand scoping is centralized in ``brand_loader`` via the ``current_org``
-contextvar: ``require_principal`` sets it to the caller's org for the request,
-and ``list_brands`` / ``load_brand`` filter against it. These tests cover three
-things the design must guarantee:
+Brand scoping is centralized in ``brand_loader`` via a per-request scope -- a
+(workspace_id, allowed_brands) pair -- that ``require_principal`` resolves from
+the caller's memberships and publishes for the request. ``list_brands`` /
+``load_brand`` then reveal only the brands in the allow-list. This file covers
+the scope mechanism itself, without a database:
 
-* the open dogfood (AUTH_REQUIRED unset -> anonymous -> default org
-  ``magic-unicorn``) still sees every seed brand, so nothing regresses;
-* a request scoped to a *different* org sees none of the magic-unicorn brands,
-  and a cross-tenant read is a 404 (``BrandNotFound``), never a 403 leak;
-* a brand created while scoped to a tenant is owned by that tenant and is then
-  invisible to another tenant.
+* UNSCOPED (allowed_brands None: the CLI / stdio MCP / local dev / tests, and the
+  anonymous principal when AUTH_REQUIRED is off) sees every brand -- backward
+  compatible, nothing regresses.
+* SCOPED to a set sees only those brands; a brand outside the set reads as a 404
+  (``BrandNotFound``), never a 403 leak.
+* SCOPED to the EMPTY set (an authed caller with no usable membership) sees
+  nothing -- deny-by-default.
+* a brand created while scoped is stamped with the active workspace and made
+  visible for the rest of that request.
 
-The contextvar is reset in an autouse fixture so org state never leaks between
-tests (or out to the rest of the suite, which runs unscoped).
+The full DB / RLS / resolver path (membership enumeration, real Postgres
+isolation) is covered separately in test_db_tenancy.py, which needs a Postgres.
+
+The scope is reset in an autouse fixture so it never leaks between tests.
 """
 from __future__ import annotations
 
@@ -31,14 +36,14 @@ from brand_ops.brand_clone import create_brand_from_draft
 from brand_ops.brand_loader import (
     DEFAULT_KITS_DIR,
     BrandNotFound,
+    allow_brand,
     list_brands,
     load_brand,
-    set_current_org,
+    set_workspace_scope,
 )
 
-# The five seed brands shipped in brand-kits/. None carries an explicit ``org``,
-# so each loads as the default org ``magic-unicorn`` -- the same org the open
-# dogfood's anonymous principal is scoped to.
+# A stable subset of the seed brands shipped in brand-kits/. Asserted with <= so
+# adding seed brands never breaks these tests.
 SEED_BRANDS = {
     "center-deep",
     "magic-unicorn",
@@ -46,28 +51,25 @@ SEED_BRANDS = {
     "majiks-studio",
     "unicorn-commander",
 }
-DEFAULT_ORG = "magic-unicorn"
+# A canonical-looking workspace uuid for the scoped cases. Its value is opaque
+# here: the file loader gates on the brand-slug set, not the id.
+WS = "019e50a3-d995-723f-ab66-0f765f92c0f4"
 
 
 @pytest.fixture(autouse=True)
-def _reset_org() -> Iterator[None]:
-    """Clear the request-scoped org before and after every test.
-
-    Without this, a test that sets ``current_org`` would leave the scope set for
-    whatever test runs next in the same thread (the contextvar default is None =
-    unscoped, which the rest of the suite relies on).
-    """
-    brand_loader.reset_current_org()
+def _reset_scope() -> Iterator[None]:
+    """Clear the request-scoped workspace scope before and after every test."""
+    brand_loader.reset_workspace_scope()
     try:
         yield
     finally:
-        brand_loader.reset_current_org()
+        brand_loader.reset_workspace_scope()
 
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    # Auth off (the dogfood posture): every request resolves to the anonymous
-    # principal, whose org is the default. No token, no Keycloak, no network.
+    # Auth off (local/dev posture): every request resolves to the anonymous
+    # principal, which is UNSCOPED. No token, no Keycloak, no DB, no network.
     monkeypatch.delenv("AUTH_REQUIRED", raising=False)
     return TestClient(create_app())
 
@@ -80,83 +82,96 @@ def kits(tmp_path: Path) -> Path:
     return dest
 
 
-# ─────────────────── (a) dogfood: open access sees all seeds ────────────────
+# ─────────────────── unscoped (anonymous / CLI) sees all ────────────────────
 
 
-def test_dogfood_anonymous_sees_all_seed_brands(client: TestClient) -> None:
-    # AUTH_REQUIRED unset -> anonymous principal -> default org "magic-unicorn".
-    # The seed brands all default to that org, so the open dogfood lists them
-    # all: org scoping must not hide anything on the open path.
+def test_anonymous_unscoped_sees_all_seed_brands(client: TestClient) -> None:
+    # AUTH_REQUIRED off -> anonymous principal -> unscoped -> every seed brand.
     resp = client.get("/api/brands")
     assert resp.status_code == 200
     slugs = {b["slug"] for b in resp.json()["brands"]}
     assert SEED_BRANDS <= slugs, f"missing seed brands: {SEED_BRANDS - slugs}"
 
 
-def test_dogfood_brand_detail_is_200(client: TestClient) -> None:
-    # A specific seed brand resolves for the anonymous (default-org) caller.
+def test_anonymous_brand_detail_is_200(client: TestClient) -> None:
     resp = client.get("/api/brands/center-deep")
     assert resp.status_code == 200
     assert resp.json()["slug"] == "center-deep"
 
 
 @pytest.mark.asyncio
-async def test_require_principal_sets_current_org_in_context() -> None:
-    # The contextvar flow itself, observed in the same context the dependency
-    # runs in (the TestClient runs each request in its own context, so the set
-    # is correctly isolated there and cannot be observed from the test thread --
-    # which is exactly the per-request isolation we want). Here we await the
-    # dependency directly: with no credentials and auth off, it returns the
-    # anonymous principal at the default org AND publishes that org to
-    # current_org for the surrounding context.
+async def test_require_principal_anonymous_is_unscoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # With no credentials and auth off, the dependency returns the anonymous
+    # principal with NO workspace and publishes the UNSCOPED scope (allowed None).
+    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
     from brand_ops.api.auth import require_principal
 
-    assert brand_loader.get_current_org() is None
-    principal = await require_principal(credentials=None)
+    principal = await require_principal(credentials=None, x_workspace_id=None)
     assert principal.anonymous is True
-    assert principal.org == DEFAULT_ORG
-    assert brand_loader.get_current_org() == DEFAULT_ORG
-
-
-# ─────────────────────────── unscoped == global ────────────────────────────
+    assert principal.workspace_id is None
+    assert brand_loader.get_allowed_brands() is None
 
 
 def test_unscoped_lists_every_brand() -> None:
-    # With current_org None (the CLI / MCP / test default), scoping is off and
-    # list_brands returns the full global listing -- backward compatible.
-    assert brand_loader.get_current_org() is None
+    assert brand_loader.get_allowed_brands() is None
     assert SEED_BRANDS <= set(list_brands())
 
 
-# ──────────────── (b) isolation: a different org sees nothing ───────────────
+# ──────────────── scoped to a set: only those brands ────────────────────────
 
 
-def test_other_org_lists_no_seed_brands() -> None:
-    # Scope the "request" to a foreign tenant: none of the magic-unicorn-owned
-    # seed brands are visible.
-    set_current_org("other-co")
-    visible = set(list_brands())
-    assert visible & SEED_BRANDS == set(), f"leaked seed brands: {visible & SEED_BRANDS}"
+def test_scoped_to_subset_lists_only_those() -> None:
+    set_workspace_scope(WS, frozenset({"center-deep", "majiks"}))
+    assert set(list_brands()) == {"center-deep", "majiks"}
 
 
-def test_other_org_cross_tenant_read_is_brandnotfound() -> None:
-    # A cross-tenant read of a known seed brand is a 404, not a 403: the foreign
-    # tenant cannot even tell the brand exists.
-    set_current_org("other-co")
+def test_scoped_cross_tenant_read_is_brandnotfound() -> None:
+    # magic-unicorn is not in this workspace's allow-list -> 404, never a 403.
+    set_workspace_scope(WS, frozenset({"center-deep"}))
     with pytest.raises(BrandNotFound):
         load_brand("magic-unicorn")
 
 
-def test_same_org_still_resolves() -> None:
-    # Sanity: scoping to the brand's own org still resolves it (the guard is an
-    # equality check, not a blanket deny).
-    set_current_org(DEFAULT_ORG)
-    brand = load_brand("magic-unicorn")
-    assert brand.brand.slug == "magic-unicorn"
-    assert brand.brand.org == DEFAULT_ORG
+def test_scoped_in_set_still_resolves() -> None:
+    set_workspace_scope(WS, frozenset({"magic-unicorn"}))
+    assert load_brand("magic-unicorn").brand.slug == "magic-unicorn"
 
 
-# ─────────── (c) a brand created while scoped is owned by that tenant ───────
+# ──────────────── deny-by-default: empty allow-list sees nothing ────────────
+
+
+def test_empty_allow_list_lists_nothing() -> None:
+    # An authed caller with no usable membership is scoped to the empty set.
+    set_workspace_scope(None, frozenset())
+    assert list_brands() == []
+
+
+def test_empty_allow_list_read_is_brandnotfound() -> None:
+    set_workspace_scope(None, frozenset())
+    with pytest.raises(BrandNotFound):
+        load_brand("magic-unicorn")
+
+
+# ──────────────── allow_brand: a just-created brand becomes visible ─────────
+
+
+def test_allow_brand_adds_to_scope() -> None:
+    set_workspace_scope(WS, frozenset({"center-deep"}))
+    with pytest.raises(BrandNotFound):
+        load_brand("magic-unicorn")
+    allow_brand("magic-unicorn")
+    assert load_brand("magic-unicorn").brand.slug == "magic-unicorn"
+
+
+def test_allow_brand_noop_when_unscoped() -> None:
+    # Unscoped: allow_brand is a no-op (everything is already visible).
+    allow_brand("whatever")
+    assert brand_loader.get_allowed_brands() is None
+
+
+# ──────────── a brand created while scoped records its workspace ────────────
 
 
 _DRAFT = {
@@ -167,26 +182,28 @@ _DRAFT = {
 }
 
 
-def test_created_brand_is_owned_by_the_scoped_org(kits: Path) -> None:
-    # Create a brand while scoped to "acme": the written brand.yaml records
-    # brand.org == "acme".
-    set_current_org("acme")
+def test_created_brand_records_active_workspace(kits: Path) -> None:
+    # Created while scoped to WS (with an empty starting allow-list): the written
+    # brand.yaml records workspace_id=WS, and the brand is visible for the rest
+    # of this request because the create path called allow_brand.
+    set_workspace_scope(WS, frozenset())
     brand = create_brand_from_draft("acme-brand", _DRAFT, kits_dir=kits)
-    assert brand.brand.org == "acme"
-
-
-def test_created_brand_is_invisible_to_another_tenant(kits: Path) -> None:
-    # The brand acme created is hidden from magic-unicorn: not in its listing,
-    # and a direct read 404s. (Both tenants point at the same kits tree, so this
-    # is genuine org isolation, not directory isolation.)
-    set_current_org("acme")
-    create_brand_from_draft("acme-brand", _DRAFT, kits_dir=kits)
-
-    set_current_org(DEFAULT_ORG)
-    assert "acme-brand" not in list_brands(kits_dir=kits)
-    with pytest.raises(BrandNotFound):
-        load_brand("acme-brand", kits_dir=kits)
-
-    # And acme still sees its own brand in the same tree.
-    set_current_org("acme")
+    assert brand.brand.workspace_id == WS
     assert "acme-brand" in list_brands(kits_dir=kits)
+
+
+def test_created_brand_unscoped_has_no_workspace(kits: Path) -> None:
+    # Unscoped create (CLI): no active workspace, so workspace_id is None and the
+    # boot importer will later assign it to the deploy's bootstrap workspace.
+    brand = create_brand_from_draft("acme-brand", _DRAFT, kits_dir=kits)
+    assert brand.brand.workspace_id is None
+
+
+def test_mcp_list_generated_assets_gated() -> None:
+    # The MCP catalog tool must honor the workspace allow-list: a brand outside
+    # the workspace discloses nothing (the scoped-MCP catalog leak the review
+    # found). Unscoped it reads all, like the rest of the stdio/CLI surface.
+    from brand_ops.mcp_server import list_generated_assets
+
+    set_workspace_scope(WS, frozenset({"center-deep"}))
+    assert list_generated_assets(brand="magic-unicorn") == {"assets": [], "count": 0}

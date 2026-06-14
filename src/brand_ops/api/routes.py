@@ -9,7 +9,8 @@ becomes a clean 422, never a 500.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import logging
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import quote
@@ -26,8 +27,9 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, Response
+from sqlalchemy.exc import SQLAlchemyError
 
-from .. import agent_identity, engine
+from .. import agent_identity, engine, governance
 from ..activity import append_event, read_events
 from ..agents.brand_intake import BrandIntakeAgent
 from ..agents.brand_research import _slugify
@@ -36,8 +38,13 @@ from ..agents.registry import AGENT_REGISTRY
 from ..asset_types import ASSET_TYPES, get_asset_spec
 from ..backends.base import BackendError, BackendNotConfigured
 from ..brand_clone import clone_brand, create_brand_from_draft
-from ..brand_loader import DEFAULT_KITS_DIR, BrandNotFound, list_brands, load_brand
-from ..config import get_settings
+from ..brand_loader import (
+    DEFAULT_KITS_DIR,
+    BrandNotFound,
+    get_allowed_brands,
+    list_brands,
+    load_brand,
+)
 from ..compliance import (
     build_rules,
     build_tokens,
@@ -45,6 +52,10 @@ from ..compliance import (
     check_text_target,
     transition,
 )
+from ..config import get_settings
+from ..db import repository as repo
+from ..db.base import get_sessionmaker, workspace_session
+from ..db.tenancy import record_brand, resolve_context
 from ..models import Brand
 from ..templates import list_templates
 from .agents import UnknownAgent, run_agent
@@ -52,9 +63,11 @@ from .auth import Principal, require_principal
 from .catalog import _coerce_record, read_assets
 from .guidelines import build_guidelines
 from .schemas import (
-    MeOut,
     ActivityEvent,
     ActivityList,
+    AgentGovernanceList,
+    AgentGovernanceOut,
+    AgentGovernanceUpdate,
     AgentIdentityList,
     AgentIdentityOut,
     AgentInfo,
@@ -86,21 +99,27 @@ from .schemas import (
     CreateAgentIdentityRequest,
     DirectorChatRequest,
     DirectorReply,
+    GenerateCardRequest,
     GeneratedFile,
     GenerateRequest,
     GenerateResult,
     IntakeDraft,
     IntakeRequest,
     IntakeResult,
+    MeOut,
+    MeWorkspacesOut,
     PromptPreview,
     TemplateList,
     TransitionRequest,
     TransitionResult,
     UploadResult,
+    WorkspaceOut,
 )
 from .upload import MAX_UPLOAD_BYTES, UploadError, save_upload
 
 router = APIRouter(prefix="/api", tags=["brand-ops"])
+
+_log = logging.getLogger("brand_ops.api.routes")
 
 # 422 as a literal. The named constant was renamed across Starlette versions
 # (UNPROCESSABLE_ENTITY -> UNPROCESSABLE_CONTENT); the integer is stable and
@@ -136,6 +155,22 @@ def _safe_file_response(path: Path) -> FileResponse:
     if path.suffix.lower() not in _INLINE_RASTER_EXTS:
         headers["Content-Disposition"] = "attachment"
     return FileResponse(path, headers=headers)
+
+
+def _ensure_brand_visible(brand: str) -> None:
+    """404 a brand outside the request's workspace allow-list (cross-tenant guard).
+
+    The brand-detail, guidelines, agent team/list/create, and compliance routes
+    already gate by going through ``load_brand``. The routes that resolve a file
+    or sidecar path directly -- serving asset/avatar bytes, moving an asset's
+    lifecycle -- call this so they return the same scoped 404 instead of touching
+    another workspace's bytes. No-op when unscoped (CLI / stdio MCP / tests).
+    """
+    allowed = get_allowed_brands()
+    if allowed is not None and brand not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="brand not found"
+        )
 
 
 def _mark_url(brand: Brand) -> str | None:
@@ -217,12 +252,67 @@ def get_me(principal: _Auth) -> MeOut:
         uc_uid=principal.uc_uid,
         email=claims.get("email"),
         name=claims.get("name") or claims.get("preferred_username"),
-        org=principal.org,
+        workspace_id=principal.workspace_id,
+        workspace=principal.workspace_slug,
+        role=principal.role,
+        org=principal.workspace_slug,
         issuer=principal.issuer,
         anonymous=principal.anonymous,
         scopes=list(principal.scopes),
         logout_url=logout,
     )
+
+
+@router.get("/me/workspaces", response_model=MeWorkspacesOut)
+async def get_my_workspaces(principal: _Auth) -> MeWorkspacesOut:
+    """The caller's workspaces (the switcher's data) and the active one.
+
+    Anonymous / unscoped callers (local dev, the CLI) have no memberships and
+    get an empty list, so the GUI simply shows no switcher. The active workspace
+    is whichever the request resolved to (the ``X-Workspace-Id`` the GUI sent, or
+    the caller's default membership).
+    """
+    if principal.anonymous:
+        return MeWorkspacesOut()
+    ctx = await resolve_context(
+        principal.uc_uid, requested_workspace_id=principal.workspace_id
+    )
+    return MeWorkspacesOut(
+        active_workspace_id=ctx.workspace_id,
+        workspaces=[
+            WorkspaceOut(
+                workspace_id=m.workspace_id,
+                slug=m.slug,
+                role=m.role,
+                is_default=m.is_default,
+            )
+            for m in ctx.memberships
+        ],
+    )
+
+
+async def _index_brand(principal: Principal, brand: Brand) -> None:
+    """Record a just-created brand in the DB so it joins its workspace catalog.
+
+    Only when the request is workspace-scoped (an authed caller in a workspace);
+    unscoped creates (CLI / local) stay file-only, matching their unscoped reads.
+    A DB hiccup is logged, not fatal: the file exists and the boot import will
+    pick the brand up, so the create still succeeds.
+    """
+    if not principal.workspace_id:
+        return
+    meta = brand.brand
+    try:
+        await record_brand(
+            principal.workspace_id,
+            slug=meta.slug,
+            display_name=meta.display_name,
+            parent_slug=meta.parent,
+            tagline=meta.tagline,
+            created_by=principal.uc_uid,
+        )
+    except SQLAlchemyError:
+        _log.warning("brand %s created in files but not indexed in DB", meta.slug)
 
 
 @router.get("/brands", response_model=BrandList)
@@ -253,7 +343,9 @@ def get_brand(slug: str, _: _Auth) -> BrandDetail:
 
 
 @router.post("/brands/{slug}/clone", response_model=BrandDetail)
-def clone_brand_route(slug: str, body: CloneBrandRequest, _: _Auth) -> BrandDetail:
+async def clone_brand_route(
+    slug: str, body: CloneBrandRequest, principal: _Auth
+) -> BrandDetail:
     """Clone an existing brand into a new sub-brand or a distinct seeded brand.
 
     Creates ``brand-kits/<new_slug>/brand.yaml`` from ``slug``. With
@@ -287,6 +379,7 @@ def clone_brand_route(slug: str, body: CloneBrandRequest, _: _Auth) -> BrandDeta
         # ValueError is a bad new_slug; FileNotFoundError covers a source the
         # loader signals via the stdlib error rather than BrandNotFound.
         raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
+    await _index_brand(principal, brand)
     return _brand_detail(brand)
 
 
@@ -320,7 +413,7 @@ def _parent_identity(slug: str) -> dict[str, Any] | None:
 
 
 @router.post("/brands/intake", response_model=IntakeResult)
-async def intake_brand_route(body: IntakeRequest, _: _Auth) -> IntakeResult:
+async def intake_brand_route(body: IntakeRequest, principal: _Auth) -> IntakeResult:
     """Draft a brand identity with the Director and create the brand.
 
     The single real-intake door: from a brand ``name`` and whatever the operator
@@ -378,7 +471,17 @@ async def intake_brand_route(body: IntakeRequest, _: _Auth) -> IntakeResult:
     # unexpected error degrades to the same default path rather than a 500.
     notes: list[str]
     try:
-        draft, notes = await BrandIntakeAgent().draft_identity(
+        # Thread metering context onto the intake agent: when the caller is
+        # workspace-scoped, its drafting LLM turn records a best-effort spend
+        # event against specialist/brand_intake. The fallback below
+        # (default_draft_with_note) makes no LLM call, so it stays unmetered.
+        # brand_slug is left None (the brand does not exist yet at intake time).
+        intake_agent = BrandIntakeAgent(
+            workspace_id=principal.workspace_id,
+            agent_kind="specialist",
+            agent_ref="brand_intake",
+        )
+        draft, notes = await intake_agent.draft_identity(
             name,
             description=(body.description or "").strip(),
             url=(body.url or "").strip(),
@@ -412,6 +515,7 @@ async def intake_brand_route(body: IntakeRequest, _: _Auth) -> IntakeResult:
         raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
 
     _emit_intake_event(brand.brand.slug, name)
+    await _index_brand(principal, brand)
 
     return IntakeResult(
         brand=_brand_detail(brand),
@@ -760,6 +864,51 @@ def generate(body: GenerateRequest, _: _Auth) -> GenerateResult:
     )
 
 
+@router.post("/generate-card", response_model=GenerateResult)
+def generate_card_route(body: GenerateCardRequest, _: _Auth) -> GenerateResult:
+    """Compose an on-brand text card deterministically: no provider key, no spend.
+
+    This is the keyless path that always works: ``og_image`` and ``social_card``
+    are rendered from the brand's real fonts, exact colors, and mark, so the copy
+    is correct and on brand without any model. It saves into the same catalog as
+    /generate (so it shows in the Library and gets a compliance stamp) and returns
+    the same shape. An asset with no card layout (e.g. ``logo``) is a 422; an
+    unknown or out-of-workspace brand is a 404 (the brand load is workspace
+    scoped, same as every other read).
+    """
+    try:
+        outcome = engine.generate_card(
+            body.brand,
+            body.asset,
+            message=body.message,
+            mark=body.mark,
+            variant=body.variant,
+            dry_run=False,
+        )
+    except BrandNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    except (KeyError, ValueError) as exc:
+        # Unknown asset type, or an asset with no card layout. Actionable 422.
+        raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
+
+    result = outcome.result
+    files = [
+        GeneratedFile(path=str(p), catalog_path=str(p) + ".json") for p in outcome.paths
+    ]
+    return GenerateResult(
+        brand=body.brand,
+        asset=body.asset,
+        variant=outcome.built.variant,
+        backend=result.backend if result else "compose",
+        model=result.model if result else None,
+        mime=result.mime if result else None,
+        cost_cents=result.cost_cents if result else None,
+        files=files,
+        missing_refs=[],
+        warnings=outcome.built.warnings,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Asset catalog
 # ---------------------------------------------------------------------------
@@ -805,6 +954,7 @@ def get_asset_file(
     """
     if kind not in ("generated", "imported"):
         raise HTTPException(status_code=_HTTP_422, detail="kind must be generated or imported")
+    _ensure_brand_visible(brand)
     root = DEFAULT_KITS_DIR.resolve()
     target = (root / brand / kind / asset / file).resolve()
     if not target.is_relative_to(root) or not target.is_file():
@@ -893,6 +1043,7 @@ def _apply_transition(
     errors onto HTTP: an unknown ``kind`` or a bad ``to`` is a 422, a missing
     sidecar a 404, an unreadable/non-record sidecar a 422.
     """
+    _ensure_brand_visible(brand)
     if kind not in ("generated", "imported"):
         raise HTTPException(
             status_code=_HTTP_422, detail="kind must be generated or imported"
@@ -1001,9 +1152,24 @@ def get_activity(
     ``brand`` slug, capped at ``limit`` (1..500, default 50). Each event records
     who did what, when, and to which asset — the orientation surface for both the
     human and the agent paths. A corrupt line in the log is skipped, never fatal,
-    and a missing log is simply an empty feed.
+    and a missing log is simply an empty feed. A workspace-scoped caller sees only
+    its own brands' events (a brand-less rollup event is dropped for them).
     """
-    events = [ActivityEvent.model_validate(e) for e in read_events(brand=brand, limit=limit)]
+    allowed = get_allowed_brands()
+    if allowed is None:
+        # Unscoped (CLI / stdio MCP / tests): the original global feed.
+        raw = read_events(brand=brand, limit=limit)
+    elif brand is not None:
+        # Scoped: a brand outside the workspace discloses nothing.
+        raw = read_events(brand=brand, limit=limit) if brand in allowed else []
+    else:
+        # Scoped, no brand filter: read a generous window, keep only this
+        # workspace's brands' events (a brand-less event has no tenant
+        # attribution, so drop it), newest first, capped at limit.
+        raw = [
+            e for e in read_events(brand=None, limit=500) if e.get("brand") in allowed
+        ][:limit]
+    events = [ActivityEvent.model_validate(e) for e in raw]
     return ActivityList(events=events)
 
 
@@ -1039,7 +1205,7 @@ def get_agents(_: _Auth) -> AgentList:
 async def run_agent_route(
     name: str,
     payload: Annotated[dict[str, Any], Body(default_factory=dict)],
-    _: _Auth,
+    principal: _Auth,
 ) -> AgentRunResult:
     """Run one agent against an arbitrary JSON payload and return its result.
 
@@ -1052,7 +1218,17 @@ async def run_agent_route(
     never a bare 500.
     """
     try:
-        result = await run_agent(name, payload)
+        # Thread metering context: when the caller is workspace-scoped, the
+        # agent records best-effort spend against specialist/<name>. Many agent
+        # payloads carry a "brand" slug; pass it through for spend attribution
+        # (best-effort, only when it is a non-empty string). Never affects the run.
+        payload_brand = payload.get("brand") if isinstance(payload, dict) else None
+        result = await run_agent(
+            name,
+            payload,
+            workspace_id=principal.workspace_id,
+            brand_slug=payload_brand if isinstance(payload_brand, str) and payload_brand else None,
+        )
     except UnknownAgent as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
     except Exception as exc:  # noqa: BLE001 - any agent failure is a clean 502, not a 500
@@ -1095,7 +1271,7 @@ def _brands_context() -> list[dict[str, str]]:
 
 
 @router.post("/director/chat", response_model=DirectorReply)
-async def director_chat(body: DirectorChatRequest, _: _Auth) -> DirectorReply:
+async def director_chat(body: DirectorChatRequest, principal: _Auth) -> DirectorReply:
     """Talk to Iris, the brand director, and get a reply plus a routed intent.
 
     Iris is the single conversational agent for the Studio. She answers in
@@ -1119,7 +1295,18 @@ async def director_chat(body: DirectorChatRequest, _: _Auth) -> DirectorReply:
         "brands_context": _brands_context(),
     }
     try:
-        result = await DirectorAgent().run(payload)
+        # Thread metering context: when the caller is workspace-scoped, the
+        # Director's LLM turn records a best-effort spend event against
+        # director/iris. agent_ref is "iris" (the persona), not the registry name
+        # "director", so it matches the synthesized governance row the Crew page
+        # shows. Metering never affects the run (see Agent.chat).
+        director = DirectorAgent(
+            workspace_id=principal.workspace_id,
+            agent_kind="director",
+            agent_ref="iris",
+            brand_slug=body.brand,
+        )
+        result = await director.run(payload)
     except Exception:  # noqa: BLE001 - an LLM/agent problem degrades to a 200 fallback, never a 500
         result = {
             "reply": (
@@ -1141,6 +1328,12 @@ async def director_chat(body: DirectorChatRequest, _: _Auth) -> DirectorReply:
     # to a normal chat reply inside the helper, so the route still answers 200.
     if result.get("intent") == "agent":
         result = _fulfill_agent_intent(result)
+    # When Iris classified the turn as a compliance CHECK, run the deterministic
+    # gate here and rewrite the reply with the verdict. This is the fix for the
+    # check-vs-make confusion: "check this against the rules" lands on the real
+    # auditor, not the asset_pack planner. Degrades to chat inside the helper.
+    elif result.get("intent") == "compliance":
+        result = _fulfill_compliance_intent(result)
 
     # Record what Iris did on the provenance feed: the intent she routed the turn
     # to. Emitted here at the route (the director's flow) rather than inside the
@@ -1255,14 +1448,121 @@ def _agent_intent_to_chat(
     }
 
 
+def _fulfill_compliance_intent(result: dict[str, Any]) -> dict[str, Any]:
+    """Run the deterministic compliance gate Iris routed to, and narrate it.
+
+    Called only when ``result['intent'] == 'compliance'`` — the operator asked to
+    CHECK existing work, not make new work. If the normalizer kept ``topic`` (the
+    operator pasted copy) that copy is scored as text; otherwise the brand's whole
+    catalog is scored with the same engine GET /brands/{slug}/compliance uses. The
+    verdict is attached as ``compliance`` and Iris's reply is rewritten to state
+    it in her voice.
+
+    Never raises: no brand, an unknown brand, or any engine error degrades the
+    turn to a normal in-persona chat reply (intent ``chat``) so the route always
+    answers 200.
+    """
+    brand = result.get("brand")
+    if not (isinstance(brand, str) and brand):
+        return _agent_intent_to_chat(
+            result,
+            fallback_reply=(
+                "Tell me which brand to check and I will run it against that "
+                "brand's rules. Open the brand or name it."
+            ),
+        )
+    try:
+        loaded = _load_brand_or_404(brand)
+        rules = build_rules(loaded)
+        topic = result.get("topic")
+        if isinstance(topic, str) and topic.strip():
+            verdict = check_text_target(brand, topic.strip(), rules)
+            scope = "copy"
+        else:
+            counts = {"pass": 0, "warn": 0, "fail": 0, "skipped": 0}
+            scores: list[int] = []
+            for record in read_assets(brand=brand):
+                checked = check_asset(
+                    brand, record.file, record.asset_type, record.kind, rules
+                )
+                counts[checked["status"]] = counts.get(checked["status"], 0) + 1
+                if checked["status"] != "skipped":
+                    scores.append(int(checked["score"]))
+            avg = round(sum(scores) / len(scores)) if scores else 0
+            status = "fail" if counts["fail"] else ("warn" if counts["warn"] else "pass")
+            verdict = {
+                "brand": brand,
+                "target": "catalog",
+                "status": status,
+                "score": avg,
+                "checks": [],
+                "violations": [],
+                "counts": counts,
+            }
+            scope = "catalog"
+    except HTTPException:
+        # _load_brand_or_404 raised (unknown brand). Degrade to chat, never 500.
+        return _agent_intent_to_chat(
+            result,
+            fallback_reply=(
+                "I could not find that brand to check. Tell me which brand and I "
+                "will run it against its rules."
+            ),
+        )
+    except Exception:  # noqa: BLE001 - any engine problem -> chat, never 500
+        return _agent_intent_to_chat(result)
+
+    out = dict(result)
+    out["intent"] = "compliance"
+    out["reply"] = _narrate_compliance(scope, verdict)
+    out["compliance"] = verdict
+    out.pop("agent_name", None)
+    out.pop("agent_role", None)
+    return out
+
+
+def _narrate_compliance(scope: str, verdict: dict[str, Any]) -> str:
+    """Iris stating a compliance verdict in her voice: first person, no em-dash."""
+    status = str(verdict.get("status", "skipped"))
+    score = verdict.get("score", 0)
+    if scope == "catalog":
+        counts = verdict.get("counts") or {}
+        passed = counts.get("pass", 0)
+        warn = counts.get("warn", 0)
+        fail = counts.get("fail", 0)
+        head = (
+            f"I ran the catalog against the brand rules. {passed} pass, {warn} "
+            f"warn, {fail} fail, average {score}."
+        )
+        if fail:
+            return head + " The fails are off brand and need a fix before they ship."
+        if warn:
+            return head + " The warnings are close but worth a look."
+        return head + " It is clean."
+    verb = {
+        "pass": "is on brand",
+        "warn": "is close but not clean",
+        "fail": "is off brand",
+    }.get(status, "could not be scored")
+    line = f"I checked that copy against the brand rules. It {verb}, scoring {score}."
+    violations = verdict.get("violations") or []
+    if violations:
+        first = violations[0]
+        message = first.get("message") if isinstance(first, dict) else str(first)
+        if message:
+            line += f" The main issue: {message}"
+    return line
+
+
 # The human-readable verb the activity feed shows for each director intent. Iris
-# either routed the turn to work (single/pack/research) or simply talked.
+# either routed the turn to work (single/pack/research/compliance) or just talked.
 _DIRECTOR_ACTION_FOR_INTENT = {
     "chat": "chatted",
     "single": "routed a single asset",
     "pack": "routed a pack",
     "research": "routed research",
     "agent": "created agent",
+    "compliance": "ran a compliance check",
 }
 
 
@@ -1281,6 +1581,9 @@ def _emit_director_event(result: dict[str, Any]) -> None:
             target = f"pack/{result['pack']}"
         elif intent == "agent" and isinstance(result.get("agent"), dict):
             target = str(result["agent"].get("slug") or "")
+        elif intent == "compliance" and isinstance(result.get("compliance"), dict):
+            verdict = result["compliance"]
+            target = f"{verdict.get('target', 'catalog')}/{verdict.get('status', '')}"
         append_event(
             "iris",
             "agent",
@@ -1429,6 +1732,7 @@ def get_brand_agent_avatar(
     256, 512) returns that square px derivative as image/png, downscaled on the
     fly; an unsupported size is a 422.
     """
+    _ensure_brand_visible(slug)
     try:
         path = agent_identity.avatar_path(slug, agent)
     except agent_identity.AgentIdentityError as exc:
@@ -1486,6 +1790,7 @@ def get_brand_agent_variant(
     128, 256, 512) returns that square px derivative as image/png; an unsupported
     size is a 422.
     """
+    _ensure_brand_visible(slug)
     try:
         path = agent_identity.variant_path(slug, agent, state)
     except agent_identity.AgentIdentityError:
@@ -1505,3 +1810,284 @@ def get_brand_agent_manifest(slug: str, agent: str, _: _Auth) -> dict:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
     except agent_identity.AgentIdentityError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+
+
+# ---------------------------------------------------------------------------
+# Agent governance + spend: the Crew page's real controls and metered spend.
+# Each agent has an OPERATING CONTRACT in a workspace (autonomy posture, standing
+# orders, an optional weekly budget, a model override) persisted in
+# agent_governance, plus real 7-day spend rolled up from agent_spend_event. The
+# GET synthesizes default rows for the well-known agents so the page always
+# renders; the PUT upserts one agent's contract.
+# ---------------------------------------------------------------------------
+
+# How many days of spend the Crew page rolls up per agent.
+_SPEND_WINDOW_DAYS = 7
+
+
+def _spend_key(agent_kind: str, agent_ref: str) -> tuple[str, str]:
+    return (agent_kind, agent_ref)
+
+
+def _governance_out(
+    *,
+    agent_kind: str,
+    agent_ref: str,
+    row: Any | None,
+    spend: dict[tuple[str, str], dict[str, Any]],
+) -> AgentGovernanceOut:
+    """Project a saved row (or its synthesized default) plus 7-day spend to wire.
+
+    ``row`` is the saved ``AgentGovernance`` ORM object, or None when the agent
+    has never been configured -- in which case the honest defaults are used
+    (autonomy 'propose', the seed standing orders, no budget, the agent's own
+    model) and ``is_default`` is True. ``spend`` maps (kind, ref) to the rolled
+    totals; a missing key means no spend in the window.
+    """
+    totals = spend.get(_spend_key(agent_kind, agent_ref))
+    spend_cents = float(totals["cost_cents"]) if totals else 0.0
+    tokens = int(totals["total_tokens"]) if totals else 0
+    calls = int(totals["calls"]) if totals else 0
+    if row is None:
+        return AgentGovernanceOut(
+            agent_kind=agent_kind,
+            agent_ref=agent_ref,
+            autonomy=governance.DEFAULT_AUTONOMY,
+            standing_orders=governance.default_standing_orders(agent_kind, agent_ref),
+            weekly_budget_cents=None,
+            model=None,
+            spend_cents_7d=round(spend_cents, 4),
+            tokens_7d=tokens,
+            calls_7d=calls,
+            is_default=True,
+        )
+    return AgentGovernanceOut(
+        agent_kind=agent_kind,
+        agent_ref=agent_ref,
+        autonomy=row.autonomy or governance.DEFAULT_AUTONOMY,
+        standing_orders=(
+            row.standing_orders
+            if row.standing_orders is not None
+            else governance.default_standing_orders(agent_kind, agent_ref)
+        ),
+        weekly_budget_cents=row.weekly_budget_cents,
+        model=row.model,
+        spend_cents_7d=round(spend_cents, 4),
+        tokens_7d=tokens,
+        calls_7d=calls,
+        is_default=False,
+    )
+
+
+def _well_known_agents(brand_slugs: list[str]) -> list[tuple[str, str]]:
+    """The (kind, ref) pairs the Crew page always shows, even with no saved row.
+
+    The Director (director/iris), one Steward per brand the workspace owns
+    (steward/<slug>), and every shared specialist from the agent registry
+    (specialist/<name>). The page renders a default-shaped card for any of these
+    that has no saved governance row yet.
+    """
+    pairs: list[tuple[str, str]] = [("director", "iris")]
+    pairs.extend(("steward", slug) for slug in brand_slugs)
+    pairs.extend(("specialist", spec.name) for spec in AGENT_REGISTRY)
+    return pairs
+
+
+def _merge_governance_with_spend(
+    *,
+    rows: list[Any],
+    spend_rows: list[Any],
+    brand_slugs: list[str],
+) -> list[AgentGovernanceOut]:
+    """Merge saved governance rows, synthesized defaults, and 7-day spend.
+
+    Every saved row is emitted with its spend joined; additionally a default
+    (is_default=True) row is synthesized for each well-known agent that has no
+    saved row, so the page always renders the Director, every brand's Steward,
+    and every specialist. The result is ordered: Director, Stewards, Specialists,
+    then any other saved rows.
+    """
+    spend: dict[tuple[str, str], dict[str, Any]] = {}
+    for sr in spend_rows:
+        spend[_spend_key(sr.agent_kind, sr.agent_ref)] = {
+            "total_tokens": sr.total_tokens,
+            "cost_cents": sr.cost_cents,
+            "calls": sr.calls,
+        }
+
+    by_key: dict[tuple[str, str], Any] = {
+        _spend_key(r.agent_kind, r.agent_ref): r for r in rows
+    }
+
+    out: list[AgentGovernanceOut] = []
+    seen: set[tuple[str, str]] = set()
+
+    # Well-known agents first, in a stable order, saved-or-default.
+    for agent_kind, agent_ref in _well_known_agents(brand_slugs):
+        key = _spend_key(agent_kind, agent_ref)
+        seen.add(key)
+        out.append(
+            _governance_out(
+                agent_kind=agent_kind,
+                agent_ref=agent_ref,
+                row=by_key.get(key),
+                spend=spend,
+            )
+        )
+
+    # Any saved rows that are not in the well-known set (e.g. a brand-owned
+    # identity agent, or a steward for a brand no longer in the workspace).
+    for key, row in by_key.items():
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            _governance_out(
+                agent_kind=row.agent_kind,
+                agent_ref=row.agent_ref,
+                row=row,
+                spend=spend,
+            )
+        )
+    return out
+
+
+@router.get("/governance/agents", response_model=AgentGovernanceList)
+async def list_governance(principal: _Auth) -> AgentGovernanceList:
+    """Every governed agent in the workspace, with its real 7-day spend.
+
+    Returns the Director, each brand's Steward, and every specialist, each as
+    either its saved governance contract or its honest defaults (is_default),
+    with the last 7 days of metered spend joined in. An unscoped / anonymous
+    caller (local dev, the CLI, no membership) has no workspace, so this returns
+    an empty list. Fails safe: any database problem yields an empty list rather
+    than a 500, the same posture as the rest of the workspace-scoped surface.
+    """
+    if not principal.workspace_id:
+        return AgentGovernanceList()
+    since = datetime.now(UTC) - timedelta(days=_SPEND_WINDOW_DAYS)
+    try:
+        sessionmaker = get_sessionmaker()
+        async with sessionmaker() as session:
+            async with workspace_session(session, principal.workspace_id) as scoped:
+                rows = list(
+                    await repo.list_agent_governance(scoped, principal.workspace_id)
+                )
+                spend_rows = list(
+                    await repo.agent_spend_since(
+                        scoped, principal.workspace_id, since
+                    )
+                )
+                brand_slugs = sorted(
+                    await repo.list_brand_slugs(scoped, principal.workspace_id)
+                )
+    except SQLAlchemyError:
+        _log.warning("governance read failed; returning empty governance list")
+        return AgentGovernanceList()
+    return AgentGovernanceList(
+        governance=_merge_governance_with_spend(
+            rows=rows, spend_rows=spend_rows, brand_slugs=brand_slugs
+        )
+    )
+
+
+@router.put(
+    "/governance/agents/{agent_kind}/{agent_ref:path}",
+    response_model=AgentGovernanceOut,
+)
+async def put_governance(
+    agent_kind: str,
+    agent_ref: str,
+    body: AgentGovernanceUpdate,
+    principal: _Auth,
+) -> AgentGovernanceOut:
+    """Set one agent's governance contract, returning it with its 7-day spend.
+
+    Upserts the (workspace, agent_kind, agent_ref) row from the supplied fields
+    (only the fields present in the body are changed; a null weekly_budget_cents
+    or model clears that setting, an omitted field leaves it untouched). 403 when
+    the caller has no workspace; 422 on an unknown agent_kind, an autonomy outside
+    the known levels, or a negative budget. ``updated_by`` is stamped with the
+    caller's uc_uid and a best-effort activity event is appended. The
+    ``{agent_ref:path}`` converter lets an identity ref carry a slash.
+    """
+    if not principal.workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="a workspace is required to set agent governance",
+        )
+
+    error = governance.validate_governance_update(
+        agent_kind=agent_kind,
+        autonomy=body.autonomy,
+        weekly_budget_cents=body.weekly_budget_cents,
+    )
+    if error is not None:
+        raise HTTPException(status_code=_HTTP_422, detail=error)
+
+    # Distinguish "field omitted from the body" (leave unchanged) from "field sent
+    # as null" (clear it) for the two nullable columns, using the sentinel the
+    # repository understands. Pydantic's model_fields_set records which keys the
+    # client actually sent.
+    sent = body.model_fields_set
+    weekly_budget = (
+        body.weekly_budget_cents if "weekly_budget_cents" in sent else repo._UNSET
+    )
+    model = body.model if "model" in sent else repo._UNSET
+    standing_orders = (
+        body.standing_orders if "standing_orders" in sent else repo._UNSET
+    )
+
+    since = datetime.now(UTC) - timedelta(days=_SPEND_WINDOW_DAYS)
+    sessionmaker = get_sessionmaker()
+    async with sessionmaker() as session:
+        async with workspace_session(session, principal.workspace_id) as scoped:
+            await repo.upsert_agent_governance(
+                scoped,
+                principal.workspace_id,
+                agent_kind=agent_kind,
+                agent_ref=agent_ref,
+                autonomy=body.autonomy,
+                standing_orders=standing_orders,
+                weekly_budget_cents=weekly_budget,
+                model=model,
+                updated_by=principal.uc_uid,
+            )
+            saved = await repo.get_agent_governance(
+                scoped,
+                principal.workspace_id,
+                agent_kind=agent_kind,
+                agent_ref=agent_ref,
+            )
+            spend_rows = list(
+                await repo.agent_spend_since(scoped, principal.workspace_id, since)
+            )
+
+    _emit_governance_event(agent_kind, agent_ref)
+
+    spend: dict[tuple[str, str], dict[str, Any]] = {}
+    for sr in spend_rows:
+        spend[_spend_key(sr.agent_kind, sr.agent_ref)] = {
+            "total_tokens": sr.total_tokens,
+            "cost_cents": sr.cost_cents,
+            "calls": sr.calls,
+        }
+    return _governance_out(
+        agent_kind=agent_kind, agent_ref=agent_ref, row=saved, spend=spend
+    )
+
+
+def _emit_governance_event(agent_kind: str, agent_ref: str) -> None:
+    """Append one activity event for a governance change. Best-effort, never raises."""
+    try:
+        append_event(
+            "you",
+            "human",
+            "set agent governance",
+            brand=agent_ref if agent_kind == "steward" else None,
+            target=f"{agent_kind}/{agent_ref}",
+            note=None,
+            ts=datetime.now(UTC).isoformat(),
+        )
+    except Exception:  # noqa: BLE001 - the feed is advisory; never fail the write
+        pass

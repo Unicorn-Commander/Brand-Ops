@@ -22,6 +22,8 @@ EXPECTED_TABLES = {
     "asset_version",
     "generation_job",
     "brand_research_run",
+    "agent_governance",
+    "agent_spend_event",
 }
 
 

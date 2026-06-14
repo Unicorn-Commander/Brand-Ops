@@ -73,15 +73,16 @@ def test_clone_as_child_inherits_parent_visual(kits: Path) -> None:
 
     # The written file is genuinely minimal: a brand block only, with no visual,
     # voice, or prompts of its own (so the merge is doing the work). The block
-    # now also carries the owning ``org`` -- the default ``magic-unicorn`` here,
-    # since this helper-level test runs unscoped (no ``current_org`` set).
+    # also records the owning workspace_id -- None here, since this helper-level
+    # test runs unscoped (no workspace scope set); the boot importer assigns such
+    # a brand to the deploy's bootstrap workspace.
     raw = yaml.safe_load((kits / "mu-child" / "brand.yaml").read_text())
     assert set(raw) == {"brand"}
     assert raw["brand"] == {
         "slug": "mu-child",
         "display_name": "MU Child",
         "parent": SOURCE,
-        "org": "magic-unicorn",
+        "workspace_id": None,
     }
     # A clone never copies the source mark.
     assert brand.brand.mark is None

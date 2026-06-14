@@ -233,14 +233,20 @@ def test_agent_parent_consistency_default_echoes_parent_footing() -> None:
     assert draft["palette"]["background"] == "#0a0a0a"
 
 
-def test_agent_onboard_mode_notes_brigade_capture() -> None:
+def test_agent_onboard_mode_notes_unreachable_site() -> None:
+    # Onboard mode now actually fetches the live site (no Brigade required). A
+    # reserved .example domain never resolves, so the fetcher returns None and the
+    # agent degrades honestly: it says it could not read the site and drafted from
+    # the name + domain as hints. It no longer claims it needs Brigade to read a
+    # page (that framing is gone; Brigade is only a future deep-research add-on).
     agent = BrandIntakeAgent(
         brigade=_StubBrigade(chat_reply=json.dumps(GOOD_DRAFT)), settings=Settings()
     )
     _, notes = _run(
         agent.draft_identity("Acme", url="https://acme.example", mode="onboard")
     )
-    assert any("Brigade" in n for n in notes)
+    assert any("live site" in n.lower() for n in notes)
+    assert not any("Brigade" in n for n in notes)
 
 
 # ─────────────────────────── Writer: create_brand_from_draft ────────────────

@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from urllib.parse import urlencode
 
-from ..brand_loader import DEFAULT_KITS_DIR
+from ..brand_loader import DEFAULT_KITS_DIR, get_allowed_brands
 from .schemas import AssetRecord
 
 
@@ -102,7 +102,15 @@ def read_assets(
     if not root.exists():
         return []
 
+    # Tenant gate: the same workspace allow-list the brand loader uses. When the
+    # request is scoped (allowed is not None) only visible brands are scanned, so
+    # the no-brand-filter listing cannot leak another workspace's assets and a
+    # request for a brand outside the workspace returns nothing. Unscoped (CLI /
+    # stdio MCP / tests) every brand is read, exactly as before.
+    allowed = get_allowed_brands()
     if brand:
+        if allowed is not None and brand not in allowed:
+            return []
         brands = [brand]
     else:
         brands = [
@@ -110,6 +118,8 @@ def read_assets(
             for p in sorted(root.iterdir())
             if p.is_dir() and not p.name.startswith("_")
         ]
+        if allowed is not None:
+            brands = [b for b in brands if b in allowed]
 
     records: list[AssetRecord] = []
     for slug in brands:

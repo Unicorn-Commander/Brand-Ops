@@ -11,8 +11,12 @@
  */
 import type {
   Me,
+  MeWorkspaces,
   ActivityEvent,
   ActivityList,
+  AgentGovernance,
+  AgentGovernanceList,
+  AgentGovernanceUpdate,
   AgentIdentity,
   AgentInfo,
   AgentList,
@@ -36,6 +40,7 @@ import type {
   ComplianceResult,
   DirectorChatRequest,
   DirectorReply,
+  GenerateCardRequest,
   GenerateRequest,
   GenerateResult,
   IntakeRequest,
@@ -49,6 +54,36 @@ import type {
   TransitionRequest,
   UploadResult,
 } from "../lib/types";
+
+// ---------------------------------------------------------------------------
+// Active workspace (the X-Workspace-Id the GUI sends with every call)
+// ---------------------------------------------------------------------------
+//
+// The workspace switcher sets this; it is persisted so a reload keeps the same
+// workspace. The backend treats it as a REQUEST: it honors the workspace only
+// when the caller is a member, else falls back to their default -- so a stale
+// value here can never lock the user out or leak another tenant. null = send no
+// header, letting the backend pick the caller's default workspace.
+const _WS_KEY = "brandops.workspace";
+
+let _activeWorkspaceId: string | null =
+  typeof localStorage !== "undefined" ? localStorage.getItem(_WS_KEY) : null;
+
+/** The workspace the GUI is currently acting in, or null for the default. */
+export function getActiveWorkspaceId(): string | null {
+  return _activeWorkspaceId;
+}
+
+/** Set (and persist) the active workspace; null clears it back to the default. */
+export function setActiveWorkspaceId(id: string | null): void {
+  _activeWorkspaceId = id;
+  try {
+    if (id) localStorage.setItem(_WS_KEY, id);
+    else localStorage.removeItem(_WS_KEY);
+  } catch {
+    // localStorage can throw in private mode; the in-memory value still works.
+  }
+}
 
 /** Error thrown for any non-2xx response. */
 export class ApiError extends Error {
@@ -150,10 +185,14 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (qs) url += `?${qs}`;
   }
 
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (_activeWorkspaceId) headers["X-Workspace-Id"] = _activeWorkspaceId;
+
   const res = await fetch(url, {
     method,
     signal,
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
 
@@ -276,6 +315,24 @@ export async function generate(
   });
 }
 
+/**
+ * POST /api/generate-card -> compose an on-brand card deterministically.
+ *
+ * The keyless path: og_image / social_card rendered from the brand's fonts,
+ * colors, and mark with no provider key and no spend. Returns a GenerateResult
+ * (same shape as generate). A 422 means the asset has no card layout.
+ */
+export async function generateCard(
+  body: GenerateCardRequest,
+  signal?: AbortSignal,
+): Promise<GenerateResult> {
+  return request<GenerateResult>("/generate-card", {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
 /** GET /api/assets?brand=&asset=&status= -> catalog records from sidecars. */
 export async function listAssets(
   params: ListAssetsParams = {},
@@ -319,6 +376,7 @@ export async function upload(
 
   const res = await fetch("/api/assets/upload", {
     method: "POST",
+    headers: _activeWorkspaceId ? { "X-Workspace-Id": _activeWorkspaceId } : undefined,
     body: form,
     signal,
   });
@@ -617,8 +675,52 @@ export async function me(signal?: AbortSignal): Promise<Me> {
   return request<Me>("/me", { signal });
 }
 
+/** GET /api/me/workspaces -> the caller's workspaces and the active one. */
+export async function meWorkspaces(signal?: AbortSignal): Promise<MeWorkspaces> {
+  return request<MeWorkspaces>("/me/workspaces", { signal });
+}
+
+// ---------------------------------------------------------------------------
+// Agent governance + spend (the Crew page's real controls)
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/governance/agents -> every governed agent (the Director, each brand's
+ * Steward, every specialist) with its operating contract and its real 7-day
+ * spend. An unscoped caller (no workspace) gets an empty list. Returns the
+ * `governance` array directly.
+ */
+export async function listAgentGovernance(
+  signal?: AbortSignal,
+): Promise<AgentGovernance[]> {
+  const data = await request<AgentGovernanceList>("/governance/agents", { signal });
+  return data.governance;
+}
+
+/**
+ * PUT /api/governance/agents/{agent_kind}/{agent_ref} -> set one agent's
+ * operating contract (autonomy, standing orders, weekly budget, model override),
+ * returning it with its 7-day spend. `agentRef` may contain a slash (an identity
+ * ref), so each path segment is encoded and the slashes are preserved. A 403
+ * arrives when the caller has no workspace; a 422 on an invalid autonomy or a
+ * negative budget.
+ */
+export async function putAgentGovernance(
+  agentKind: string,
+  agentRef: string,
+  body: AgentGovernanceUpdate,
+  signal?: AbortSignal,
+): Promise<AgentGovernance> {
+  const ref = agentRef.split("/").map(encodeURIComponent).join("/");
+  return request<AgentGovernance>(
+    `/governance/agents/${encodeURIComponent(agentKind)}/${ref}`,
+    { method: "PUT", body, signal },
+  );
+}
+
 export const api = {
   me,
+  meWorkspaces,
   listBrands,
   getBrand,
   cloneBrand,
@@ -626,6 +728,7 @@ export const api = {
   listAssetTypes,
   promptPreview,
   generate,
+  generateCard,
   listAssets,
   upload,
   transitionAsset,
@@ -646,4 +749,6 @@ export const api = {
   generateBrandAgentAvatar,
   generateAgentVariants,
   agentManifestUrl,
+  listAgentGovernance,
+  putAgentGovernance,
 };

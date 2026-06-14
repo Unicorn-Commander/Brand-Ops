@@ -16,7 +16,9 @@ optional and governed by ``AUTH_REQUIRED`` (see ``brand_ops.api.auth``).
 """
 from __future__ import annotations
 
+import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,6 +48,32 @@ def _cors_origins() -> list[str]:
     return parts or ["*"]
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """App lifespan: seed the canonical tenancy DB, then run the MCP manager.
+
+    ``seed_kits`` (the Dockerfile CMD) has already copied the file brand-kits in
+    by the time this runs, so here we reflect them into the tenancy DB and apply
+    the membership allow-list. ``bootstrap`` is idempotent and guards its own DB
+    errors, and the whole call is wrapped so a tenancy problem never blocks boot
+    (the surface comes up; authed callers simply see no brands until it heals).
+    When the HTTP MCP transport is enabled its session manager runs for the app's
+    lifetime, nested inside.
+    """
+    log = logging.getLogger("brand_ops")
+    try:
+        from ..db.bootstrap import bootstrap
+
+        await bootstrap()
+    except Exception:  # noqa: BLE001 - bootstrap is best-effort; never block boot
+        log.exception("tenancy bootstrap raised; serving without it")
+    if mcp_http_enabled():
+        async with mcp_lifespan(app):
+            yield
+    else:
+        yield
+
+
 def create_app() -> FastAPI:
     """Build and configure the FastAPI application.
 
@@ -59,7 +87,7 @@ def create_app() -> FastAPI:
         title="Brand-Ops API",
         version=__version__,
         summary="Brand identity and AI image-asset generation for the Unicorn Commander suite.",
-        lifespan=mcp_lifespan if mcp_http else None,
+        lifespan=_lifespan,
     )
 
     origins = _cors_origins()

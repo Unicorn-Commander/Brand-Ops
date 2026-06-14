@@ -572,6 +572,22 @@ export default function StudioPage() {
           if (reply.agent) setAgentCard(reply.agent);
           break;
         }
+        case "compliance": {
+          // Iris ran the deterministic compliance gate server-side and narrated
+          // the verdict above. Surface any specific violations and run NO
+          // generator. This is the check-vs-make fix: a compliance ask never
+          // falls through to the pack planner in the default case below.
+          const violations = (reply.compliance?.violations ?? []) as Array<
+            { message?: string } | string
+          >;
+          const details = violations
+            .map((v) => (typeof v === "string" ? v : v?.message))
+            .filter((m): m is string => Boolean(m));
+          if (details.length > 0) {
+            append(say("note", "What I flagged:", { details }));
+          }
+          break;
+        }
         case "chat":
         default: {
           // Backstop: Iris sometimes labels a clear kit request as chat. Catch
@@ -641,10 +657,40 @@ export default function StudioPage() {
       if (ac.signal.aborted) return;
       if (isNeedsKeyError(err)) {
         const { backend, detail } = err.needsKey;
-        setCanvas({ status: "needs_key", backend, detail });
-        append(
-          say("note", `The ${backend} backend needs a key before I can generate.`),
-        );
+        // Keyless fallback: try the deterministic compositor. og_image and
+        // social_card compose on brand with no provider key, so a missing key
+        // never leaves the operator empty-handed. If the asset has no card layout
+        // the compositor 422s and we surface the needs-key panel instead.
+        try {
+          const result = await api.generateCard(
+            {
+              brand: req.brand,
+              asset: req.asset,
+              message: req.topic ?? undefined,
+              variant: req.variant ?? undefined,
+            },
+            ac.signal,
+          );
+          setCanvas({ status: "results", result });
+          if (result.files.length > 0) setSelectedIndex(0);
+          append(
+            say(
+              "result",
+              `No ${backend} key is set, so I composed this on brand without one. ${
+                result.files.length
+              } in the canvas.`,
+            ),
+          );
+        } catch (cardErr) {
+          if (ac.signal.aborted) return;
+          setCanvas({ status: "needs_key", backend, detail });
+          append(
+            say(
+              "note",
+              `The ${backend} backend needs a key before I can generate ${req.asset}.`,
+            ),
+          );
+        }
       } else {
         const message = err instanceof Error ? err.message : "Generation failed.";
         setCanvas({ status: "error", message });

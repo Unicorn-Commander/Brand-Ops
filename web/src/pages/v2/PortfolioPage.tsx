@@ -2,16 +2,16 @@ import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { getAgentTeam, getBrand, listActivity, listAgents, listAssets, listAssetTypes, listBrands } from "../../api/client";
-import type { AssetRecord, AssetType, BrandDetail, BrandSummary } from "../../lib/types";
+import { getAgentTeam, getBrand, getBrandCompliance, listActivity, listAgents, listAssets, listAssetTypes, listBrands } from "../../api/client";
+import type { AssetRecord, AssetType, BrandComplianceRollup, BrandDetail, BrandSummary } from "../../lib/types";
 import { MarkImg } from "../../components/MarkImg";
 import {
   assetsFor,
   brandColors,
+  brandGrade,
   coverageFor,
   displayActivity,
   flaggedCount,
-  gradeFromCoverage,
   relativeTime,
 } from "../../v2/metrics";
 import { fontStack } from "../../v2/EnvProvider";
@@ -20,19 +20,21 @@ function Cover({
   brand,
   assets,
   types,
+  rollup,
   index,
   parentName,
 }: {
   brand: BrandSummary & Partial<BrandDetail>;
   assets: AssetRecord[];
   types: AssetType[];
+  rollup: BrandComplianceRollup | undefined;
   index: number;
   parentName?: string;
 }) {
   const colors = brandColors(brand);
   const coverage = coverageFor(assets, types);
   const flagged = flaggedCount(assets);
-  const grade = gradeFromCoverage(coverage.pct, flagged);
+  const grade = brandGrade(assets, types, rollup);
   const font = brand.visual?.typography.display_font ? fontStack(brand.visual.typography.display_font) : "var(--c-font-display)";
   return (
     <Link
@@ -109,6 +111,14 @@ export default function PortfolioPage() {
       staleTime: 60_000,
     })),
   });
+  const complianceQs = useQueries({
+    queries: brands.map((brand) => ({
+      queryKey: ["compliance", brand.slug],
+      queryFn: ({ signal }: { signal: AbortSignal }) => getBrandCompliance(brand.slug, signal),
+      staleTime: 60_000,
+    })),
+  });
+  const complianceBySlug = new Map(brands.map((brand, index) => [brand.slug, complianceQs[index]?.data]));
   const detailedBrands = brands.map((brand, index) => brandDetailQs[index]?.data ?? brand);
   const brandNameBySlug = new Map(detailedBrands.map((brand) => [brand.slug, brand.display_name]));
   const teamQs = useQueries({
@@ -327,6 +337,7 @@ export default function PortfolioPage() {
             brand={brand}
             assets={assetsFor(assets, brand.slug)}
             types={types}
+            rollup={complianceBySlug.get(brand.slug)}
             index={index}
             parentName={brand.parent ? brandNameBySlug.get(brand.parent) : undefined}
           />

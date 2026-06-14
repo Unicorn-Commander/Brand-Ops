@@ -53,6 +53,8 @@ async def run_agent(
     payload: dict[str, Any],
     *,
     settings: Settings | None = None,
+    workspace_id: str | None = None,
+    brand_slug: str | None = None,
 ) -> dict[str, Any]:
     """Instantiate the named agent and await its run against ``payload``.
 
@@ -61,7 +63,20 @@ async def run_agent(
     the agent's result dict unchanged. Raises ``UnknownAgent`` for an unknown
     name; any exception the agent raises propagates to the caller, which maps it
     to an HTTP 502.
+
+    ``workspace_id`` (and optional ``brand_slug``) thread the agent's metering
+    context: when set, the agent records best-effort spend events against
+    specialist/<name> for its LLM turns. Both are optional and default to None
+    (unmetered), so callers that omit them -- the stdio MCP server, the CLI,
+    tests -- are unaffected. Metering never changes the agent's result (see
+    Agent.chat).
     """
     agent_cls = resolve_agent_cls(name)
-    agent = agent_cls(settings=settings)
+    agent = agent_cls(
+        settings=settings,
+        workspace_id=workspace_id,
+        agent_kind="specialist",
+        agent_ref=name,
+        brand_slug=brand_slug,
+    )
     return await agent.run(payload)
