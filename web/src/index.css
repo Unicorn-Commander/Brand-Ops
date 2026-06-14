@@ -925,3 +925,129 @@
 body.no-ambient .grain::before { display: none; }
 body.no-ambient .aura::before,
 body.no-ambient .aura::after { display: none; }
+
+/* ===========================================================================
+   Dual-audience interface: Simple/Advanced view-mode + premium craft globals.
+   Added in the dual-audience pass. Additive only -- does not override existing
+   component transitions (which are already tuned in the @layer components block).
+   =========================================================================== */
+
+/* The Simple/Advanced toggle in the top bar. Mirrors ViewToggle's gliding pill
+   (shared layoutId), styled to the v2 chrome. */
+.vm-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--c-hairline);
+  background: rgba(255, 255, 255, 0.03);
+}
+.vm-toggle-opt {
+  position: relative;
+  z-index: 1;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--c-ink-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.14s ease;
+}
+.vm-toggle-opt:hover { color: var(--c-ink-2); }
+.vm-toggle-opt.on { color: var(--c-ink); }
+.vm-toggle-pill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.vm-toggle-label { position: relative; }
+
+@media (max-width: 640px) {
+  /* On phones the topbar is tight; the toggle hides (mode still settable in
+     Settings) so the nav keeps room. */
+  .vm-toggle { display: none; }
+}
+
+/* Mode visibility utilities. BOTH modes reach every feature; these only flip
+   default emphasis/disclosure on the surfaces that opt in. */
+body[data-viewmode="simple"] .adv-only { display: none !important; }
+body[data-viewmode="advanced"] .simple-only { display: none !important; }
+
+/* --- Premium craft globals (Rauno/Emil checklist; cheap, high payoff) --- */
+
+/* Crisp text rendering across the app. */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Opt-in tabular numerals so updating numbers do not shift width. */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* A near-free tactile press state. Transform-only, no transition clobber, so
+   existing hover transitions on these classes stay intact. */
+.btn:active:not(:disabled),
+.voice-card:active,
+.chip:active,
+.kbd:active,
+.vm-toggle-opt:active {
+  transform: scale(0.985);
+}
+
+/* Radius-respecting focus rings (box-shadow, never outline). */
+.btn:focus-visible,
+.voice-card:focus-visible,
+.vm-toggle-opt:focus-visible,
+.kbd:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--c-bg), 0 0 0 4px rgb(var(--accent) / 0.6);
+}
+
+/* Brand-tinted thin scrollbar. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--accent) / 0.35) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--accent) / 0.32);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--accent) / 0.5);
+  background-clip: content-box;
+}
+
+/* Layout-matched skeleton shimmer (replaces bare spinners on data screens). */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}

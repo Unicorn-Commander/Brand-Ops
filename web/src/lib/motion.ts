@@ -23,6 +23,16 @@ export const easeExpo: Transition = {
   ease: [0.22, 1, 0.36, 1],
 };
 
+/**
+ * Fast ease-out for FREQUENT, low-novelty interactions (hover, press, toggles,
+ * disclosures). Kept under ~150ms so it reads as immediate rather than sluggish
+ * (the premium-craft rule: don't over-animate things people trigger constantly).
+ */
+export const easeOutFast: Transition = {
+  duration: 0.14,
+  ease: [0.16, 1, 0.3, 1],
+};
+
 /** Route-level page transition. Pair with <AnimatePresence mode="wait">. */
 export const pageVariants: Variants = {
   initial: { opacity: 0, y: 8 },

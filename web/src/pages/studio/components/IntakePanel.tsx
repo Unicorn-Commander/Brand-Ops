@@ -9,6 +9,7 @@ import { Button } from "../../../components/Button";
 import { AgentAvatar } from "../../../components/AgentAvatar";
 import { Director } from "../../../lib/agents";
 import { spring, staggerContainer, staggerItem } from "../../../lib/motion";
+import { useViewMode } from "../../../view-mode";
 import type {
   BrandSummary,
   IntakeDraft,
@@ -35,11 +36,16 @@ interface IntakePanelProps {
   onClose: () => void;
 }
 
-/** Per-mode framing copy, spoken by Iris in first person. */
-const MODE_COPY: Record<
-  NewBrandMode,
-  { role: string; lead: string; hint: string }
-> = {
+type ModeCopy = { role: string; lead: string; hint: string };
+
+/**
+ * Per-mode framing copy, spoken by Iris in first person, in two voices keyed by
+ * the app's Simple/Advanced view mode (same audience-as-locale idea as
+ * `NEW_BRAND_MODES`). Simple is plain goal-language for a newcomer; Advanced
+ * keeps the house voice and surfaces the technical detail (inheritance, live
+ * capture). Both honor the copy rule: no em-dashes, no marketing-speak.
+ */
+const MODE_COPY_ADVANCED: Record<NewBrandMode, ModeCopy> = {
   consistent: {
     role: "drafting a sub-brand",
     lead: "Tell me the name and a line about what it is. I will draft an identity that stays consistent with its parent, then you refine it.",
@@ -54,6 +60,24 @@ const MODE_COPY: Record<
     role: "onboarding from a website",
     lead: "Give me the name and the site URL. I will draft a brand profile from them.",
     hint: "Deep live-site capture needs Brigade connected; until then I draft from the URL and the name.",
+  },
+};
+
+const MODE_COPY_SIMPLE: Record<NewBrandMode, ModeCopy> = {
+  consistent: {
+    role: "adding a sub-brand",
+    lead: "Tell me the name and a sentence about it. I will create a related brand under one you already have, then you can change anything.",
+    hint: "It reuses the colors, type, and voice of the brand you pick.",
+  },
+  distinct: {
+    role: "starting from scratch",
+    lead: "Tell me the name and a sentence about it. I will draft the colors, type, and voice for you to change.",
+    hint: "A fresh start with its own look.",
+  },
+  onboard: {
+    role: "importing from a website",
+    lead: "Give me the name and your website address. I will pull a starting look from your site.",
+    hint: "Full site reading is coming. For now I work from the address and the name.",
   },
 };
 
@@ -279,8 +303,10 @@ export function IntakePanel({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const { isSimple } = useViewMode();
 
-  const copy = MODE_COPY[mode];
+  // Plain voice in Simple, house voice in Advanced.
+  const copy = (isSimple ? MODE_COPY_SIMPLE : MODE_COPY_ADVANCED)[mode];
   const isOnboard = mode === "onboard";
   const isConsistent = mode === "consistent";
 
@@ -506,7 +532,9 @@ export function IntakePanel({
                     </select>
                     {parent && (
                       <p className="px-0.5 text-[11px] text-text-faint">
-                        Inherits and stays consistent with {parentName}.
+                        {isSimple
+                          ? `Reuses the look of ${parentName}.`
+                          : `Inherits and stays consistent with ${parentName}.`}
                       </p>
                     )}
                   </>

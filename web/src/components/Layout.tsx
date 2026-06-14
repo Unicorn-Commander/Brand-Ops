@@ -5,8 +5,11 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { EnvProvider, useBrandEnv } from "../v2/EnvProvider";
 import { UserMenu } from "../v2/UserMenu";
 import { WorkspaceSwitcher } from "../v2/WorkspaceSwitcher";
+import { ViewModeToggle } from "../v2/ViewModeToggle";
 import { applyAmbient } from "../pages/v2/SettingsPage";
 import { useActiveBrand } from "../brand-context";
+import { useViewMode } from "../view-mode";
+import { NAV_LABELS, BRAND_NAV_LABELS, pick } from "../lib/labels";
 import { MarkImg } from "./MarkImg";
 
 const CHROME_NAV = [
@@ -39,6 +42,7 @@ function Topbar({
   markUrl?: string | null;
 }) {
   const isBrand = Boolean(brandSlug);
+  const { mode } = useViewMode();
   return (
     <header className="v2-topbar">
       <div className="v2-topbar-inner">
@@ -67,7 +71,7 @@ function Topbar({
                   to={`/b/${brandSlug}/${item.key}`}
                   className={({ isActive }) => (isActive ? "on" : undefined)}
                 >
-                  {item.label}
+                  {pick(BRAND_NAV_LABELS[item.key] ?? { simple: item.label, advanced: item.label }, mode)}
                 </NavLink>
               ))
             : CHROME_NAV.map((item) => (
@@ -77,7 +81,7 @@ function Topbar({
                   end={"end" in item ? item.end : false}
                   className={({ isActive }) => (isActive ? "on" : undefined)}
                 >
-                  {item.label}
+                  {pick(NAV_LABELS[item.to] ?? { simple: item.label, advanced: item.label }, mode)}
                 </NavLink>
               ))}
         </nav>
@@ -90,6 +94,7 @@ function Topbar({
           ) : (
             <WorkspaceSwitcher />
           )}
+          <ViewModeToggle />
           <button className="kbd" type="button" onClick={commandHint}>
             ⌘K
           </button>

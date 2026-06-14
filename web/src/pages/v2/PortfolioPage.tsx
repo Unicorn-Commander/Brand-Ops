@@ -5,6 +5,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { getAgentTeam, getBrand, getBrandCompliance, listActivity, listAgents, listAssets, listAssetTypes, listBrands } from "../../api/client";
 import type { AssetRecord, AssetType, BrandComplianceRollup, BrandDetail, BrandSummary } from "../../lib/types";
 import { MarkImg } from "../../components/MarkImg";
+import FrontDoor from "../../v2/FrontDoor";
 import {
   assetsFor,
   brandColors,
@@ -144,6 +145,15 @@ export default function PortfolioPage() {
     };
   }, [activity, assets]);
 
+  // First-run front door: a brand-new workspace (zero brands) should never meet
+  // the power-user command deck. Once the brands query has settled and there are
+  // none, hand the newcomer a goal-first start instead of "No brands, standing
+  // by". Placed after every hook above has run (the downstream queries over an
+  // empty brand list are no-ops) so the rules of hooks hold as the list fills.
+  if (!brandsQ.isLoading && brands.length === 0) {
+    return <FrontDoor />;
+  }
+
   function submitCommand() {
     const params = new URLSearchParams({ prompt: command });
     navigate(`/b/${brands[0]?.slug ?? "magic-unicorn"}/studio?${params.toString()}`);
@@ -203,7 +213,8 @@ export default function PortfolioPage() {
         >
           <span className="orb">I</span>
           <input
-            aria-label="Director command"
+            aria-label="Tell Iris what to make"
+            placeholder="Tell Iris what to make, or ask a question..."
             value={command}
             onChange={(event) => setCommand(event.target.value)}
           />

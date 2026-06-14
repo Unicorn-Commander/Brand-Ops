@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { BrandProvider } from "./brand-context";
+import { ViewModeProvider } from "./view-mode";
 import "./index.css";
 
 // One QueryClient for the app. Modest defaults: data is fresh for 30s and we do
@@ -27,7 +28,9 @@ ReactDOM.createRoot(rootEl).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <BrandProvider>
-          <App />
+          <ViewModeProvider>
+            <App />
+          </ViewModeProvider>
         </BrandProvider>
       </BrowserRouter>
     </QueryClientProvider>

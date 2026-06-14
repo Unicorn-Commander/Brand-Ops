@@ -279,6 +279,11 @@ class PromptPreview(BaseModel):
 class GeneratedFile(BaseModel):
     path: str
     catalog_path: str | None = None
+    # A browser-served URL into GET /api/assets/file for this generated file, in
+    # the exact form api/catalog.py builds, so the Studio can render the real
+    # image instead of a placeholder. None when no URL could be formed (missing
+    # brand/asset/file). The serving route's auth + traversal guard apply unchanged.
+    url: str | None = None
 
 
 class GenerateResult(BaseModel):

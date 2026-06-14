@@ -238,6 +238,13 @@ export interface PromptPreview {
 export interface GeneratedFile {
   path: string;
   catalog_path: string | null;
+  /**
+   * A browser-served URL into GET /api/assets/file for this generated file (the
+   * same form the catalog builds for AssetRecord.url), so the Studio can render
+   * the real image instead of a placeholder. null when the API could not form a
+   * URL. The serving route's auth + path-traversal guard apply unchanged.
+   */
+  url: string | null;
 }
 
 /** Live result from POST /api/generate. */

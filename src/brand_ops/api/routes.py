@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import (
     APIRouter,
@@ -189,6 +189,25 @@ def _mark_url(brand: Brand) -> str | None:
         f"&asset={mark.asset_type}"
         f"&file={quote(mark.file)}"
         f"&kind={mark.kind}"
+    )
+
+
+def _generated_file_url(brand: str, asset: str, path: str) -> str | None:
+    """Build the /api/assets/file URL for a freshly generated file, or None.
+
+    Identical to the URL api/catalog.py:_coerce_record builds for a catalog
+    record (same four params, same urlencode), so a just-generated file resolves
+    through GET /api/assets/file exactly as the same file later does from the
+    Library -- and the route's auth + traversal guard apply unchanged. The file
+    component is the basename of the engine's output path; kind is always
+    "generated" (the engine writes generated files into the generated/ tree).
+    Returns None when any addressing part is missing.
+    """
+    file_name = Path(path).name
+    if not (brand and asset and file_name):
+        return None
+    return "/api/assets/file?" + urlencode(
+        {"brand": brand, "asset": asset, "file": file_name, "kind": "generated"}
     )
 
 
@@ -848,7 +867,12 @@ def generate(body: GenerateRequest, _: _Auth) -> GenerateResult:
 
     result = outcome.result
     files = [
-        GeneratedFile(path=str(p), catalog_path=str(p) + ".json") for p in outcome.paths
+        GeneratedFile(
+            path=str(p),
+            catalog_path=str(p) + ".json",
+            url=_generated_file_url(body.brand, body.asset, str(p)),
+        )
+        for p in outcome.paths
     ]
     return GenerateResult(
         brand=body.brand,
@@ -893,7 +917,12 @@ def generate_card_route(body: GenerateCardRequest, _: _Auth) -> GenerateResult:
 
     result = outcome.result
     files = [
-        GeneratedFile(path=str(p), catalog_path=str(p) + ".json") for p in outcome.paths
+        GeneratedFile(
+            path=str(p),
+            catalog_path=str(p) + ".json",
+            url=_generated_file_url(body.brand, body.asset, str(p)),
+        )
+        for p in outcome.paths
     ]
     return GenerateResult(
         brand=body.brand,

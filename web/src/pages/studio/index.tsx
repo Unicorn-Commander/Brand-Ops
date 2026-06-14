@@ -4,6 +4,7 @@ import { Sparkles } from "lucide-react";
 import { api, isNeedsKeyError } from "../../api/client";
 import { applyBrandAccent } from "../../theme";
 import { useActiveBrand } from "../../brand-context";
+import { useViewMode } from "../../view-mode";
 import { activeAgent, type Agent } from "../../lib/agents";
 import type {
   BrandSummary,
@@ -104,6 +105,7 @@ function toRequest(
  */
 export default function StudioPage() {
   const { activeSlug, activeBrand, brands } = useActiveBrand();
+  const { isAdvanced } = useViewMode();
 
   // The agent in the room: Iris when no brand is focused, the brand's steward
   // when one is. Driven by the app-wide active brand, not the local controls.
@@ -302,8 +304,11 @@ export default function StudioPage() {
   const [agentCard, setAgentCard] = useState<DirectorAgentRef | null>(null);
 
   // Open Fine-tune when a single-asset prompt is composed, so the review and
-  // Generate controls are in reach without burying them by default.
-  const [fineTuneOpen, setFineTuneOpen] = useState(false);
+  // Generate controls are in reach without burying them by default. The initial
+  // state follows the view mode: Advanced operators get the manual controls
+  // expanded up front; newcomers in Simple keep them collapsed behind the toggle
+  // (and still get them auto-opened the moment a single asset is composed).
+  const [fineTuneOpen, setFineTuneOpen] = useState(isAdvanced);
 
   // ---- Pack path: a request for a *set* runs the asset_pack agent ----
   const runPack = useCallback(
@@ -618,6 +623,33 @@ export default function StudioPage() {
       runSingle,
     ],
   );
+
+  // Front-door handoff: when the Studio is opened with a ?prompt=... (the
+  // first-run front door's natural-language entry and starter chips route here
+  // with the operator's words), send it once as the opening turn, then strip it
+  // from the URL so a refresh does not resend. A ref keeps the send pointed at
+  // the latest handleSend; a short delay lets the conversation mount first.
+  const handleSendRef = useRef(handleSend);
+  useEffect(() => {
+    handleSendRef.current = handleSend;
+  });
+  const promptSeeded = useRef(false);
+  useEffect(() => {
+    if (promptSeeded.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const seed = params.get("prompt");
+    if (!seed || !seed.trim()) return;
+    promptSeeded.current = true;
+    params.delete("prompt");
+    const qs = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname + (qs ? `?${qs}` : ""),
+    );
+    const id = window.setTimeout(() => handleSendRef.current(seed.trim()), 80);
+    return () => window.clearTimeout(id);
+  }, []);
 
   // ---- Generate (single asset) ----
   const [count, setCount] = useState(1);

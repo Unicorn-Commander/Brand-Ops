@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { intakeBrand, listBrands } from "../../api/client";
 import type { IntakeResult } from "../../lib/types";
@@ -6,14 +6,40 @@ import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { brandColors } from "../../v2/metrics";
 import { fontStack } from "../../v2/EnvProvider";
+import { useViewMode } from "../../view-mode";
+import { NEW_BRAND_MODES, pick } from "../../lib/labels";
 
 type UiMode = "extend" | "describe" | "onboard";
 
-const MODES: Array<{ id: UiMode; label: string; body: string }> = [
-  { id: "extend", label: "Extend the house", body: "Create a related sub-brand under the selected parent." },
-  { id: "onboard", label: "From a brand", body: "Draft from a website URL and the name as hints." },
-  { id: "describe", label: "From nothing", body: "Draft from a name and brief." },
-];
+// The three journeys in display order. Titles and bodies are mode-aware: they
+// resolve from NEW_BRAND_MODES via pick(), so Simple reads plain goal-language
+// ("Import from a website") and Advanced keeps the house voice ("From a brand").
+// "onboard" leads because the import is the biggest single win.
+const MODE_ORDER: UiMode[] = ["onboard", "extend", "describe"];
+
+// The sessionStorage handoff (written by the Front Door / palette / showcase)
+// speaks the Studio's vocabulary. Translate it to this page's UiMode so a chosen
+// starting point pre-selects the matching journey when someone lands here.
+const HANDOFF_KEY = "brand-ops.new-brand-mode";
+function handoffToMode(value: string | null): UiMode | null {
+  switch (value) {
+    case "onboard":
+      return "onboard";
+    case "distinct":
+      return "describe";
+    case "consistent":
+      return "extend";
+    default:
+      return null;
+  }
+}
+function readHandoffMode(): UiMode | null {
+  try {
+    return handoffToMode(sessionStorage.getItem(HANDOFF_KEY));
+  } catch {
+    return null;
+  }
+}
 
 const STAGES = [
   {
@@ -69,7 +95,18 @@ const STAGES = [
 
 export default function NewBrandPage() {
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
-  const [mode, setMode] = useState<UiMode>("describe");
+  const { mode: viewMode } = useViewMode();
+  // Pre-select the journey the operator chose upstream, else lead with the most
+  // inviting one (import from a website).
+  const [mode, setMode] = useState<UiMode>(() => readHandoffMode() ?? "onboard");
+  // Consume the one-shot handoff so a later visit opens on the default.
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem(HANDOFF_KEY);
+    } catch {
+      // Best-effort; the in-memory state already reflects the handoff.
+    }
+  }, []);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [url, setUrl] = useState("");
@@ -122,18 +159,65 @@ export default function NewBrandPage() {
       </div>
 
       <div className="nb-modes" style={{ display: "grid", gap: 10, margin: "18px 0 24px" }}>
-        {MODES.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setMode(item.id)}
-            className={`voice-card ${mode === item.id ? "btn-ink" : ""}`}
-            style={{ textAlign: "left", cursor: "pointer", color: mode === item.id ? "#0a0a0e" : "var(--c-ink)" }}
-          >
-            <b style={{ display: "block", fontFamily: "var(--c-font-display)" }}>{item.label}</b>
-            <span style={{ display: "block", marginTop: 4, fontSize: 12, color: mode === item.id ? "rgba(10,10,14,0.72)" : "var(--c-ink-3)" }}>{item.body}</span>
-          </button>
-        ))}
+        {MODE_ORDER.map((id) => {
+          const labels = NEW_BRAND_MODES[id];
+          const selected = mode === id;
+          // The import journey is the biggest single win, so when it is not the
+          // chosen card it carries a soft accent treatment to draw the eye.
+          const invite = id === "onboard" && !selected;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setMode(id)}
+              aria-pressed={selected}
+              className={`voice-card ${selected ? "btn-ink" : ""}`}
+              style={{
+                position: "relative",
+                textAlign: "left",
+                cursor: "pointer",
+                color: selected ? "#0a0a0e" : "var(--c-ink)",
+                ...(invite
+                  ? {
+                      borderColor: "rgb(var(--accent) / 0.5)",
+                      background:
+                        "linear-gradient(180deg, rgb(var(--accent) / 0.08), transparent 70%)",
+                      boxShadow: "var(--shadow-paper), 0 0 30px -14px rgb(var(--accent) / 0.55)",
+                    }
+                  : {}),
+              }}
+            >
+              <b style={{ display: "block", fontFamily: "var(--c-font-display)" }}>
+                {pick(labels.title, viewMode)}
+              </b>
+              <span
+                style={{
+                  display: "block",
+                  marginTop: 4,
+                  fontSize: 12,
+                  color: selected ? "rgba(10,10,14,0.72)" : "var(--c-ink-3)",
+                }}
+              >
+                {pick(labels.body, viewMode)}
+              </span>
+              {invite && (
+                <span
+                  style={{
+                    display: "inline-block",
+                    marginTop: 8,
+                    fontFamily: "var(--c-font-mono)",
+                    fontSize: 9.5,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
+                    color: "rgb(var(--accent))",
+                  }}
+                >
+                  Fastest start
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <section className="nb-grid" style={{ display: "grid", gap: 24, alignItems: "start" }}>

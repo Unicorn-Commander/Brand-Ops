@@ -10,7 +10,7 @@ import {
   ShieldCheck,
   AlertTriangle,
 } from "lucide-react";
-import { spring } from "../../../lib/motion";
+import { spring, easeExpo } from "../../../lib/motion";
 import type { GeneratedFile, GenerateResult } from "../../../lib/types";
 
 interface ResultCardProps {
@@ -42,10 +42,13 @@ function firstHex(values: string[]): string | null {
 /**
  * One generated asset in the results grid.
  *
- * The REST API returns server-side file paths, not browser URLs, and it does not
- * serve the bytes, so the preview is a labeled placeholder rather than the image
- * (same convention as the shared AssetThumb). "Download" copies the on-disk path
- * for now; once a static-file route exists it becomes a real link.
+ * When the API returns a served `url` (a /api/assets/file link, same form the
+ * catalog builds), the card renders the real generated image with the signature
+ * REVEAL: it de-blurs + scales + fades in while a single soft brand-accent glow
+ * pulses around the tile and settles. Reduced-motion gets a plain cross-fade.
+ * When `url` is null (older results, or no URL could be formed) the card falls
+ * back to the labeled placeholder icon. "Download" still copies the on-disk path
+ * (the served URL is a viewer, not a forced download).
  */
 export function ResultCard({
   result,
@@ -63,15 +66,40 @@ export function ResultCard({
   const swatch = firstHex([...result.warnings, ...result.missing_refs]);
   const reason = result.warnings[0] ?? (result.missing_refs[0] ? `missing reference: ${result.missing_refs[0]}` : "gate pending");
 
-  // A short "developing" reveal: when the card first mounts, a shimmer sweeps
-  // over the placeholder (an image-gen riff on a print developing), then the
-  // asset settles in. Skipped under reduced-motion.
-  const [developing, setDeveloping] = useState(!reduce);
+  // The real generated image, when the API gave us a served URL. Until it
+  // resolves (or when there is none) we show the placeholder.
+  const hasImage = Boolean(file.url);
+  const alt = `${result.brand} ${result.asset} v${index}`;
+
+  // The signature REVEAL. `revealed` flips when the image decodes (onLoad), so
+  // the de-blur lands on real pixels rather than a guessed delay. With no image
+  // (placeholder fallback) or a load error we treat it as revealed immediately
+  // so the tile is never stuck behind a glow. The glow is a one-shot pulse.
+  const [revealed, setRevealed] = useState(!hasImage);
+  const [failed, setFailed] = useState(false);
+  // Belt-and-suspenders: if onLoad never fires (cached decode race), reveal
+  // after a short beat so we never strand the image under blur.
   useEffect(() => {
-    if (reduce) return;
-    const id = window.setTimeout(() => setDeveloping(false), 900);
+    if (!hasImage || revealed) return;
+    const id = window.setTimeout(() => setRevealed(true), 1200);
     return () => window.clearTimeout(id);
-  }, [reduce]);
+  }, [hasImage, revealed]);
+
+  // The reveal motion recipe (spec): de-blur 16->0px + scale 0.96->1 + fade in
+  // over ~400ms ease-out. Reduced motion = a plain cross-fade (no blur/scale).
+  const imageInitial = reduce
+    ? { opacity: 0 }
+    : { opacity: 0, scale: 0.96, filter: "blur(16px)" };
+  const imageAnimate = reduce
+    ? { opacity: revealed ? 1 : 0 }
+    : {
+        opacity: revealed ? 1 : 0,
+        scale: revealed ? 1 : 0.96,
+        filter: revealed ? "blur(0px)" : "blur(16px)",
+      };
+  const imageTransition = reduce
+    ? { duration: 0.3, ease: easeExpo.ease }
+    : { duration: 0.4, ease: easeExpo.ease };
 
   const copyPath = async () => {
     try {
@@ -101,25 +129,63 @@ export function ResultCard({
         style={{ aspectRatio: ratio }}
         title={selected ? "Selected" : "Select this version"}
       >
-        {/* The settled asset placeholder, scaled+faded in once developed. */}
-        <motion.div
-          initial={reduce ? false : { opacity: 0, scale: 1.04 }}
-          animate={{ opacity: developing ? 0 : 1, scale: 1 }}
-          transition={spring.card}
-          className="flex h-full w-full flex-col items-center justify-center gap-2 text-text-faint"
-        >
-          <ImageIcon size={22} />
-          <span className="px-2 text-center text-xs leading-tight">
-            {basename(file.path)}
-          </span>
-        </motion.div>
-
-        {/* The "developing" reveal: a shimmer sweep over a dark plate. */}
-        {developing && (
-          <div
-            aria-hidden
-            className="absolute inset-0 animate-shimmer bg-[linear-gradient(110deg,transparent_30%,rgb(var(--accent)/0.18)_50%,transparent_70%)] bg-chrome-bg/60 bg-[length:200%_100%]"
+        {/* The real generated image, revealed once it decodes. Falls back to the
+            placeholder below when there is no served URL or the load fails. */}
+        {hasImage && !failed && (
+          <motion.img
+            src={file.url ?? undefined}
+            alt={alt}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            initial={imageInitial}
+            animate={imageAnimate}
+            transition={imageTransition}
+            onLoad={() => setRevealed(true)}
+            onError={() => {
+              // The bytes did not resolve; show the labeled placeholder instead
+              // of a broken-image glyph, and clear the reveal gate.
+              setFailed(true);
+              setRevealed(true);
+            }}
+            className="absolute inset-0 h-full w-full object-contain"
           />
+        )}
+
+        {/* The one-shot brand-accent glow pulse that frames the reveal, then
+            settles. Skipped under reduced motion and when no image is revealing. */}
+        {hasImage && !failed && !reduce && (
+          <motion.span
+            aria-hidden
+            initial={{ opacity: 0 }}
+            animate={revealed ? { opacity: [0, 1, 0] } : { opacity: 0 }}
+            transition={{ duration: 0.9, times: [0, 0.35, 1], ease: "easeOut" }}
+            className="pointer-events-none absolute inset-0 rounded-xl shadow-glow"
+          />
+        )}
+
+        {/* The labeled placeholder: shown until the image decodes, when there is
+            no served URL, or when the load failed. */}
+        {(!hasImage || failed || !revealed) && (
+          <motion.div
+            initial={reduce ? false : { opacity: 0, scale: 1.04 }}
+            animate={{ opacity: hasImage && !failed && revealed ? 0 : 1, scale: 1 }}
+            transition={spring.card}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-text-faint"
+          >
+            <ImageIcon size={22} />
+            <span className="px-2 text-center text-xs leading-tight">
+              {basename(file.path)}
+            </span>
+            {/* While a real image is still developing, a soft shimmer reads as
+                "incoming" rather than a stalled placeholder. */}
+            {hasImage && !failed && !revealed && !reduce && (
+              <span
+                aria-hidden
+                className="absolute inset-0 animate-shimmer bg-[linear-gradient(110deg,transparent_30%,rgb(var(--accent)/0.16)_50%,transparent_70%)] bg-[length:200%_100%]"
+              />
+            )}
+          </motion.div>
         )}
 
         {selected && (
@@ -164,25 +230,38 @@ export function ResultCard({
           <button
             type="button"
             onClick={copyPath}
-            title={copied ? "Path copied" : "Copy file path (download not wired yet)"}
+            title={copied ? "Path copied" : "Copy the on-disk file path"}
             className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-chrome-hover hover:text-text"
           >
             {copied ? <CheckCheck size={15} /> : <Copy size={15} />}
           </button>
-          <a
-            href={file.catalog_path ?? file.path}
-            download
-            onClick={(e) => {
-              // Paths are server-side, not servable URLs yet. Prevent a dead
-              // navigation and fall back to copying the path.
-              e.preventDefault();
-              void copyPath();
-            }}
-            title="Download (parked until a file route exists)"
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-chrome-hover hover:text-text"
-          >
-            <Download size={15} />
-          </a>
+          {file.url ? (
+            <a
+              href={file.url}
+              download={basename(file.path)}
+              target="_blank"
+              rel="noreferrer"
+              title="Open / download the full image"
+              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-chrome-hover hover:text-text"
+            >
+              <Download size={15} />
+            </a>
+          ) : (
+            <a
+              href={file.catalog_path ?? file.path}
+              download
+              onClick={(e) => {
+                // No served URL: the path is server-side, not navigable. Prevent
+                // a dead navigation and fall back to copying the path.
+                e.preventDefault();
+                void copyPath();
+              }}
+              title="Download (no served URL for this file)"
+              className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-chrome-hover hover:text-text"
+            >
+              <Download size={15} />
+            </a>
+          )}
         </div>
       </div>
     </motion.div>
