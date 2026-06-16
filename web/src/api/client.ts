@@ -48,6 +48,8 @@ import type {
   ListActivityParams,
   ListAssetsParams,
   NeedsKeyError,
+  PlanGenerationReply,
+  PlanGenerationRequest,
   PromptPreview,
   TemplateList,
   TemplateDef,
@@ -292,6 +294,23 @@ export async function promptPreview(
   signal?: AbortSignal,
 ): Promise<PromptPreview> {
   return request<PromptPreview>("/prompt-preview", {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
+/**
+ * POST /api/plan-generation -> interpret a free-text request into a concrete
+ * GenerateRequest via the backend LLM planner (metered, local model), with a
+ * server-side keyword fallback so it always resolves. The Studio free-text box
+ * calls this; on a transport failure the caller falls back to the client stub.
+ */
+export async function planGeneration(
+  body: PlanGenerationRequest,
+  signal?: AbortSignal,
+): Promise<PlanGenerationReply> {
+  return request<PlanGenerationReply>("/plan-generation", {
     method: "POST",
     body,
     signal,
@@ -727,6 +746,7 @@ export const api = {
   intakeBrand,
   listAssetTypes,
   promptPreview,
+  planGeneration,
   generate,
   generateCard,
   listAssets,

@@ -21,7 +21,7 @@ import {
   type Turn,
   type TurnSpeaker,
 } from "./lib/transcript";
-import { planFromRequest } from "./lib/agent";
+import { planFromRequest, type AgentPlan } from "./lib/agent";
 import {
   inferPack,
   readPlannedItems,
@@ -444,20 +444,30 @@ export default function StudioPage() {
       text: string,
       hints?: { brand?: string | null; asset?: string | null; variant?: string | null; topic?: string | null },
     ): Promise<void> => {
-      const plan = planFromRequest({
-        text,
-        brands,
-        assetTypes,
-        knownVariants: variantOptions,
-        controls: {
-          brand: hints?.brand ?? controls.brand,
-          asset: hints?.asset ?? controls.asset,
-          variant: hints?.variant ?? controls.variant,
-          topic: hints?.topic ?? controls.topic,
-          platform: null,
-          backend: controls.backend,
-        },
-      });
+      // Plan the request with the backend LLM planner (real interpretation,
+      // metered through the gateway). It resolves server-side even when the
+      // model is down (keyword fallback), so the client-side stub only runs when
+      // the CALL itself fails (offline / transport error).
+      const planControls = {
+        brand: hints?.brand ?? controls.brand,
+        asset: hints?.asset ?? controls.asset,
+        variant: hints?.variant ?? controls.variant,
+        topic: hints?.topic ?? controls.topic,
+        platform: null,
+        backend: controls.backend,
+      };
+      let plan: AgentPlan | null;
+      try {
+        plan = await api.planGeneration({ text, ...planControls });
+      } catch {
+        plan = planFromRequest({
+          text,
+          brands,
+          assetTypes,
+          knownVariants: variantOptions,
+          controls: planControls,
+        });
+      }
 
       if (!plan) {
         append(

@@ -48,6 +48,12 @@ export interface BrandSummary {
    * from the catalog.
    */
   mark_url: string | null;
+  /**
+   * The brand's color tokens, carried on the list payload so the switcher can
+   * theme the app accent from a brand's REAL colors (not just the built-in
+   * suite pairings). Null when the brand declares none.
+   */
+  colors: BrandColors | null;
 }
 
 /** Full brand returned by GET /api/brands/{slug}. Extends the summary. */
@@ -203,6 +209,33 @@ export interface GenerateRequest {
   backend?: string | null;
   /** 1..8 inclusive (validated server-side). Live generate only. */
   count?: number;
+}
+
+/**
+ * Body for POST /api/plan-generation: a free-text request plus the current
+ * control values, which the backend LLM planner interprets into a concrete
+ * GenerateRequest. The Studio free-text box sends this; the server falls back
+ * to a keyword heuristic when the model is unavailable, so it always resolves.
+ */
+export interface PlanGenerationRequest {
+  text: string;
+  brand?: string | null;
+  asset?: string | null;
+  variant?: string | null;
+  topic?: string | null;
+  platform?: string | null;
+  backend?: string | null;
+}
+
+/**
+ * Reply from POST /api/plan-generation. The same shape as the client-side
+ * AgentPlan, so the backend planner is a drop-in for the local stub: a resolved
+ * GenerateRequest plus a short, human-readable rationale and any assumptions.
+ */
+export interface PlanGenerationReply {
+  request: GenerateRequest;
+  rationale: string[];
+  assumed: string[];
 }
 
 /**

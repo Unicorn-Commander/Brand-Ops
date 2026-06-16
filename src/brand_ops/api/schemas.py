@@ -50,6 +50,11 @@ class BrandSummary(BaseModel):
     # or null when the brand declares no mark. The GUI prefers this over guessing
     # a logo from the (cross-mis-tagged) catalog.
     mark_url: str | None = None
+    # The brand's resolved palette (the same five-role colors BrandDetail carries
+    # under visual.colors), so the list-only brand switcher can theme by the real
+    # brand colors without a per-brand detail fetch. Optional and defaulted to
+    # null so a brand that fails to resolve its colors still lists.
+    colors: BrandColorsOut | None = None
 
 
 class BrandDetail(BrandSummary):
@@ -561,6 +566,47 @@ class DirectorReply(BaseModel):
     # Populated only for intent "compliance": the deterministic gate's verdict
     # ({brand, target, status, score, violations, counts}). Null otherwise.
     compliance: dict | None = None
+
+
+# ---------------------------------------------------------------------------
+# Generation planner: free text -> a valid GenerateRequest
+# ---------------------------------------------------------------------------
+
+
+class PlanGenerationRequest(BaseModel):
+    """Body for POST /api/plan-generation.
+
+    The operator's free-text ask (``text``) plus the Studio's current control
+    values, which act as context and as fallbacks when the planner cannot infer a
+    field. ``text`` is the only thing the planner reads to decide; the control
+    values are used when the text is silent on a field (e.g. ``brand`` is the
+    active brand to default to, ``backend`` an explicit override to keep).
+    """
+
+    text: str
+    brand: str | None = None
+    asset: str | None = None
+    variant: str | None = None
+    topic: str | None = None
+    platform: str | None = None
+    backend: str | None = None
+
+
+class PlanGenerationReply(BaseModel):
+    """The planner's result (POST /api/plan-generation).
+
+    The same shape the Studio's client-side stub produced, so the frontend can
+    swap the local heuristic for this endpoint without changing its call site.
+    ``request`` is a fully valid ``GenerateRequest`` (brand and asset are always a
+    real brand slug and a real asset-type key; variant/topic/platform/backend are
+    populated only when inferred), ``rationale`` is one short plain-language line
+    per decision the planner made, and ``assumed`` lists the fields it could not
+    infer and left at a default (e.g. the asset type's default backend).
+    """
+
+    request: GenerateRequest
+    rationale: list[str] = Field(default_factory=list)
+    assumed: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

@@ -61,6 +61,25 @@ def test_list_brands_carries_canonical_mark_url(client: TestClient) -> None:
     assert mu["mark_url"].startswith("/api/assets/file?brand=magic-unicorn")
 
 
+def test_list_brands_carries_colors(client: TestClient) -> None:
+    # The list endpoint carries each brand's resolved palette (the same colors
+    # BrandDetail serves under visual.colors), so the brand switcher can theme by
+    # the real colors without a per-brand detail fetch. Every listed brand has a
+    # non-null primary.
+    resp = client.get("/api/brands")
+    assert resp.status_code == 200
+    brands = resp.json()["brands"]
+    for b in brands:
+        assert b["colors"] is not None, f"{b['slug']} has no colors"
+        assert b["colors"]["primary"].startswith("#")
+    # The list color matches what the detail endpoint reports for the same brand.
+    by_slug = {b["slug"]: b for b in brands}
+    mu = by_slug["magic-unicorn"]
+    detail = client.get("/api/brands/magic-unicorn").json()
+    assert mu["colors"]["primary"] == detail["visual"]["colors"]["primary"]
+    assert mu["colors"]["accent"] == detail["visual"]["colors"]["accent"]
+
+
 def test_brand_detail(client: TestClient) -> None:
     resp = client.get("/api/brands/magic-unicorn")
     assert resp.status_code == 200

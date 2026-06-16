@@ -34,6 +34,7 @@ from ..activity import append_event, read_events
 from ..agents.brand_intake import BrandIntakeAgent
 from ..agents.brand_research import _slugify
 from ..agents.director import DirectorAgent
+from ..agents.planner import GenerationPlanner
 from ..agents.registry import AGENT_REGISTRY
 from ..asset_types import ASSET_TYPES, get_asset_spec
 from ..backends.base import BackendError, BackendNotConfigured
@@ -108,6 +109,8 @@ from .schemas import (
     IntakeResult,
     MeOut,
     MeWorkspacesOut,
+    PlanGenerationReply,
+    PlanGenerationRequest,
     PromptPreview,
     TemplateList,
     TransitionRequest,
@@ -219,6 +222,10 @@ def _brand_summary(brand: Brand) -> BrandSummary:
         tagline=meta.tagline,
         parent=meta.parent,
         mark_url=_mark_url(brand),
+        # Carry the resolved palette so the list-only brand switcher can theme by
+        # the real colors. Same source BrandDetail uses (the loaded brand's visual
+        # colors), so the list and the detail can never disagree on a brand's hex.
+        colors=BrandColorsOut(**brand.visual.colors.model_dump()),
     )
 
 
@@ -1273,6 +1280,59 @@ async def run_agent_route(
         status=str(agent_status),
         result=result if isinstance(result, dict) else {"value": result},
     )
+
+
+# ---------------------------------------------------------------------------
+# Generation planner: free text -> a valid GenerateRequest
+# ---------------------------------------------------------------------------
+
+
+@router.post("/plan-generation", response_model=PlanGenerationReply)
+async def plan_generation(body: PlanGenerationRequest, principal: _Auth) -> PlanGenerationReply:
+    """Interpret a free-text generation ask into a concrete, valid GenerateRequest.
+
+    The Studio's free-text box ("make an OG image for the investor update, dark")
+    posts here with the current control values as context. The planner asks the
+    local model (through the shared metered gateway) to pick a brand, asset type,
+    variant, topic, and platform from the real brand slugs and asset types the
+    backend knows, validates that pick, and returns a fully valid GenerateRequest
+    plus a short rationale and the fields it assumed. The frontend feeds
+    ``request`` straight into the existing prompt-preview/generate flow.
+
+    This route never 500s on a normal request and never returns an invalid
+    GenerateRequest. When the gateway is unavailable, the model's reply will not
+    parse, or its pick fails validation, the planner falls back to a deterministic
+    server-side keyword heuristic, so the endpoint always answers 200 with a
+    sensible plan. An operator with no brands at all is the one 422 (there is
+    nothing to generate for).
+    """
+    brands = _brands_context()
+    planner = GenerationPlanner(
+        workspace_id=principal.workspace_id,
+        agent_kind="specialist",
+        agent_ref="generation_planner",
+        brand_slug=body.brand,
+    )
+    result = await planner.plan(
+        body.text,
+        brands,
+        brand=body.brand,
+        asset=body.asset,
+        variant=body.variant,
+        topic=body.topic,
+        platform=body.platform,
+        backend=body.backend,
+    )
+    request = result.get("request") or {}
+    if not request.get("brand") or not request.get("asset"):
+        # No brand or no asset could be resolved (the operator has no brands, or no
+        # asset types are registered). There is nothing valid to plan, so this is a
+        # clean 422 rather than a request that would fail at generate time.
+        raise HTTPException(
+            status_code=_HTTP_422,
+            detail="cannot plan a generation: no brand or asset type is available",
+        )
+    return PlanGenerationReply.model_validate(result)
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listBrands } from "./api/client";
-import { applyBrandAccent } from "./theme";
+import { applyBrandAccent, BRAND_ACCENTS } from "./theme";
 import type { BrandSummary } from "./lib/types";
 
 const STORAGE_KEY = "brand-ops.active-brand";
@@ -68,14 +68,23 @@ export function BrandProvider({ children }: { children: ReactNode }) {
     [brands, activeSlug],
   );
 
-  // Apply the brand accent whenever the active slug changes. Uses the built-in
-  // pairing for known suite slugs and falls back to the default otherwise.
-  // applyBrandAccent snaps on the first application (no recolor flash on load)
-  // and tweens (~280ms) on every later switch, so brand-hopping recolors the UI
-  // smoothly. Reduced motion snaps throughout (handled inside the tween).
+  // Apply the brand accent whenever the active brand changes. A built-in suite
+  // slug uses its hand-tuned BRAND_ACCENTS pairing; any other brand (a customer
+  // brand) themes from its OWN colors carried on the summary, run through the
+  // APCA legibility guard inside resolveAccent so a too-dark accent stays
+  // readable on the dark chrome. applyBrandAccent snaps on the first application
+  // (no recolor flash on load) and tweens (~280ms) on every later switch.
+  // Reduced motion snaps throughout (handled inside the tween).
   useEffect(() => {
-    if (activeSlug) applyBrandAccent(activeSlug);
-  }, [activeSlug]);
+    if (!activeSlug) return;
+    if (activeSlug in BRAND_ACCENTS) {
+      applyBrandAccent(activeSlug);
+    } else if (activeBrand?.colors) {
+      applyBrandAccent(activeBrand.colors);
+    } else {
+      applyBrandAccent(activeSlug); // unknown slug, no colors: default pairing
+    }
+  }, [activeSlug, activeBrand]);
 
   const value = useMemo<BrandContextValue>(
     () => ({ brands, brandsLoading, activeSlug, activeBrand, setActiveSlug }),
