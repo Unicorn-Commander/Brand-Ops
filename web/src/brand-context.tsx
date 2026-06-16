@@ -70,6 +70,9 @@ export function BrandProvider({ children }: { children: ReactNode }) {
 
   // Apply the brand accent whenever the active slug changes. Uses the built-in
   // pairing for known suite slugs and falls back to the default otherwise.
+  // applyBrandAccent snaps on the first application (no recolor flash on load)
+  // and tweens (~280ms) on every later switch, so brand-hopping recolors the UI
+  // smoothly. Reduced motion snaps throughout (handled inside the tween).
   useEffect(() => {
     if (activeSlug) applyBrandAccent(activeSlug);
   }, [activeSlug]);

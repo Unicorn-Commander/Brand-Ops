@@ -1,0 +1,10 @@
+# Keep the Docker build context small and correct. node_modules is installed
+# fresh by `npm ci` in the builder stage; shipping the host copy would bloat the
+# context and — worse — drop host-arch native binaries (esbuild/rollup) into a
+# Linux image via `COPY . .`, breaking the Vite build. dist is rebuilt in-image.
+node_modules
+dist
+.vite
+.DS_Store
+*.log
+npm-debug.log*

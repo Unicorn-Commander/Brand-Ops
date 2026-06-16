@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getBrand } from "../api/client";
+import { animateColorVars } from "../theme";
 import type { BrandDetail } from "../lib/types";
 
 const BUNDLED_FONTS = new Set([
@@ -36,39 +37,100 @@ function loadFont(name: string | null | undefined): void {
   void name;
 }
 
-function applyBrandEnv(brand: BrandDetail): void {
+// True once an env has been applied this session. The first application (initial
+// page load) snaps the color vars so there is no recolor flash; later changes
+// tween them. Mirrors theme.ts's hasAppliedOnce for the --accent system.
+let envAppliedOnce = false;
+
+// The brand-book env's resolved values: solid colors (hex), the glow fills
+// (rgba), the text + background fills, and the fonts. Split this way because we
+// TWEEN the visible color vars (primary/accent/glows) and SNAP everything else
+// (tweening a background or text fill reads as muddy; fonts can't tween at all).
+interface EnvVars {
+  primary: string;
+  accent: string;
+  glow1: string;
+  glow2: string;
+  bg: string;
+  ink: string;
+  ink2: string;
+  ink3: string;
+  hairline: string;
+  fontDisplay: string;
+  fontBody: string;
+}
+
+/**
+ * Write an env to the document: the accent/glow color vars TWEEN (reusing
+ * theme.ts's animateColorVars so they recolor in lockstep with --accent), while
+ * the background, text, hairline, and font vars SNAP instantly. The first
+ * application of the session snaps everything (no recolor flash on load), and
+ * reduced motion snaps throughout (handled inside the tween).
+ */
+function applyEnv(v: EnvVars): void {
   const root = document.documentElement;
+
+  // Snap the non-tweened vars (text + background fills, hairline, fonts).
+  root.style.setProperty("--b-bg", v.bg);
+  root.style.setProperty("--b-ink", v.ink);
+  root.style.setProperty("--b-ink-2", v.ink2);
+  root.style.setProperty("--b-ink-3", v.ink3);
+  root.style.setProperty("--b-hairline", v.hairline);
+  root.style.setProperty("--b-font-display", v.fontDisplay);
+  root.style.setProperty("--b-font-body", v.fontBody);
+
+  // The visible color vars: tween on a real change, snap on first paint.
+  const colorTargets = [
+    { prop: "--b-primary", to: v.primary, format: "rgb-or-rgba" as const },
+    { prop: "--b-accent", to: v.accent, format: "rgb-or-rgba" as const },
+    { prop: "--b-bg-glow1", to: v.glow1, format: "rgb-or-rgba" as const },
+    { prop: "--b-bg-glow2", to: v.glow2, format: "rgb-or-rgba" as const },
+  ];
+  if (envAppliedOnce) {
+    // group "env" so this tween is independent of the --accent tween that the
+    // brand switch fires; the two run concurrently without cancelling each other.
+    animateColorVars(colorTargets, { group: "env" });
+  } else {
+    for (const t of colorTargets) root.style.setProperty(t.prop, t.to);
+  }
+  envAppliedOnce = true;
+}
+
+function applyBrandEnv(brand: BrandDetail): void {
   const colors = brand.visual.colors;
   const primary = colors.primary || "#9b8cff";
   const accentColor = colors.accent || primary;
   const bg = colors.background || "#07070b";
   const ink = colors.foreground || "#f2f1ee";
-  root.style.setProperty("--b-bg", bg);
-  root.style.setProperty("--b-bg-glow1", alpha(primary, 0.34));
-  root.style.setProperty("--b-bg-glow2", alpha(accentColor, 0.18));
-  root.style.setProperty("--b-ink", ink);
-  root.style.setProperty("--b-ink-2", alpha(ink, 0.66));
-  root.style.setProperty("--b-ink-3", alpha(ink, 0.44));
-  root.style.setProperty("--b-primary", primary);
-  root.style.setProperty("--b-accent", accentColor);
-  root.style.setProperty("--b-hairline", alpha(primary, 0.14));
-  root.style.setProperty("--b-font-display", fontStack(brand.visual.typography.display_font));
-  root.style.setProperty("--b-font-body", fontStack(brand.visual.typography.primary_font));
+  applyEnv({
+    primary,
+    accent: accentColor,
+    glow1: alpha(primary, 0.34),
+    glow2: alpha(accentColor, 0.18),
+    bg,
+    ink,
+    ink2: alpha(ink, 0.66),
+    ink3: alpha(ink, 0.44),
+    hairline: alpha(primary, 0.14),
+    fontDisplay: fontStack(brand.visual.typography.display_font),
+    fontBody: fontStack(brand.visual.typography.primary_font),
+  });
 }
 
 function applyChromeEnv(): void {
-  const root = document.documentElement;
-  root.style.setProperty("--b-bg", "#07070b");
-  root.style.setProperty("--b-bg-glow1", "rgba(155, 140, 255, 0.24)");
-  root.style.setProperty("--b-bg-glow2", "rgba(76, 201, 240, 0.14)");
-  root.style.setProperty("--b-ink", "#f2f1ee");
-  root.style.setProperty("--b-ink-2", "rgba(242, 241, 238, 0.66)");
-  root.style.setProperty("--b-ink-3", "rgba(242, 241, 238, 0.44)");
-  root.style.setProperty("--b-primary", "#9b8cff");
-  root.style.setProperty("--b-accent", "#4cc9f0");
-  root.style.setProperty("--b-hairline", "rgba(155, 140, 255, 0.14)");
-  root.style.setProperty("--b-font-display", FONT_STACKS.Inter);
-  root.style.setProperty("--b-font-body", FONT_STACKS.Inter);
+  applyEnv({
+    primary: "#9b8cff",
+    accent: "#4cc9f0",
+    glow1: "rgba(155, 140, 255, 0.24)",
+    glow2: "rgba(76, 201, 240, 0.14)",
+    bg: "#07070b",
+    ink: "#f2f1ee",
+    ink2: "rgba(242, 241, 238, 0.66)",
+    ink3: "rgba(242, 241, 238, 0.44)",
+    hairline: "rgba(155, 140, 255, 0.14)",
+    fontDisplay: FONT_STACKS.Inter,
+    fontBody: FONT_STACKS.Inter,
+  });
 }
 
 export function useBrandEnv(slug: string | undefined) {
