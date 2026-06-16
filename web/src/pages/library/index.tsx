@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { LayoutGroup } from "framer-motion";
 import { LibraryBig, AlertTriangle, UploadCloud } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
+import { SkeletonCard } from "../../components/Skeleton";
 import { Button } from "../../components/Button";
 import { api } from "../../api/client";
 import type { AssetLifecycleStatus, AssetRecord } from "../../lib/types";
@@ -26,6 +28,26 @@ function humanizeKey(key: string): string {
   const s = key.replace(/_/g, " ");
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/**
+ * Aspect ratios for the loading skeletons. A spread of portrait / square /
+ * landscape so the placeholder masonry reads like a real mixed-asset gallery
+ * (logos, banners, OG images) rather than a uniform grid. Length sets the count.
+ */
+const SKELETON_ASPECTS = [
+  "1 / 1",
+  "4 / 3",
+  "3 / 4",
+  "16 / 9",
+  "1 / 1",
+  "3 / 2",
+  "1 / 1",
+  "4 / 5",
+  "16 / 9",
+  "1 / 1",
+  "2 / 3",
+  "3 / 2",
+] as const;
 
 /**
  * sessionStorage key a caller (e.g. the command palette's "Review queue"
@@ -320,6 +342,11 @@ export default function LibraryPage() {
         </div>
       </details>
 
+      {/* One shared layout tree for the grid + drawer so a click MORPHS the
+          card thumbnail into the drawer hero via a matching layoutId. The
+          drawer is rendered inline (no portal) as a sibling here, so it shares
+          this tree. LayoutGroup renders no DOM node, so layout is unaffected. */}
+      <LayoutGroup>
       <div className="space-y-5">
         <FilterBar
             filters={filters}
@@ -332,8 +359,17 @@ export default function LibraryPage() {
           />
 
           {isLoading ? (
-            <div className="flex items-center justify-center gap-3 py-16 text-sm text-text-muted">
-              <Spinner size={18} /> Loading assets
+            // Layout-matched skeletons in the real masonry grid, so the catalog
+            // lands into reserved slots instead of jumping from a bare spinner.
+            // Varied aspect ratios read like a gallery rather than a uniform table.
+            <div
+              aria-busy="true"
+              aria-label="Loading assets"
+              className="columns-2 gap-3 sm:columns-3 lg:columns-4 [&>*]:mb-3 [&>*]:break-inside-avoid"
+            >
+              {SKELETON_ASPECTS.map((aspect, i) => (
+                <SkeletonCard key={i} aspect={aspect} />
+              ))}
             </div>
           ) : isError ? (
             <EmptyState
@@ -419,6 +455,7 @@ export default function LibraryPage() {
           activeFile !== null && transitioningFile === activeFile
         }
       />
+      </LayoutGroup>
     </div>
   );
 }

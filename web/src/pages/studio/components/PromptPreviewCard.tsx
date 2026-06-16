@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Wand2,
   Copy,
@@ -9,7 +10,8 @@ import {
 } from "lucide-react";
 import { Button } from "../../../components/Button";
 import { Spinner } from "../../../components/Spinner";
-import type { PromptPreview } from "../../../lib/types";
+import { listAgentGovernance } from "../../../api/client";
+import type { AutonomyLevel, PromptPreview } from "../../../lib/types";
 
 interface PromptPreviewCardProps {
   preview: PromptPreview | null;
@@ -33,6 +35,13 @@ function Pill({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** The stored autonomy value -> the plain-English posture shown on the chip. */
+const AUTONOMY_LABEL: Record<AutonomyLevel, string> = {
+  propose: "proposes, you approve",
+  auto_with_review: "auto with review",
+  autonomous: "autonomous",
+};
+
 /**
  * The composed-prompt card. Shows the prompt the engine will use, the plan
  * (backend, dimensions, transparency), and any missing references or warnings
@@ -48,6 +57,18 @@ export function PromptPreviewCard({
   onGenerate,
 }: PromptPreviewCardProps) {
   const [copied, setCopied] = useState(false);
+
+  // The Director's real posture, for the autonomy chip. Cached app-wide under the
+  // same key the Crew page uses, so it is usually already warm. Default to
+  // "propose" (the house default) until it resolves.
+  const { data: governance } = useQuery({
+    queryKey: ["governance"],
+    queryFn: ({ signal }) => listAgentGovernance(signal),
+  });
+  const directorAutonomy: AutonomyLevel =
+    governance?.find(
+      (g) => g.agent_kind === "director" || g.agent_ref === "iris",
+    )?.autonomy ?? "propose";
 
   const copyPrompt = async () => {
     if (!preview) return;
@@ -68,14 +89,19 @@ export function PromptPreviewCard({
           Composed prompt
         </h2>
         {preview && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={copyPrompt}
-            icon={copied ? <Check size={14} /> : <Copy size={14} />}
-          >
-            {copied ? "Copied" : "Copy"}
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={copyPrompt}
+              icon={copied ? <Check size={14} /> : <Copy size={14} />}
+            >
+              {copied ? "Copied" : "Copy"}
+            </Button>
+            <span aria-live="polite" className="sr-only">
+              {copied ? "Copied" : ""}
+            </span>
+          </>
         )}
       </header>
 
@@ -112,7 +138,7 @@ export function PromptPreviewCard({
               </Pill>
               {preview.variant && <Pill>variant: {preview.variant}</Pill>}
               {preview.transparent && <Pill>transparent</Pill>}
-              <Pill>autonomy: auto with review · TODO(backend)</Pill>
+              <Pill>autonomy: {AUTONOMY_LABEL[directorAutonomy]}</Pill>
             </div>
 
             <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-lg border border-white/8 bg-chrome-bg/80 p-3 font-mono text-xs leading-relaxed text-text">

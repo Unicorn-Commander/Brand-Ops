@@ -12,7 +12,7 @@ import {
 } from "../../api/client";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
-import { Spinner } from "../../components/Spinner";
+import { Skeleton } from "../../components/Skeleton";
 import { fontNote } from "../../v2/EnvProvider";
 import {
   assetsFor,
@@ -41,6 +41,74 @@ function textColor(hex: string): string {
   return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#11151a" : "#f8fafc";
 }
 
+// Layout-matched loading state for the brand/tokens/compliance queries: mirrors
+// the hero (mark + grade), the color-token wall, and the kit-coverage list, so
+// the load reads ~20-30% faster than a bare spinner and the real blocks land
+// into reserved slots. The skeleton itself shimmers (the `.skeleton` class,
+// self-stilling under reduced-motion) — no rise/animate-in.
+function BrandHQSkeleton() {
+  return (
+    <>
+      <section className="hq-hero">
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 26 }}>
+            <Skeleton width={90} height={12} />
+            <Skeleton width={110} height={20} radius={999} />
+          </div>
+          <Skeleton width="62%" height={52} radius={10} />
+          <Skeleton width="80%" height={16} style={{ marginTop: 18 }} />
+          <Skeleton width="92%" height={13} style={{ marginTop: 12 }} />
+          <Skeleton width="74%" height={13} style={{ marginTop: 6 }} />
+          <div style={{ display: "flex", gap: 10, marginTop: 26 }}>
+            <Skeleton width={120} height={40} radius={10} />
+            <Skeleton width={110} height={40} radius={10} />
+            <Skeleton width={140} height={40} radius={10} />
+          </div>
+        </div>
+        <div className="hero-side">
+          <div style={{ display: "grid", placeItems: "center", padding: "20px 0 36px" }}>
+            <Skeleton width={180} height={180} radius={999} />
+          </div>
+          <div className="gradeboard">
+            <Skeleton width={56} height={48} radius={10} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
+              <Skeleton width="80%" height={12} />
+              <Skeleton width="55%" height={12} />
+              <Skeleton width={90} height={12} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="block">
+        <div className="sec-head">
+          <Skeleton width={120} height={26} radius={6} />
+        </div>
+        <div className="paint-wall">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} height="100%" radius="var(--radius-sm)" style={{ minHeight: 86 }} />
+          ))}
+        </div>
+      </section>
+
+      <section className="block">
+        <div className="sec-head">
+          <Skeleton width={90} height={26} radius={6} />
+        </div>
+        <div className="kit">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="kit-cell">
+              <Skeleton height={86} radius={7} />
+              <Skeleton width="70%" height={11} />
+              <Skeleton width="45%" height={10} />
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
 export default function BrandHQPage() {
   const { slug = "" } = useParams();
   const brandQ = useQuery({ queryKey: ["brand", slug], queryFn: ({ signal }) => getBrand(slug, signal) });
@@ -52,12 +120,11 @@ export default function BrandHQPage() {
   const activityQ = useQuery({ queryKey: ["activity", slug], queryFn: ({ signal }) => listActivity({ brand: slug, limit: 8 }, signal) });
   const teamQ = useQuery({ queryKey: ["agent-team", slug], queryFn: ({ signal }) => getAgentTeam(slug, signal) });
 
+  // Replace the bare centered spinner with a layout-matched skeleton while the
+  // brand record loads (the hero, tokens, and compliance below all depend on
+  // it). The not-found check stays distinct: loaded-but-absent → EmptyState.
   if (brandQ.isLoading) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", padding: "80px 0" }}>
-        <Spinner size={28} />
-      </div>
-    );
+    return <BrandHQSkeleton />;
   }
 
   const brand = brandQ.data;

@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   getAgentTeam,
   listActivity,
@@ -251,13 +252,20 @@ export default function CrewPage() {
 // Governance editing: a shared save hook + the Director and Steward cards.
 // ---------------------------------------------------------------------------
 
-/** A mutation that saves one agent's governance and refreshes the list. */
-function useSaveGovernance(kind: AgentKind, ref: string) {
+/**
+ * A mutation that saves one agent's governance and refreshes the list. `name` is
+ * the human label used in the save toast; it falls back to the ref.
+ */
+function useSaveGovernance(kind: AgentKind, ref: string, name?: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: AgentGovernanceUpdate) => putAgentGovernance(kind, ref, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["governance"] });
+      toast.success(name ? `Saved ${name}` : "Saved");
+    },
+    onError: () => {
+      toast.error("Could not save. Try again.");
     },
   });
 }
@@ -292,7 +300,7 @@ function DirectorCard({
   governance: AgentGovernance;
   recentActivity: Array<{ id: string; actor: string; action: string; target: string | null; ts: string }>;
 }) {
-  const save = useSaveGovernance("director", "iris");
+  const save = useSaveGovernance("director", "iris", directorName);
   const [autonomy, setAutonomy] = useState<AutonomyLevel>(governance.autonomy);
   const [orders, setOrders] = useState(governance.standing_orders);
   const [model, setModel] = useState(governance.model ?? "");
@@ -404,7 +412,7 @@ function StewardCard({
   approvedPct: number | null;
   governance: AgentGovernance;
 }) {
-  const save = useSaveGovernance("steward", brand.slug);
+  const save = useSaveGovernance("steward", brand.slug, brand.display_name);
   const [autonomy, setAutonomy] = useState<AutonomyLevel>(governance.autonomy);
   const [orders, setOrders] = useState(governance.standing_orders);
 

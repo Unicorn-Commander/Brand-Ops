@@ -5,6 +5,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { getAgentTeam, getBrand, getBrandCompliance, listActivity, listAgents, listAssets, listAssetTypes, listBrands } from "../../api/client";
 import type { AssetRecord, AssetType, BrandComplianceRollup, BrandDetail, BrandSummary } from "../../lib/types";
 import { MarkImg } from "../../components/MarkImg";
+import { Skeleton } from "../../components/Skeleton";
 import FrontDoor from "../../v2/FrontDoor";
 import {
   assetsFor,
@@ -92,6 +93,41 @@ function Cover({
   );
 }
 
+// Layout-matched loading state: a header block + a shelf of cover-shaped
+// skeletons, so the brands query reads ~20-30% faster than a bare spinner and
+// the real deck lands into a reserved slot. The skeleton itself shimmers (the
+// `.skeleton` class, self-stilling under reduced-motion) — no rise/animate-in.
+function PortfolioSkeleton() {
+  return (
+    <>
+      <section className="v2-head">
+        <div style={{ flex: 1 }}>
+          <Skeleton width={260} height={12} />
+          <Skeleton width={320} height={44} radius={8} style={{ marginTop: 14 }} />
+          <Skeleton width={220} height={44} radius={8} style={{ marginTop: 8 }} />
+          <Skeleton width={300} height={13} style={{ marginTop: 18 }} />
+        </div>
+        <div className="v2-head-right">
+          <div className="statline">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                <Skeleton width={40} height={23} />
+                <Skeleton width={68} height={11} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="brand-shelf">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <Skeleton key={i} height={332} radius="var(--radius)" />
+        ))}
+      </section>
+    </>
+  );
+}
+
 export default function PortfolioPage() {
   const navigate = useNavigate();
   const [command, setCommand] = useState("Stand up a brand for the Crisis-Ops launch");
@@ -152,6 +188,15 @@ export default function PortfolioPage() {
   // empty brand list are no-ops) so the rules of hooks hold as the list fills.
   if (!brandsQ.isLoading && brands.length === 0) {
     return <FrontDoor />;
+  }
+
+  // Loading is distinct from empty: the front-door early-return above already
+  // claimed the loaded-and-empty case (and takes precedence), so reaching here
+  // while the brands query is still in flight means we don't yet know whether
+  // there are brands — show a layout-matched skeleton, never the "No brands,
+  // standing by" deck or the front door.
+  if (brandsQ.isLoading) {
+    return <PortfolioSkeleton />;
   }
 
   function submitCommand() {

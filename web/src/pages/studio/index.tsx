@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import { api, isNeedsKeyError } from "../../api/client";
 import { applyBrandAccent } from "../../theme";
 import { useActiveBrand } from "../../brand-context";
@@ -675,16 +676,16 @@ export default function StudioPage() {
       const result = await api.generate(req, ac.signal);
       setCanvas({ status: "results", result });
       if (result.files.length > 0) setSelectedIndex(0);
+      const n = result.files.length;
       append(
         say(
           "result",
-          result.files.length > 0
-            ? `Done. ${result.files.length} ${
-                result.files.length === 1 ? "asset" : "assets"
-              } in the canvas.`
+          n > 0
+            ? `Done. ${n} ${n === 1 ? "asset" : "assets"} in the canvas.`
             : "The run finished but returned no files.",
         ),
       );
+      if (n > 0) toast.success(`Generated ${n} ${n === 1 ? "asset" : "assets"}`);
     } catch (err) {
       if (ac.signal.aborted) return;
       if (isNeedsKeyError(err)) {
@@ -705,14 +706,14 @@ export default function StudioPage() {
           );
           setCanvas({ status: "results", result });
           if (result.files.length > 0) setSelectedIndex(0);
+          const n = result.files.length;
           append(
             say(
               "result",
-              `No ${backend} key is set, so I composed this on brand without one. ${
-                result.files.length
-              } in the canvas.`,
+              `No ${backend} key is set, so I composed this on brand without one. ${n} in the canvas.`,
             ),
           );
+          if (n > 0) toast.success(`Generated ${n} ${n === 1 ? "asset" : "assets"}`);
         } catch (cardErr) {
           if (ac.signal.aborted) return;
           setCanvas({ status: "needs_key", backend, detail });
@@ -727,6 +728,7 @@ export default function StudioPage() {
         const message = err instanceof Error ? err.message : "Generation failed.";
         setCanvas({ status: "error", message });
         append(say("note", message, { error: true }));
+        toast.error(message);
       }
     } finally {
       if (!ac.signal.aborted) setGenerating(false);

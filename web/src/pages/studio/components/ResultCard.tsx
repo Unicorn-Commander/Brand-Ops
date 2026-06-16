@@ -6,7 +6,6 @@ import {
   Download,
   History,
   Copy,
-  CheckCheck,
   ShieldCheck,
   AlertTriangle,
 } from "lucide-react";
@@ -231,10 +230,15 @@ export function ResultCard({
             type="button"
             onClick={copyPath}
             title={copied ? "Path copied" : "Copy the on-disk file path"}
-            className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-chrome-hover hover:text-text"
+            className={`rounded-md p-1.5 transition-colors hover:bg-chrome-hover hover:text-text ${
+              copied ? "text-accent" : "text-text-muted"
+            }`}
           >
-            {copied ? <CheckCheck size={15} /> : <Copy size={15} />}
+            {copied ? <Check size={15} /> : <Copy size={15} />}
           </button>
+          <span aria-live="polite" className="sr-only">
+            {copied ? "Copied" : ""}
+          </span>
           {file.url ? (
             <a
               href={file.url}

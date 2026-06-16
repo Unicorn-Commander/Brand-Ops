@@ -23,6 +23,7 @@ import type {
 } from "../../../lib/types";
 import type { AssetGroup } from "./catalog";
 import { spring, easeExpo } from "../../../lib/motion";
+import { assetMorphId } from "./AssetGrid";
 import {
   assetTitle,
   formatCost,
@@ -466,6 +467,16 @@ export function AssetDetailDrawer({
     : null;
   const shownFile = record?.file ?? "";
   const createdAt = record ? formatDateTime(record.created_at) : null;
+  // True when the hero shows the same render the grid card showed (the group's
+  // current version) — only then does a grid card carry the matching layoutId
+  // to morph from. Switching to an older version breaks that pairing.
+  const isOpenedRender = record?.file === group?.current.file;
+  // When the hero is morphing in, the panel must NOT animate a transform: a
+  // shared-element (layoutId) child is measured in its ancestor's coordinate
+  // space, and an animating x/scale on the panel distorts the morph (framer v12).
+  // So while morphing we reveal the panel with opacity only and let the hero
+  // carry the motion; otherwise we keep the right-side slide-over.
+  const morphing = isOpenedRender && !reduce;
 
   return (
     <AnimatePresence>
@@ -485,10 +496,12 @@ export function AssetDetailDrawer({
             role="dialog"
             aria-modal="true"
             aria-label={`${assetTitle(record)} detail`}
-            initial={reduce ? { opacity: 0 } : { x: "100%" }}
-            animate={reduce ? { opacity: 1 } : { x: 0 }}
-            exit={reduce ? { opacity: 0 } : { x: "100%" }}
-            transition={spring.panel}
+            // Morphing: fade only (no transform) so the hero's layoutId projects
+            // cleanly. Reduced motion: fade. Otherwise: the right-side slide-over.
+            initial={morphing || reduce ? { opacity: 0 } : { x: "100%" }}
+            animate={morphing || reduce ? { opacity: 1 } : { x: 0 }}
+            exit={morphing || reduce ? { opacity: 0 } : { x: "100%" }}
+            transition={morphing ? easeExpo : spring.panel}
             className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-white/8 bg-chrome-panel/95 shadow-float backdrop-blur-xl"
           >
             <header className="flex items-start justify-between gap-3 border-b border-white/8 px-5 py-4">
@@ -513,18 +526,41 @@ export function AssetDetailDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {/* Preview frame. Shows the rendered image when a URL is served,
-              otherwise a labeled placeholder rather than a broken image. */}
+              otherwise a labeled placeholder rather than a broken image. The
+              hero of the OPENED render carries the same layoutId as its grid
+              card, so framer morphs the thumbnail into this hero on open. An
+              older version (switched via the history list) has no grid card to
+              morph from, so it blur-ups in place instead. Reduced motion drops
+              the morph and the older-version hero just cross-fades. */}
           <div className="px-5 pt-4">
             <div
               className="relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-white/8 bg-chrome-raised text-text-faint"
               style={{ aspectRatio: aspectFor(record.size) }}
             >
               {record.url ? (
-                <img
-                  src={record.url}
-                  alt={`${assetTitle(record)} for ${record.brand}`}
-                  className="h-full w-full object-contain"
-                />
+                morphing ? (
+                  <motion.img
+                    key={record.file}
+                    layoutId={assetMorphId(record.file)}
+                    src={record.url}
+                    alt={`${assetTitle(record)} for ${record.brand}`}
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <motion.img
+                    key={record.file}
+                    initial={
+                      reduce
+                        ? { opacity: 0 }
+                        : { opacity: 0, filter: "blur(12px)", scale: 0.96 }
+                    }
+                    animate={{ opacity: 1, filter: "blur(0px)", scale: 1 }}
+                    transition={easeExpo}
+                    src={record.url}
+                    alt={`${assetTitle(record)} for ${record.brand}`}
+                    className="h-full w-full object-contain"
+                  />
+                )
               ) : (
                 <>
                   <ImageIcon size={26} />

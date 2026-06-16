@@ -12,6 +12,24 @@ import { staggerContainer, staggerItem, spring } from "../../../lib/motion";
 import type { AssetGroup } from "./catalog";
 import type { AssetRecord } from "../../../lib/types";
 
+/**
+ * Beyond this many cards we stop staggering the first-paint reveal: a huge
+ * library should not animate for seconds. The first slice blur-rises in;
+ * the rest appear immediately so scrolling never waits on motion.
+ */
+const STAGGER_CAP = 24;
+
+/**
+ * A stable id for the shared-element morph. Built from the asset's file path
+ * (its catalog identity), it is matched on the drawer's hero image so a click
+ * physically morphs the card thumbnail into the drawer hero. Versions share an
+ * identity but each render has a distinct file, so the open version maps to the
+ * card that was clicked (the group's current render).
+ */
+export function assetMorphId(file: string): string {
+  return `asset-${file}`;
+}
+
 interface AssetGridProps {
   groups: AssetGroup[];
   /** key of the open group, for the selection ring. */
@@ -40,9 +58,26 @@ function aspectFor(size: number[]): string {
  * shimmer skeleton sits over the chrome-raised block, swapping to the real
  * image on load; without a URL (the API serves only basenames) a labeled
  * placeholder shows instead of a broken image.
+ *
+ * `morphId` ties the image to the detail drawer's hero via a shared `layoutId`:
+ * every card carries its own unique id (derived from the asset file), so on open
+ * framer morphs the clicked thumbnail INTO the drawer hero, and on close it
+ * morphs the hero back into the same card (the card must keep its id through the
+ * drawer's exit, so it is unconditional, not gated to the open card). Each id is
+ * unique, so the only duplicate is the open card + its hero — exactly the morph
+ * pair. Under reduced motion we drop the id so it cross-fades instead. The
+ * zoom-on-hover is gated to fine pointers so a tap on touch does not leave the
+ * image stuck scaled.
  */
-function Preview({ asset }: { asset: AssetRecord }) {
+function Preview({
+  asset,
+  morphId,
+}: {
+  asset: AssetRecord;
+  morphId?: string;
+}) {
   const src = asset.url ?? undefined;
+  const reduce = useReducedMotion();
   const [loaded, setLoaded] = useState(false);
   const [broken, setBroken] = useState(false);
   const showImage = Boolean(src) && !broken;
@@ -60,19 +95,23 @@ function Preview({ asset }: { asset: AssetRecord }) {
               className="absolute inset-0 animate-shimmer bg-chrome-raised"
             />
           )}
-          <img
+          <motion.img
+            // The morph source. Dropped under reduced motion so the drawer
+            // cross-fades instead. Each id is unique to the asset, so it only
+            // ever pairs with its own drawer hero — never another card.
+            {...(morphId && !reduce ? { layoutId: morphId } : null)}
             src={src}
             alt={`${asset.asset_type} ${asset.variant ?? ""} for ${asset.brand}`.trim()}
             loading="lazy"
             onLoad={() => setLoaded(true)}
             onError={() => setBroken(true)}
-            className={`h-full w-full object-contain transition-[transform,opacity] duration-500 ease-spring group-hover:scale-[1.03] ${
+            className={`h-full w-full object-contain transition-[transform,opacity] duration-500 ease-spring [@media(hover:hover)]:group-hover:scale-[1.03] ${
               loaded ? "opacity-100" : "opacity-0"
             }`}
           />
         </>
       ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-text-faint transition-transform duration-500 ease-spring group-hover:scale-[1.03]">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-text-faint transition-transform duration-500 ease-spring [@media(hover:hover)]:group-hover:scale-[1.03]">
           <ImageIcon size={22} />
           <span className="px-2 text-center text-xs leading-tight text-text-faint">
             {asset.file}
@@ -157,32 +196,52 @@ export function AssetGrid({
       animate="show"
       className="columns-2 gap-3 sm:columns-3 lg:columns-4 [&>*]:mb-3 [&>*]:break-inside-avoid"
     >
-      {groups.map((group) => {
+      {groups.map((group, i) => {
         const selected = group.key === selectedKey;
         const versionCount = group.versions.length;
         const meta =
           [group.current.asset_type, group.current.variant]
             .filter(Boolean)
             .join(" / ") || group.current.asset_type;
+        // Only the first slice blur-rises in (capped so a large library does not
+        // animate for seconds); the rest mount already-shown. Reduced motion
+        // skips the variant entirely and cross-fades via the static class.
+        const staggered = !reduce && i < STAGGER_CAP;
         return (
-          <motion.div key={group.key} variants={staggerItem}>
+          <motion.div
+            key={group.key}
+            variants={staggered ? staggerItem : undefined}
+          >
             <motion.div
+              // Hover lift + a soft brand-accent glow, fine-pointer only (a tap
+              // must not leave a card stuck lifted). Press dips it slightly so a
+              // click feels physical. Reduced motion drops both.
               whileHover={reduce ? undefined : { y: -3 }}
+              whileTap={reduce ? undefined : { scale: 0.98 }}
               transition={spring.card}
             >
               <SpotlightCard
-                className={`group block w-full rounded-2xl text-left transition-[box-shadow] ${
+                className={`group block w-full rounded-2xl transition-[box-shadow] [@media(hover:none)]:!shadow-none ${
                   selected
-                    ? "ring-2 ring-accent ring-offset-2 ring-offset-chrome-bg"
-                    : "hover:shadow-glow"
+                    ? "shadow-glow ring-2 ring-accent ring-offset-2 ring-offset-chrome-bg"
+                    : "[@media(hover:hover)]:hover:shadow-glow"
                 }`}
               >
                 <button
                   type="button"
                   onClick={() => onSelect(group)}
-                  className="relative block w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                  aria-label={`Open ${meta}${
+                    showBrand ? ` for ${brandName(group.current.brand)}` : ""
+                  }`}
+                  aria-pressed={selected}
+                  // Press scale is the wrapper's spring-driven whileTap (above),
+                  // so no CSS active:scale here — the two would compound.
+                  className="relative block w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-chrome-bg"
                 >
-                  <Preview asset={group.current} />
+                  <Preview
+                    asset={group.current}
+                    morphId={assetMorphId(group.current.file)}
+                  />
                   <StatusBadge asset={group.current} />
                   {versionCount > 1 && (
                     <span
