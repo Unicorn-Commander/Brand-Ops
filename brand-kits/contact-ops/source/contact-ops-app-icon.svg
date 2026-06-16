@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Contact-Ops app icon">
+  <title>Contact-Ops</title>
+  <defs>
+    <linearGradient id="ic-edge" x1="200" y1="820" x2="820" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0e9f6e"/>
+      <stop offset="0.55" stop-color="#19c37d"/>
+      <stop offset="1" stop-color="#5ef2b3"/>
+    </linearGradient>
+    <radialGradient id="ic-node" cx="0.36" cy="0.30" r="0.85">
+      <stop offset="0" stop-color="#7ff5c4"/>
+      <stop offset="0.45" stop-color="#19c37d"/>
+      <stop offset="1" stop-color="#0c8a60"/>
+    </radialGradient>
+    <radialGradient id="ic-anchor" cx="0.36" cy="0.30" r="0.9">
+      <stop offset="0" stop-color="#ffe2ad"/>
+      <stop offset="0.45" stop-color="#ffb454"/>
+      <stop offset="1" stop-color="#f0901f"/>
+    </radialGradient>
+    <!-- tile: obsidian with a faint emerald aurora, lit from upper-left -->
+    <radialGradient id="ic-tile" cx="0.34" cy="0.28" r="1.05">
+      <stop offset="0" stop-color="#0e1f18"/>
+      <stop offset="0.5" stop-color="#0a140f"/>
+      <stop offset="1" stop-color="#06090b"/>
+    </radialGradient>
+    <filter id="ic-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+
+    <g id="ic-net">
+      <g stroke="url(#ic-edge)" stroke-width="15" stroke-linecap="round" fill="none">
+        <line x1="462" y1="520" x2="575" y2="250"/>
+        <line x1="462" y1="520" x2="800" y2="492"/>
+        <line x1="462" y1="520" x2="566" y2="800"/>
+        <line x1="462" y1="520" x2="232" y2="396"/>
+        <line x1="575" y1="250" x2="800" y2="492" stroke-width="11" opacity="0.7"/>
+        <line x1="232" y1="396" x2="575" y2="250" stroke-width="11" opacity="0.7"/>
+      </g>
+      <g stroke="#5ef2b3" stroke-width="5">
+        <circle cx="575" cy="250" r="64" fill="url(#ic-node)"/>
+        <circle cx="800" cy="492" r="58" fill="url(#ic-node)"/>
+        <circle cx="566" cy="800" r="58" fill="url(#ic-node)"/>
+        <circle cx="232" cy="396" r="58" fill="url(#ic-node)"/>
+      </g>
+      <circle cx="462" cy="520" r="98" fill="url(#ic-anchor)" stroke="#fff0d6" stroke-width="7"/>
+    </g>
+  </defs>
+
+  <rect width="1024" height="1024" rx="228" fill="url(#ic-tile)"/>
+  <rect x="6" y="6" width="1012" height="1012" rx="222" fill="none" stroke="#19c37d" stroke-opacity="0.16" stroke-width="2"/>
+  <use href="#ic-net" filter="url(#ic-glow)" opacity="0.8"/>
+  <use href="#ic-net"/>
+</svg>

@@ -1,0 +1,124 @@
+# Contact-Ops brand. Sub-brand of Unicorn Commander. Two-layer identity, the way
+# the family works (cf. Meeting-Ops): the FACE is a unicorn officer mascot, the
+# "Connections Officer" (relationship liaison of the *-Ops command), and the APP
+# ICON is the abstract "relationship constellation" (one warm anchor node, the
+# person, held in a network of emerald nodes joined by glowing mint edges). The
+# signature color is emerald + spring mint, the one open lane in a suite of
+# purple, cyan, navy, and gold. The officer (source/contact-ops-officer.png) is
+# nano-banana, conditioned on the Colonel/canonical-unicorn refs; the
+# constellation is hand-built vector in source/. mark = the officer.
+brand:
+  slug: contact-ops
+  display_name: Contact-Ops
+  tagline: Relationship intelligence you self-host.
+  parent: unicorn-commander
+  mark:
+    asset_type: logo
+    file: contact-ops-officer.png
+    kind: imported
+  description: |
+    Contact-Ops is the Unicorn Commander suite app for relationships. It turns a
+    flat address book into a living, owned knowledge graph of the people and
+    organizations you know, with an AI analyst that reasons over those
+    relationships, CardDAV sync, and an MCP server so agents work the graph
+    directly. It is multi-tenant and runs on your own infrastructure. It serves
+    teams who would rather own their relationship data than rent it: agencies and
+    professional-services firms, founders and operators, and any organization
+    that needs a self-hosted CRM with real data sovereignty. The voice is warm
+    and human but technical and exact, the way a brand about people should sound.
+
+visual:
+  colors:
+    primary: "#19c37d"      # emerald jade, the network
+    accent: "#5ef2b3"       # spring mint, the connective glow
+    background: "#070b09"   # obsidian with the faintest green undertone
+    foreground: "#eef5f1"   # near-white, a touch cool
+    muted: "#8aa79b"        # sage gray, secondary text
+    # Extended (not in the 5-key schema, used in the art and guidelines):
+    #   signal warm  #ffb454  the anchor node, the human at the heart of the graph
+    #   surface      #0e1f18  raised panel on obsidian
+  typography:
+    primary_font: Geist           # the shipping Contact-Ops UI font
+    display_font: Bricolage Grotesque  # warm humanist headline voice for marketing
+    mono_font: Geist Mono
+  style_keywords:
+    - abstract relationship-graph mark, not a mascot and not a unicorn head
+    - one warm amber anchor node held in a network of emerald nodes
+    - nodes joined by glowing spring-mint gradient edges, a few cross-links so it reads as a graph not a list
+    - obsidian near-black background, emerald to spring-mint gradient, soft neon glow
+    - clean geometric, premium, calm, high contrast, generous negative space
+    - the human at the heart of a living knowledge graph
+
+voice:
+  tone:
+    - warm
+    - human
+    - direct
+    - technical
+    - sovereignty-minded
+    - trustworthy
+  forbidden_phrases:
+    - revolutionary
+    - game-changer
+    - synergize
+    - unleash
+    - rolodex on steroids
+
+prompts:
+  logo:
+    base: |
+      Create a brand logo mark for {brand_context}. This is an ABSTRACT graph
+      mark, not a mascot and not a unicorn: one warm amber anchor node held in a
+      network of emerald nodes joined by glowing spring-mint gradient edges, with
+      a few node-to-node cross-links so it reads as a relationship graph rather
+      than a hub-and-spoke. Style: {style_keywords}. Variant: {variant}. Match
+      the proportions, node weights, and soft neon glow of the reference image.
+      Centered square composition, transparent background, no text. {ref_block}
+    variants: [flat, color, mono, app-icon]
+  app_icon:
+    base: |
+      App icon for {brand_context}. The relationship constellation centered on a
+      rounded-corner obsidian tile with a faint emerald aurora lit from the upper
+      left. {style_keywords}. It must still read at 32x32: keep four or five bold
+      nodes, the warm anchor clearly distinct, thick mint edges. {ref_block}
+    variants: [color, dark]
+  og_image:
+    base: |
+      1200x630 share image for {brand_context}. Obsidian background with a faint
+      emerald aurora on the right. Headline on the left in near-white, a small
+      emerald CONTACT-OPS label above it, the relationship-constellation mark in
+      a rounded tile on the right. Topic: {topic}. {style_keywords}. {ref_block}
+    variants: [default, dark]
+  social_card:
+    base: |
+      Square social card for {brand_context}. Topic: {topic}. Platform:
+      {platform}. Obsidian background, emerald and mint accents, the relationship
+      constellation, generous negative space. {style_keywords}. {ref_block}
+    variants: [instagram, twitter, linkedin]
+  avatar:
+    base: |
+      Create a polished, production-grade brand mascot for {brand_context}, in the
+      EXACT art style of the reference images: a bold, thick black-outlined
+      sticker-style cartoon unicorn head with a clean white face, a gold spiral
+      horn, a vibrant full rainbow mane, and a navy military beret. Match the
+      proportions, outline weight, and crisp flat-color comic finish of the
+      references exactly. This is the Contact-Ops "Connections Officer", the
+      relationship liaison of the *-Ops command. Render it like this: a confident,
+      knowing, friendly expression with one eyebrow slightly raised, the officer
+      who knows everyone; a small neat emerald-green network insignia (a tidy
+      cluster of connected dots) on the beret; a single clean white cartoon hoof
+      entering from the lower right, gesturing toward a crisp, well-formed glowing
+      emerald-green constellation of five or six connected dots (a relationship
+      graph) to the right of the head. Emerald-green and spring-mint glow accents.
+      Composition: one centered character, balanced, generous margin, on a single
+      flat even near-black background so it can be cleanly cut to transparency. Do
+      not add any other objects: no gems, no crystals, no cards or papers, no
+      text, no wordmark, nothing else in the frame. {ref_block}
+    variants: [color]
+
+# Mascot generation refs (the *-Ops unicorn officer art style). The abstract
+# constellation identity lives as vector in source/; these condition the engine
+# for the optional unicorn-officer mascot, the same refs Meeting-Ops/Brand-Ops use.
+reference_images:
+  colonel: refs/colonel.png
+  canonical: refs/canonical-unicorn.png

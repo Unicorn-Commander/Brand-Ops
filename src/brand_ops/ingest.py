@@ -24,6 +24,9 @@ _DEV = "/Volumes/Studio Storage/Development"
 _UCI = f"{_DEV}/UC-1/Unicorn-Commander-Themes/unicorn-icons/apps"
 _MBK = f"{_DEV}/majiks-brand-kit/logos"
 _CDP = f"{_DEV}/Center-Deep-Pro/keycloak-theme/center-deep/login/resources/img"
+# Contact-Ops authors its canonical mark as vector in the kit's own source/ dir
+# (tracked); ingest mirrors it into imported/ (managed copies) like the rest.
+_CO_SRC = str(DEFAULT_KITS_DIR / "contact-ops" / "source")
 
 # Per brand: (path or glob, asset_type). Missing paths are skipped quietly.
 IMPORT_SOURCES: dict[str, list[tuple[str, str]]] = {
@@ -47,6 +50,17 @@ IMPORT_SOURCES: dict[str, list[tuple[str, str]]] = {
     ],
     "center-deep": [
         (f"{_CDP}/center-deep-logo.png", "logo"),
+    ],
+    "contact-ops": [
+        (f"{_CO_SRC}/contact-ops-mark.svg", "logo"),
+        (f"{_CO_SRC}/contact-ops-mark.png", "logo"),
+        (f"{_CO_SRC}/contact-ops-wordmark.svg", "logo"),
+        (f"{_CO_SRC}/contact-ops-wordmark.png", "logo"),
+        (f"{_CO_SRC}/contact-ops-mono.svg", "logo"),
+        (f"{_CO_SRC}/contact-ops-app-icon.svg", "app_icon"),
+        (f"{_CO_SRC}/contact-ops-app-icon.png", "app_icon"),
+        (f"{_CO_SRC}/contact-ops-og.svg", "og_image"),
+        (f"{_CO_SRC}/contact-ops-og.png", "og_image"),
     ],
 }
 

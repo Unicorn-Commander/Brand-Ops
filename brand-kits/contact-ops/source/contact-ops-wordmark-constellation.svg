@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 200" width="760" height="200" role="img" aria-label="Contact-Ops">
+  <title>Contact-Ops — Relationship intelligence you self-host</title>
+  <defs>
+    <style>@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&amp;family=Geist:wght@400;500;600&amp;display=swap');</style>
+    <linearGradient id="wm-edge" x1="14" y1="100" x2="100" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0e9f6e"/>
+      <stop offset="0.55" stop-color="#19c37d"/>
+      <stop offset="1" stop-color="#5ef2b3"/>
+    </linearGradient>
+    <radialGradient id="wm-node" cx="0.36" cy="0.30" r="0.85">
+      <stop offset="0" stop-color="#7ff5c4"/><stop offset="0.45" stop-color="#19c37d"/><stop offset="1" stop-color="#0c8a60"/>
+    </radialGradient>
+    <radialGradient id="wm-anchor" cx="0.36" cy="0.30" r="0.9">
+      <stop offset="0" stop-color="#ffe2ad"/><stop offset="0.45" stop-color="#ffb454"/><stop offset="1" stop-color="#f0901f"/>
+    </radialGradient>
+    <filter id="wm-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.6"/></filter>
+    <g id="wm-net">
+      <g stroke="url(#wm-edge)" stroke-width="2.6" stroke-linecap="round" fill="none" opacity="0.92">
+        <line x1="52" y1="60" x2="64" y2="24"/><line x1="52" y1="60" x2="97" y2="46"/><line x1="52" y1="60" x2="91" y2="85"/>
+        <line x1="52" y1="60" x2="55" y2="101"/><line x1="52" y1="60" x2="20" y2="41"/>
+        <line x1="64" y1="24" x2="97" y2="46" stroke-width="2.0" opacity="0.7"/>
+        <line x1="91" y1="85" x2="55" y2="101" stroke-width="2.0" opacity="0.7"/>
+        <line x1="20" y1="41" x2="64" y2="24" stroke-width="2.0" opacity="0.7"/>
+      </g>
+      <g stroke="#5ef2b3" stroke-width="1.4">
+        <circle cx="64" cy="24" r="7.6" fill="url(#wm-node)"/><circle cx="97" cy="46" r="7.0" fill="url(#wm-node)"/>
+        <circle cx="91" cy="85" r="6.6" fill="url(#wm-node)"/><circle cx="55" cy="101" r="6.6" fill="url(#wm-node)"/>
+        <circle cx="20" cy="41" r="6.6" fill="url(#wm-node)"/>
+      </g>
+      <circle cx="52" cy="60" r="12.4" fill="url(#wm-anchor)" stroke="#fff0d6" stroke-width="1.6"/>
+    </g>
+  </defs>
+
+  <g transform="translate(24,40)">
+    <use href="#wm-net" filter="url(#wm-glow)" opacity="0.8"/>
+    <use href="#wm-net"/>
+  </g>
+
+  <text x="186" y="112" font-size="76" font-weight="700" letter-spacing="-2"
+        font-family="'Bricolage Grotesque',system-ui,sans-serif">
+    <tspan fill="#eef5f1">Contact</tspan><tspan fill="#19c37d">-Ops</tspan>
+  </text>
+  <text x="190" y="150" font-size="20.5" font-weight="500" letter-spacing="0.4" fill="#8aa79b"
+        font-family="'Geist',system-ui,sans-serif">Relationship intelligence you self-host</text>
+</svg>
