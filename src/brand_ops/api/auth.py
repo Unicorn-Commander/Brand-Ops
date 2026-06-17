@@ -34,7 +34,7 @@ from dataclasses import dataclass, field, replace
 from typing import Annotated, Any
 
 import httpx
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 try:
@@ -463,6 +463,7 @@ async def authenticate(token: str) -> Principal | None:
 async def require_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     x_workspace_id: Annotated[str | None, Header()] = None,
+    ws: Annotated[str | None, Query()] = None,
 ) -> Principal:
     """FastAPI dependency yielding the validated, workspace-scoped caller.
 
@@ -474,11 +475,15 @@ async def require_principal(
 
     For an authed caller the active workspace and the brands it may see are
     resolved from the caller's memberships (SUITE-IDENTITY D4/D5): the requested
-    workspace (``X-Workspace-Id`` header or ``workspace_id`` claim) when they are
-    a member, else their default membership, else nothing. That scope is
-    published to the ``brand_loader`` for the life of the request, so every brand
-    read is confined to the active workspace -- and a caller with no membership
-    sees no brands (deny-by-default), never the seed tenant's.
+    workspace (``X-Workspace-Id`` header, then the ``?ws=`` query fallback, then
+    the token's ``workspace_id`` claim) when they are a member, else their
+    default membership, else nothing. The ``?ws=`` fallback exists for ``<img>``
+    GETs, which cannot send a custom header; like the header it is only a REQUEST
+    that the resolver honors solely when the caller is a member, so it can never
+    select a workspace the caller is not in. That scope is published to the
+    ``brand_loader`` for the life of the request, so every brand read is confined
+    to the active workspace -- and a caller with no membership sees no brands
+    (deny-by-default), never the seed tenant's.
     """
     required = auth_required()
     if credentials is None:
@@ -492,7 +497,7 @@ async def require_principal(
 
     principal = await authenticate(credentials.credentials)
     if principal is not None:
-        return await _scope_principal(principal, x_workspace_id)
+        return await _scope_principal(principal, x_workspace_id or ws)
     if required:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

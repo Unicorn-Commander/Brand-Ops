@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,7 @@ from .brand_loader import (
     DEFAULT_KITS_DIR,
     BrandNotFound,
     get_allowed_brands,
+    get_current_workspace_id,
     load_brand,
     resolve_reference_images,
 )
@@ -68,6 +70,47 @@ mcp = FastMCP("brand-ops", stateless_http=True)
 # Exceptions the engine and loader raise for caller mistakes. We translate each
 # into a structured error rather than letting it cross the MCP boundary.
 _USER_ERRORS = (BrandNotFound, KeyError, ValueError)
+
+_log = logging.getLogger("brand_ops.mcp_server")
+
+
+def _index_brand_best_effort(brand: Brand) -> None:
+    """DB-index an MCP-created brand under the active workspace, best effort.
+
+    Mirrors the REST create path's ``_index_brand``: a scoped create (the HTTP
+    MCP resolves a workspace per request) records the new brand so it joins the
+    workspace catalog this request, not only at the next boot import. Unscoped
+    (stdio / CLI: no active workspace) is a no-op -- the file IS the catalog. The
+    file write already succeeded and is workspace-stamped, so a DB error here
+    only delays the brand's cross-request appearance; the boot import is the
+    backstop, so this never fails the create. The MCP tools run with no live
+    event loop (intake_brand already uses asyncio.run), so a fresh loop is safe.
+    """
+    # Lazy import: a module-level import of db.tenancy pulls
+    # api.app -> mcp_http -> mcp_server back in before ``mcp`` is defined here (a
+    # circular import). At call time the cycle is long resolved.
+    from .db.tenancy import record_brand
+
+    workspace_id = get_current_workspace_id()
+    if not workspace_id:
+        return
+    meta = brand.brand
+    try:
+        asyncio.run(
+            record_brand(
+                workspace_id,
+                slug=meta.slug,
+                display_name=meta.display_name,
+                parent_slug=meta.parent,
+                tagline=meta.tagline,
+                created_by="mcp",
+            )
+        )
+    except Exception:  # noqa: BLE001 - best effort; the boot import is the backstop
+        _log.warning(
+            "MCP-created brand %s not DB-indexed; boot import will pick it up",
+            meta.slug,
+        )
 
 
 def _error(message: str, **extra: Any) -> dict[str, Any]:
@@ -916,6 +959,7 @@ def clone_brand(
         return _error(exc, slug=slug, new_slug=new_slug)
     except Exception as exc:  # noqa: BLE001 - boundary guard
         return _error(exc, slug=slug, new_slug=new_slug)
+    _index_brand_best_effort(brand)
     return _brand_identity(new_slug, brand)
 
 
@@ -966,6 +1010,12 @@ def intake_brand(
         )
     slug = _slugify(clean_name)
     if (DEFAULT_KITS_DIR / slug).exists():
+        # Non-leaky existence check (matches brand_clone._assert_slug_available):
+        # a scoped caller who is not a member of the brand's workspace gets a
+        # generic "unavailable", never confirmation it exists in another tenant.
+        allowed = get_allowed_brands()
+        if allowed is not None and slug not in allowed:
+            return _error("that brand name is unavailable", slug=slug)
         return _error(f"brand {slug!r} already exists", slug=slug)
 
     parent_slug = (parent or "").strip() or None
@@ -1016,6 +1066,7 @@ def intake_brand(
     except Exception as exc:  # noqa: BLE001 - boundary guard
         return _error(exc, slug=slug)
 
+    _index_brand_best_effort(brand)
     return {
         "brand": _brand_identity(slug, brand),
         "draft": draft,

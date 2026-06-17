@@ -32,6 +32,7 @@ from .brand_loader import (
     DEFAULT_KITS_DIR,
     BrandNotFound,
     allow_brand,
+    get_allowed_brands,
     get_current_workspace_id,
     load_brand,
 )
@@ -113,6 +114,25 @@ def _owning_workspace() -> str | None:
     return get_current_workspace_id()
 
 
+def _assert_slug_available(slug: str, root: Path) -> None:
+    """Raise ``FileExistsError`` if ``slug`` is taken, without leaking a tenant.
+
+    Brand storage is a single on-disk namespace (``brand-kits/<slug>/``);
+    per-workspace storage is a deferred refactor. Until then a create must not
+    become an existence oracle across that shared namespace: a scoped caller
+    (``allowed`` is not None) who is not a member of the brand's workspace gets a
+    generic "unavailable" that does not confirm the brand exists anywhere. The
+    caller's own slug, or an unscoped CLI/stdio create, gets the precise "already
+    exists". Neither message ever includes the filesystem path.
+    """
+    if not (root / slug).exists():
+        return
+    allowed = get_allowed_brands()
+    if allowed is not None and slug not in allowed:
+        raise FileExistsError("that brand name is unavailable")
+    raise FileExistsError(f"brand {slug!r} already exists")
+
+
 def clone_brand(
     source_slug: str,
     new_slug: str,
@@ -150,8 +170,7 @@ def clone_brand(
     source = load_brand(source_slug, kits_dir=root)
 
     dest_dir = root / new_slug
-    if dest_dir.exists():
-        raise FileExistsError(f"brand {new_slug!r} already exists at {dest_dir}")
+    _assert_slug_available(new_slug, root)
 
     if as_child:
         # Minimal block. No visual/voice/prompts/reference_images keys, so the
@@ -252,8 +271,7 @@ def create_brand_from_draft(
 
     root = kits_dir or DEFAULT_KITS_DIR
     dest_dir = root / slug
-    if dest_dir.exists():
-        raise FileExistsError(f"brand {slug!r} already exists at {dest_dir}")
+    _assert_slug_available(slug, root)
 
     palette = draft.get("palette") if isinstance(draft, dict) else None
     palette = palette if isinstance(palette, dict) else {}

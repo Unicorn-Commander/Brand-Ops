@@ -45,6 +45,7 @@ from ..brand_loader import (
     get_allowed_brands,
     list_brands,
     load_brand,
+    workspace_query_suffix,
 )
 from ..compliance import (
     build_rules,
@@ -192,6 +193,7 @@ def _mark_url(brand: Brand) -> str | None:
         f"&asset={mark.asset_type}"
         f"&file={quote(mark.file)}"
         f"&kind={mark.kind}"
+        f"{workspace_query_suffix()}"
     )
 
 
@@ -209,8 +211,12 @@ def _generated_file_url(brand: str, asset: str, path: str) -> str | None:
     file_name = Path(path).name
     if not (brand and asset and file_name):
         return None
-    return "/api/assets/file?" + urlencode(
-        {"brand": brand, "asset": asset, "file": file_name, "kind": "generated"}
+    return (
+        "/api/assets/file?"
+        + urlencode(
+            {"brand": brand, "asset": asset, "file": file_name, "kind": "generated"}
+        )
+        + workspace_query_suffix()
     )
 
 

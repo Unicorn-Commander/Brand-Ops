@@ -65,6 +65,22 @@ def get_allowed_brands() -> frozenset[str] | None:
     return _scope.get()[1]
 
 
+def workspace_query_suffix() -> str:
+    """``&ws=<id>`` for the active workspace, or ``''`` when unscoped.
+
+    Asset-file URLs carry this so an ``<img>`` GET -- which cannot send the
+    ``X-Workspace-Id`` header the GUI's fetch() calls use -- still names the
+    workspace it belongs to. ``require_principal`` accepts ``?ws=`` as a
+    membership-gated fallback, so a multi-workspace caller's images resolve
+    against the workspace they are viewing, not just their default (the bug a
+    single-tenant deploy never hits, but a public multi-tenant one does). The
+    workspace id is an opaque uuid, never a secret. Empty when unscoped (CLI /
+    stdio MCP / tests), where every brand is already visible anyway.
+    """
+    ws = get_current_workspace_id()
+    return f"&ws={ws}" if ws else ""
+
+
 def reset_workspace_scope(token=None) -> None:
     """Clear the request-scoped workspace scope.
 

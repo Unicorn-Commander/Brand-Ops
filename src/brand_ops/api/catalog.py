@@ -14,7 +14,11 @@ import json
 from pathlib import Path
 from urllib.parse import urlencode
 
-from ..brand_loader import DEFAULT_KITS_DIR, get_allowed_brands
+from ..brand_loader import (
+    DEFAULT_KITS_DIR,
+    get_allowed_brands,
+    workspace_query_suffix,
+)
 from .schemas import AssetRecord
 
 
@@ -33,8 +37,12 @@ def _coerce_record(
     file_name = image_path.name
     url = None
     if brand and asset_type and file_name:
-        url = "/api/assets/file?" + urlencode(
-            {"brand": brand, "asset": asset_type, "file": file_name, "kind": kind}
+        url = (
+            "/api/assets/file?"
+            + urlencode(
+                {"brand": brand, "asset": asset_type, "file": file_name, "kind": kind}
+            )
+            + workspace_query_suffix()
         )
     # Lifecycle fields are surfaced verbatim from the sidecar and left null when
     # absent: a record that was never stamped reads as lifecycle_status=None, so

@@ -40,6 +40,7 @@ from brand_ops.brand_loader import (
     list_brands,
     load_brand,
     set_workspace_scope,
+    workspace_query_suffix,
 )
 
 # A stable subset of the seed brands shipped in brand-kits/. Asserted with <= so
@@ -207,3 +208,176 @@ def test_mcp_list_generated_assets_gated() -> None:
 
     set_workspace_scope(WS, frozenset({"center-deep"}))
     assert list_generated_assets(brand="magic-unicorn") == {"assets": [], "count": 0}
+
+
+# ─────── prod hardening 1: ?ws= image scoping (URL suffix + auth fallback) ────
+# An <img> GET cannot send the X-Workspace-Id header the fetch() calls use, so a
+# multi-workspace caller's image would resolve to their DEFAULT workspace and
+# 404 on a brand they are viewing in another. Asset URLs carry &ws=<active>, and
+# require_principal honors ?ws= as a membership-gated fallback. A single-tenant
+# deploy never hits this; a public multi-tenant one does.
+
+
+def test_workspace_query_suffix_unscoped_is_empty() -> None:
+    assert workspace_query_suffix() == ""
+
+
+def test_workspace_query_suffix_scoped_carries_ws() -> None:
+    set_workspace_scope(WS, frozenset({"center-deep"}))
+    assert workspace_query_suffix() == f"&ws={WS}"
+
+
+def test_catalog_url_carries_ws_when_scoped() -> None:
+    # The Library's asset URLs must self-identify their workspace.
+    from brand_ops.api.catalog import _coerce_record
+
+    set_workspace_scope(WS, frozenset({"center-deep"}))
+    rec = _coerce_record(
+        {"asset_type": "logo", "brand": "center-deep"},
+        Path("logo.json"),
+        Path("logo.png"),
+    )
+    assert rec is not None and rec.url is not None
+    assert rec.url.endswith(f"&ws={WS}")
+
+
+def test_catalog_url_has_no_ws_when_unscoped() -> None:
+    from brand_ops.api.catalog import _coerce_record
+
+    rec = _coerce_record(
+        {"asset_type": "logo", "brand": "center-deep"},
+        Path("logo.json"),
+        Path("logo.png"),
+    )
+    assert rec is not None and rec.url is not None
+    assert "ws=" not in rec.url
+
+
+@pytest.mark.asyncio
+async def test_require_principal_honors_ws_query_when_header_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The ?ws= query must feed the SAME membership-gated resolution the header
+    # does. The resolver is stubbed to echo what it was asked for, so we can
+    # assert the query value reached it -- and that the header still wins.
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from brand_ops.api import auth as auth_mod
+    from brand_ops.db.tenancy import WorkspaceContext
+
+    captured: dict[str, str | None] = {}
+
+    async def fake_authenticate(token: str) -> auth_mod.Principal:
+        return auth_mod.Principal(uc_uid="u1", issuer="keycloak")
+
+    async def fake_resolve(uc_uid: str, requested_workspace_id: str | None = None):
+        captured["requested"] = requested_workspace_id
+        return WorkspaceContext(
+            workspace_id=requested_workspace_id,
+            workspace_slug="w",
+            role="member",
+            allowed_brand_slugs=frozenset({"center-deep"}),
+        )
+
+    monkeypatch.setattr(auth_mod, "authenticate", fake_authenticate)
+    monkeypatch.setattr(auth_mod, "resolve_context", fake_resolve)
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="tok")
+
+    # Header absent -> the ?ws= query is used as the requested workspace.
+    p = await auth_mod.require_principal(credentials=creds, x_workspace_id=None, ws=WS)
+    assert captured["requested"] == WS
+    assert p.workspace_id == WS
+
+    # Header present -> it wins over the query (D4 precedence preserved).
+    other = "019e5111-0000-7000-a000-000000000000"
+    p2 = await auth_mod.require_principal(
+        credentials=creds, x_workspace_id=other, ws=WS
+    )
+    assert captured["requested"] == other
+    assert p2.workspace_id == other
+
+
+# ─────── prod hardening 2 (light): non-leaky brand-create existence ───────────
+# Brand storage is one on-disk namespace until per-workspace storage lands, so a
+# create must not become a cross-tenant existence oracle. A scoped caller who is
+# not a member of an existing brand's workspace gets a generic "unavailable"; the
+# owner (or an unscoped CLI) gets the precise message. No message leaks the path.
+
+
+def test_create_existing_slug_scoped_non_member_is_generic(kits: Path) -> None:
+    set_workspace_scope(WS, frozenset({"center-deep"}))  # excludes magic-unicorn
+    with pytest.raises(FileExistsError) as ei:
+        create_brand_from_draft("magic-unicorn", _DRAFT, kits_dir=kits)
+    msg = str(ei.value)
+    assert "unavailable" in msg
+    assert "magic-unicorn" not in msg  # never confirms the slug exists elsewhere
+    assert str(kits) not in msg  # never discloses the filesystem path
+
+
+def test_create_existing_slug_owned_is_precise(kits: Path) -> None:
+    set_workspace_scope(WS, frozenset({"magic-unicorn"}))
+    with pytest.raises(FileExistsError) as ei:
+        create_brand_from_draft("magic-unicorn", _DRAFT, kits_dir=kits)
+    msg = str(ei.value)
+    assert "already exists" in msg
+    assert str(kits) not in msg
+
+
+def test_create_existing_slug_unscoped_is_precise(kits: Path) -> None:
+    with pytest.raises(FileExistsError) as ei:
+        create_brand_from_draft("magic-unicorn", _DRAFT, kits_dir=kits)
+    msg = str(ei.value)
+    assert "already exists" in msg
+    assert str(kits) not in msg
+
+
+# ─────── prod hardening 3: MCP create DB-indexes under the workspace ──────────
+# The HTTP MCP resolves a workspace per request, so a brand created via the MCP
+# create tools must join its workspace catalog like the REST path does. The
+# index is best effort (the boot import backstops a DB hiccup) and a no-op when
+# unscoped (stdio / CLI), exactly like the REST _index_brand.
+
+
+def test_mcp_index_noop_when_unscoped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from brand_ops import mcp_server
+    from brand_ops.db import tenancy
+
+    calls = {"n": 0}
+
+    async def fake_record(*a, **k):
+        calls["n"] += 1
+
+    monkeypatch.setattr(tenancy, "record_brand", fake_record)
+    mcp_server._index_brand_best_effort(load_brand("magic-unicorn"))
+    assert calls["n"] == 0
+
+
+def test_mcp_index_records_when_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
+    from brand_ops import mcp_server
+    from brand_ops.db import tenancy
+
+    seen: dict[str, str | None] = {}
+
+    async def fake_record(workspace_id, **kw):
+        seen["ws"] = workspace_id
+        seen["slug"] = kw.get("slug")
+
+    monkeypatch.setattr(tenancy, "record_brand", fake_record)
+    set_workspace_scope(WS, frozenset({"magic-unicorn"}))
+    mcp_server._index_brand_best_effort(load_brand("magic-unicorn"))
+    assert seen.get("ws") == WS
+    assert seen.get("slug") == "magic-unicorn"
+
+
+def test_mcp_index_swallows_db_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from brand_ops import mcp_server
+    from brand_ops.db import tenancy
+
+    async def boom(*a, **k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(tenancy, "record_brand", boom)
+    set_workspace_scope(WS, frozenset({"magic-unicorn"}))
+    # Best effort: a DB failure must not raise (the boot import is the backstop).
+    mcp_server._index_brand_best_effort(load_brand("magic-unicorn"))
