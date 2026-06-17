@@ -42,6 +42,15 @@ interface AssetGridProps {
    */
   showBrand: boolean;
   brandName: (slug: string) => string;
+  /**
+   * Multi-select (bulk review) mode. When on, a card click toggles selection
+   * instead of opening the drawer, and each card wears a corner checkbox. Off
+   * by default, so the normal click-to-open flow (and the drawer morph) is
+   * byte-for-byte unchanged.
+   */
+  selecting?: boolean;
+  selectedKeys?: Set<string>;
+  onToggleSelect?: (group: AssetGroup) => void;
 }
 
 /** Aspect ratio string from a [w, h] size; squares fall back when unknown. */
@@ -187,6 +196,9 @@ export function AssetGrid({
   onSelect,
   showBrand,
   brandName,
+  selecting = false,
+  selectedKeys,
+  onToggleSelect,
 }: AssetGridProps) {
   const reduce = useReducedMotion();
   return (
@@ -197,7 +209,10 @@ export function AssetGrid({
       className="columns-2 gap-3 sm:columns-3 lg:columns-4 [&>*]:mb-3 [&>*]:break-inside-avoid"
     >
       {groups.map((group, i) => {
-        const selected = group.key === selectedKey;
+        const isSelected = selectedKeys?.has(group.key) ?? false;
+        // The accent ring means "open in the drawer" normally, or "checked" in
+        // select mode (where the drawer never opens).
+        const ringOn = selecting ? isSelected : group.key === selectedKey;
         const versionCount = group.versions.length;
         const meta =
           [group.current.asset_type, group.current.variant]
@@ -222,18 +237,20 @@ export function AssetGrid({
             >
               <SpotlightCard
                 className={`group block w-full rounded-2xl transition-[box-shadow] [@media(hover:none)]:!shadow-none ${
-                  selected
+                  ringOn
                     ? "shadow-glow ring-2 ring-accent ring-offset-2 ring-offset-chrome-bg"
                     : "[@media(hover:hover)]:hover:shadow-glow"
                 }`}
               >
                 <button
                   type="button"
-                  onClick={() => onSelect(group)}
-                  aria-label={`Open ${meta}${
+                  onClick={() =>
+                    selecting ? onToggleSelect?.(group) : onSelect(group)
+                  }
+                  aria-label={`${selecting ? "Select" : "Open"} ${meta}${
                     showBrand ? ` for ${brandName(group.current.brand)}` : ""
                   }`}
-                  aria-pressed={selected}
+                  aria-pressed={ringOn}
                   // Press scale is the wrapper's spring-driven whileTap (above),
                   // so no CSS active:scale here — the two would compound.
                   className="relative block w-full rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-chrome-bg"
@@ -243,12 +260,28 @@ export function AssetGrid({
                     morphId={assetMorphId(group.current.file)}
                   />
                   <StatusBadge asset={group.current} />
-                  {versionCount > 1 && (
+                  {/* Version count rides the top-right corner; yielded to the
+                      selection checkbox while selecting. */}
+                  {!selecting && versionCount > 1 && (
                     <span
                       className="pointer-events-none absolute right-2 top-2 rounded-md bg-chrome-bg/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-text-muted ring-1 ring-white/10 backdrop-blur"
                       title={`${versionCount} versions`}
                     >
                       v{versionCount}
+                    </span>
+                  )}
+                  {/* Selection checkbox: empty ring → filled accent check. Only
+                      present in select mode; mirrors the AssetThumb affordance. */}
+                  {selecting && (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute right-2 top-2 z-[3] grid h-6 w-6 place-items-center rounded-full border-2 transition-colors duration-150 ${
+                        isSelected
+                          ? "border-accent bg-accent text-white"
+                          : "border-white/50 bg-chrome-bg/60 text-transparent backdrop-blur [@media(hover:hover)]:group-hover:border-white/80"
+                      }`}
+                    >
+                      {isSelected && <Check size={14} strokeWidth={3} />}
                     </span>
                   )}
                   <div className="space-y-0.5 px-1 pb-1 pt-2">

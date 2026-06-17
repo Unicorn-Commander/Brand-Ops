@@ -6,7 +6,7 @@ import { EnvProvider, useBrandEnv } from "../v2/EnvProvider";
 import { UserMenu } from "../v2/UserMenu";
 import { WorkspaceSwitcher } from "../v2/WorkspaceSwitcher";
 import { ViewModeToggle } from "../v2/ViewModeToggle";
-import { applyAmbient } from "../pages/v2/SettingsPage";
+import { applyAmbient } from "../lib/ambient";
 import { useActiveBrand } from "../brand-context";
 import { useViewMode } from "../view-mode";
 import { NAV_LABELS, BRAND_NAV_LABELS, pick } from "../lib/labels";

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutGroup } from "framer-motion";
-import { LibraryBig, AlertTriangle, UploadCloud } from "lucide-react";
+import { AnimatePresence, LayoutGroup } from "framer-motion";
+import { LibraryBig, AlertTriangle, UploadCloud, ListChecks } from "lucide-react";
+import { toast } from "sonner";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
 import { SkeletonCard } from "../../components/Skeleton";
@@ -12,6 +13,7 @@ import { useActiveBrand } from "../../brand-context";
 import { FilterBar } from "./components/FilterBar";
 import { AssetGrid } from "./components/AssetGrid";
 import { AssetDetailDrawer } from "./components/AssetDetailDrawer";
+import { BulkActionBar } from "./components/BulkActionBar";
 import { UploadDropzone } from "./components/UploadDropzone";
 import type { SelectOption } from "./components/Select";
 import {
@@ -107,6 +109,10 @@ export default function LibraryPage() {
   // Drawer state: which logical asset is open, and which of its versions.
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
+
+  // Multi-select (bulk review) mode and the set of selected group keys.
+  const [selecting, setSelecting] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
 
   // Server query, keyed on the brand and review-status filters. Asset type and
   // backend are applied client-side, so changing them does not refetch.
@@ -279,6 +285,83 @@ export default function LibraryPage() {
     [transitionMutation],
   );
 
+  // ── Multi-select (bulk review) ────────────────────────────────────────────
+  // Which selected keys are actually in the current view (filters may have
+  // dropped some). The bar count and the bulk action both work off this, so a
+  // stale key from a prior filter never acts.
+  const selectedInView = useMemo(
+    () => groups.filter((g) => selectedKeys.has(g.key)),
+    [groups, selectedKeys],
+  );
+  const allInViewSelected =
+    groups.length > 0 && selectedInView.length === groups.length;
+
+  const toggleSelect = useCallback((group: AssetGroup) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(group.key)) next.delete(group.key);
+      else next.add(group.key);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setSelectedKeys((prev) => {
+      const keys = groups.map((g) => g.key);
+      const allOn = keys.length > 0 && keys.every((k) => prev.has(k));
+      return allOn ? new Set() : new Set(keys);
+    });
+  }, [groups]);
+
+  function enterSelect() {
+    closeDrawer();
+    setSelecting(true);
+  }
+  function exitSelect() {
+    setSelecting(false);
+    setSelectedKeys(new Set());
+  }
+
+  // Bulk lifecycle transition over every selected (in-view) asset. Reuses the
+  // per-asset review endpoint; a server-side bulk route could batch this later,
+  // but looping keeps the same RLS/tenancy/gate checks per record. allSettled so
+  // one rejection never aborts the rest; the toast reports the tally.
+  const bulkMutation = useMutation({
+    mutationFn: async (to: AssetLifecycleStatus) => {
+      const targets = groups
+        .filter((g) => selectedKeys.has(g.key))
+        .map((g) => g.current);
+      const results = await Promise.allSettled(
+        targets.map((r) =>
+          api.transitionAsset({
+            brand: r.brand,
+            file: r.file,
+            asset: r.asset_type,
+            kind: r.kind ?? "generated",
+            to,
+          }),
+        ),
+      );
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      return { to, ok, failed: results.length - ok };
+    },
+    onSuccess: ({ to, ok, failed }) => {
+      void queryClient.invalidateQueries({ queryKey: ["assets"] });
+      void queryClient.invalidateQueries({ queryKey: ["activity"] });
+      const verb =
+        to === "approved"
+          ? "Approved"
+          : to === "archived"
+            ? "Archived"
+            : "Flagged for changes";
+      const noun = ok === 1 ? "asset" : "assets";
+      if (failed === 0) toast.success(`${verb} ${ok} ${noun}`);
+      else toast.error(`${verb} ${ok}; ${failed} failed`);
+      exitSelect();
+    },
+    onError: () => toast.error("Bulk update failed"),
+  });
+
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-end gap-5 pt-3">
@@ -317,6 +400,21 @@ export default function LibraryPage() {
             <span className="flex items-center gap-2 text-xs text-text-muted">
               <Spinner size={14} /> Refreshing
             </span>
+          )}
+          {!isLoading && !isError && all.length > 0 && (
+            <button
+              type="button"
+              onClick={() => (selecting ? exitSelect() : enterSelect())}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${
+                selecting
+                  ? "border-accent/50 bg-accent/10 text-accent"
+                  : "border-white/12 text-text-muted hover:border-white/25 hover:text-text"
+              }`}
+              title="Select multiple assets to review in bulk"
+            >
+              <ListChecks size={14} />
+              {selecting ? "Done" : "Select"}
+            </button>
           )}
         </div>
       </header>
@@ -438,6 +536,9 @@ export default function LibraryPage() {
                     onSelect={openAsset}
                     showBrand={showBrand}
                     brandName={brandName}
+                    selecting={selecting}
+                    selectedKeys={selectedKeys}
+                    onToggleSelect={toggleSelect}
                   />
                 </section>
               ))}
@@ -456,6 +557,21 @@ export default function LibraryPage() {
         }
       />
       </LayoutGroup>
+
+      <AnimatePresence>
+        {selecting && (
+          <BulkActionBar
+            count={selectedInView.length}
+            allSelected={allInViewSelected}
+            busy={bulkMutation.isPending}
+            onApprove={() => bulkMutation.mutate("approved")}
+            onRequestChanges={() => bulkMutation.mutate("changes_requested")}
+            onArchive={() => bulkMutation.mutate("archived")}
+            onToggleAll={toggleAll}
+            onCancel={exitSelect}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

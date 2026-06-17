@@ -1,20 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
-
-const AMBIENT_KEY = "brandops.ambient";
-
-/** Read the stored ambient preference; ambient is on unless explicitly off. */
-export function ambientEnabled(): boolean {
-  if (typeof localStorage === "undefined") return true;
-  return localStorage.getItem(AMBIENT_KEY) !== "off";
-}
-
-/** Apply the stored ambient preference to <body> (called on boot and toggle). */
-export function applyAmbient(): void {
-  if (typeof document === "undefined") return;
-  document.body.classList.toggle("no-ambient", !ambientEnabled());
-}
+import { ambientEnabled, setAmbientEnabled, applyAmbient } from "../../lib/ambient";
 
 function Card(props: { title: string; sub?: string; children: React.ReactNode }) {
   return (
@@ -65,7 +52,7 @@ export default function SettingsPage() {
   const [ambient, setAmbient] = useState(ambientEnabled());
 
   useEffect(() => {
-    localStorage.setItem(AMBIENT_KEY, ambient ? "on" : "off");
+    setAmbientEnabled(ambient);
     applyAmbient();
   }, [ambient]);
 
