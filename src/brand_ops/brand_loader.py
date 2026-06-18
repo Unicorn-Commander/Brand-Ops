@@ -60,6 +60,23 @@ def get_current_workspace_id() -> str | None:
     return _scope.get()[0]
 
 
+def current_kits_dir() -> Path:
+    """The kits root for the active request: the per-workspace subtree when scoped.
+
+    Tenant brand files live at ``brand-kits/<workspace_id>/<slug>/`` so each
+    workspace is physically isolated on disk: a brand read can never resolve a
+    path into another tenant's subtree (defense in depth beneath the visibility
+    gate), and two tenants may hold the same brand slug without colliding. When
+    there is no active workspace (the CLI, the stdio MCP, tests, AUTH off) this is
+    the global ``brand-kits/`` root, preserving the original flat behavior. Every
+    reader and writer resolves its root through here (via ``kits_dir or
+    current_kits_dir()``), so per-request tenant scoping is automatic at one
+    boundary rather than threaded through each caller.
+    """
+    ws = get_current_workspace_id()
+    return DEFAULT_KITS_DIR / ws if ws else DEFAULT_KITS_DIR
+
+
 def get_allowed_brands() -> frozenset[str] | None:
     """The brand slugs visible to this request: None = all (unscoped), else the set."""
     return _scope.get()[1]
@@ -135,7 +152,7 @@ def _validate_slug(slug: str) -> None:
 
 
 def list_brands(kits_dir: Path | None = None) -> list[str]:
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     if not root.exists():
         return []
     slugs = sorted(
@@ -189,7 +206,7 @@ def load_brand(slug: str, kits_dir: Path | None = None) -> Brand:
     allowed = get_allowed_brands()
     if allowed is not None and slug not in allowed:
         raise BrandNotFound(f"brand {slug!r} not found")
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     raw = _read_yaml(slug, root)
     parent_slug = (raw.get("brand") or {}).get("parent")
     if parent_slug:
@@ -205,7 +222,7 @@ def resolve_reference_images(
 
     A missing reference is a warning, not an error: composition mode is optional.
     """
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     base = root / slug
     found: dict[str, Path] = {}
     missing: list[str] = []

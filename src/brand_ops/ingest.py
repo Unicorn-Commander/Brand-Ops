@@ -17,7 +17,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from .brand_loader import DEFAULT_KITS_DIR
+from .brand_loader import DEFAULT_KITS_DIR, current_kits_dir
 
 _HOME = str(Path.home())
 _DEV = "/Volumes/Studio Storage/Development"
@@ -121,7 +121,7 @@ def ingest_brand(slug: str, kits_dir: Path | None = None) -> list[Path]:
     Idempotent: a destination that already exists is left as is. Returns the list
     of imported file paths (both new and already present).
     """
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     imported: list[Path] = []
     for pattern, asset_type in IMPORT_SOURCES.get(slug, []):
         for match in sorted(glob.glob(pattern)):
@@ -149,7 +149,7 @@ def ingest_paths(slug: str, items: list[dict], kits_dir: Path | None = None) -> 
     ``source`` for the sidecar. Used to catalog assets a discovery pass found on
     the marketing sites and press kits. Idempotent by destination filename.
     """
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     imported: list[Path] = []
     for item in items:
         src = Path(str(item.get("path", "")))

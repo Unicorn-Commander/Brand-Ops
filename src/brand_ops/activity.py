@@ -28,7 +28,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .brand_loader import DEFAULT_KITS_DIR
+from .brand_loader import current_kits_dir
 
 # The feed lives at the root of the kits tree, beside the per-brand kit
 # directories, so it ships with the built image and is found without config. A
@@ -44,7 +44,7 @@ ACTOR_KINDS = ("human", "agent", "system")
 
 def _log_path(kits_dir: Path | None = None) -> Path:
     """The on-disk path of the activity log under the kits tree root."""
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     return root / _LOG_NAME
 
 

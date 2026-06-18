@@ -20,7 +20,7 @@ from pathlib import Path
 
 from ..activity import append_event
 from ..asset_types import ASSET_TYPES
-from ..brand_loader import DEFAULT_KITS_DIR
+from ..brand_loader import current_kits_dir
 from ..compliance.lifecycle import stamp_compliance
 from ..ingest import _write_sidecar
 from .catalog import _coerce_record
@@ -191,7 +191,7 @@ def save_upload(
         )
     stored_name = _ensure_extension(safe_name, ext)
 
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     dest_dir = (root / brand / "imported" / asset_type).resolve()
     # Defense in depth: the destination must stay inside this brand's kit even
     # after a sanitized name. brand and asset_type are validated by the caller

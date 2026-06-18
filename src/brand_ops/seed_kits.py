@@ -36,10 +36,24 @@ def _copy_missing(src: Path, dst: Path) -> int:
     return copied
 
 
-def seed(seed_dir: Path | None = None, live_dir: Path | None = None) -> int:
-    """Seed live_dir from seed_dir, copy-if-missing. Returns files copied."""
+def seed(
+    seed_dir: Path | None = None,
+    live_dir: Path | None = None,
+    workspace_subdir: str | None = None,
+) -> int:
+    """Seed live_dir from seed_dir, copy-if-missing. Returns files copied.
+
+    Under the per-workspace layout the curated seed brands belong to the deploy's
+    bootstrap workspace (Magic Unicorn), so when ``workspace_subdir`` is given
+    (the bootstrap workspace id) they are copied into ``live_dir/<workspace_id>/``,
+    not the flat root. A new tenant therefore starts with an empty brand library,
+    not a copy of the suite's brands. With no ``workspace_subdir`` (local / CLI /
+    a deploy with no tenancy configured) the original flat root is seeded.
+    """
     seed_dir = seed_dir or Path(os.getenv("BRAND_KITS_SEED", "/app/brand-kits-seed"))
     live_dir = live_dir or DEFAULT_KITS_DIR
+    if workspace_subdir:
+        live_dir = live_dir / workspace_subdir
     if not seed_dir.is_dir():
         return 0
     live_dir.mkdir(parents=True, exist_ok=True)
@@ -52,8 +66,10 @@ def seed(seed_dir: Path | None = None, live_dir: Path | None = None) -> int:
 
 def main() -> None:
     seed_dir = Path(os.getenv("BRAND_KITS_SEED", "/app/brand-kits-seed"))
-    n = seed()
-    print(f"seed_kits: copied {n} missing file(s) from {seed_dir} -> {DEFAULT_KITS_DIR}")
+    ws = os.getenv("BRAND_OPS_BOOTSTRAP_WORKSPACE_ID", "").strip() or None
+    n = seed(workspace_subdir=ws)
+    dest = DEFAULT_KITS_DIR / ws if ws else DEFAULT_KITS_DIR
+    print(f"seed_kits: copied {n} missing file(s) from {seed_dir} -> {dest}")
 
 
 if __name__ == "__main__":

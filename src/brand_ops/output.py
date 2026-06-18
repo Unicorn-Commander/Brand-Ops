@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .backends.base import GenResult
-from .brand_loader import DEFAULT_KITS_DIR
+from .brand_loader import current_kits_dir
 from .compliance.lifecycle import stamp_compliance
 from .prompt_builder import BuiltPrompt
 
@@ -29,7 +29,7 @@ def ext_for(mime: str) -> str:
 
 
 def generated_dir(brand_slug: str, asset_type: str, kits_dir: Path | None = None) -> Path:
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     return root / brand_slug / "generated" / asset_type
 
 

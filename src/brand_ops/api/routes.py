@@ -40,8 +40,8 @@ from ..asset_types import ASSET_TYPES, get_asset_spec
 from ..backends.base import BackendError, BackendNotConfigured
 from ..brand_clone import clone_brand, create_brand_from_draft
 from ..brand_loader import (
-    DEFAULT_KITS_DIR,
     BrandNotFound,
+    current_kits_dir,
     get_allowed_brands,
     list_brands,
     load_brand,
@@ -496,7 +496,7 @@ async def intake_brand_route(body: IntakeRequest, principal: _Auth) -> IntakeRes
 
     # Fail fast on a duplicate before spending an LLM turn drafting an identity
     # we could not write anyway.
-    if (DEFAULT_KITS_DIR / slug).exists():
+    if (current_kits_dir() / slug).exists():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"brand {slug!r} already exists",
@@ -1004,7 +1004,7 @@ def get_asset_file(
     if kind not in ("generated", "imported"):
         raise HTTPException(status_code=_HTTP_422, detail="kind must be generated or imported")
     _ensure_brand_visible(brand)
-    root = DEFAULT_KITS_DIR.resolve()
+    root = current_kits_dir().resolve()
     target = (root / brand / kind / asset / file).resolve()
     if not target.is_relative_to(root) or not target.is_file():
         raise HTTPException(
@@ -1121,7 +1121,7 @@ def _apply_transition(
 
     # Rebuild the catalog record from the refreshed sidecar, resolving the same
     # image path the catalog and approve flow resolve.
-    root = DEFAULT_KITS_DIR.resolve()
+    root = current_kits_dir().resolve()
     image_path = (root / brand / kind / asset / file).resolve()
     sidecar = image_path.with_suffix(image_path.suffix + ".json")
     record = _coerce_record(data, sidecar, image_path, kind=kind)
@@ -1800,7 +1800,7 @@ def _serve_avatar(path: Path | None, size: int | None) -> Response:
             status_code=_HTTP_422,
             detail=f"size must be one of {list(agent_identity.AVATAR_SIZES)}",
         )
-    root = DEFAULT_KITS_DIR.resolve()
+    root = current_kits_dir().resolve()
     if path is None or not path.resolve().is_relative_to(root) or not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="avatar not generated")
     if size is None:

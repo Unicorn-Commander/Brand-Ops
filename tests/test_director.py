@@ -381,16 +381,15 @@ def agent_kits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     exactly as tests/test_agent_identity.py does for its HTTP tests.
     """
     from brand_ops import brand_loader
-    from brand_ops.api import routes
 
     src = _REPO / "brand-kits" / "magic-unicorn" / "brand.yaml"
     brand_dir = tmp_path / "magic-unicorn"
     brand_dir.mkdir()
     shutil.copy(src, brand_dir / "brand.yaml")
 
+    # One source point: every module resolves its root through
+    # brand_loader.current_kits_dir(), which reads this (unscoped -> the flat root).
     monkeypatch.setattr(brand_loader, "DEFAULT_KITS_DIR", tmp_path)
-    monkeypatch.setattr(agent_identity, "DEFAULT_KITS_DIR", tmp_path)
-    monkeypatch.setattr(routes, "DEFAULT_KITS_DIR", tmp_path)
     return tmp_path
 
 

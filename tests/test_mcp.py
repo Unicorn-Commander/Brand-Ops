@@ -124,12 +124,15 @@ def kits(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def kits_pointed(monkeypatch: pytest.MonkeyPatch, kits: Path) -> Path:
-    """Point agent_identity at the tmp kits dir.
+    """Point the kits root at the tmp dir.
 
     The MCP agent tools call into agent_identity with no kits_dir, so they resolve
-    through DEFAULT_KITS_DIR (imported by value); repoint it at the tmp tree.
+    through brand_loader.current_kits_dir(), which reads brand_loader.DEFAULT_KITS_DIR
+    (unscoped here, so the flat tmp root). Patch that one source point.
     """
-    monkeypatch.setattr(agent_identity, "DEFAULT_KITS_DIR", kits)
+    from brand_ops import brand_loader
+
+    monkeypatch.setattr(brand_loader, "DEFAULT_KITS_DIR", kits)
     return kits
 
 

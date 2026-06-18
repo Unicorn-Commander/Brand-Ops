@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from ..brand_loader import (
-    DEFAULT_KITS_DIR,
+    current_kits_dir,
     get_allowed_brands,
     workspace_query_suffix,
 )
@@ -106,7 +106,7 @@ def read_assets(
     whose ``lifecycle_status`` differs (including a never-stamped null) is
     dropped. Absent, every record is returned regardless of lifecycle status.
     """
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     if not root.exists():
         return []
 

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..activity import append_event
-from ..brand_loader import DEFAULT_KITS_DIR, BrandNotFound, load_brand
+from ..brand_loader import BrandNotFound, current_kits_dir, load_brand
 from .evaluator import _resolve_image_path, check_asset
 from .rules import build_rules
 
@@ -187,7 +187,7 @@ def transition(
     image_path = _resolve_image_path(brand_slug, file, asset_type, kind, kits_dir)
     # Confine the resolved sidecar to the kits root, matching the asset API's
     # defense in depth: a crafted ``file`` cannot reach outside the tree.
-    root = (kits_dir or DEFAULT_KITS_DIR).resolve()
+    root = (kits_dir or current_kits_dir()).resolve()
     sidecar = image_path.with_suffix(image_path.suffix + ".json")
     if not sidecar.is_relative_to(root) or not sidecar.is_file():
         raise FileNotFoundError("asset sidecar not found")

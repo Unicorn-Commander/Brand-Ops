@@ -101,37 +101,48 @@ async def ensure_membership(
 async def import_file_brands(
     bootstrap_workspace_id: str, kits_dir: Path | None = None
 ) -> dict[str, int]:
-    """Index every file brand into the DB, stamped with its workspace.
+    """Index every file brand into the DB under the workspace that owns its subtree.
 
-    A brand carrying its own ``workspace_id`` (created by the scoped write path)
-    keeps it; a brand without one (the seed brands) is assigned to
-    ``bootstrap_workspace_id``. Idempotent: ``upsert_brand`` is keyed on
-    (workspace_id, slug), so re-running only updates. Returns per-workspace
-    counts for logging.
+    Under the per-workspace layout brand files live at
+    ``brand-kits/<workspace_id>/<slug>/``, so the owning workspace IS the
+    top-level directory name: each ``<workspace_id>/`` subtree is walked and its
+    brands indexed under that workspace. A top-level entry that is not a uuid (the
+    shared ``_template``, or a not-yet-migrated flat brand) is skipped -- the
+    storage migration moves flat brands into a workspace subtree first.
+    ``bootstrap_workspace_id`` is the deploy's primary tenant (its seeded brands
+    live under it); it is kept for the caller's intent and logging. Idempotent:
+    ``upsert_brand`` is keyed on (workspace_id, slug), so re-running only updates.
+    Returns per-workspace counts for logging.
     """
-    from ..brand_loader import BrandNotFound, list_brands, load_brand
+    from ..brand_loader import DEFAULT_KITS_DIR, BrandNotFound, list_brands, load_brand
 
+    root = kits_dir or DEFAULT_KITS_DIR
     sm = get_sessionmaker()
     counts: dict[str, int] = {}
+    if not root.is_dir():
+        return counts
     async with sm() as session:
-        for slug in list_brands(kits_dir=kits_dir):
-            try:
-                brand = load_brand(slug, kits_dir=kits_dir)
-            except (BrandNotFound, ValueError):
+        for ws_dir in sorted(root.iterdir()):
+            ws = coerce_uuid(ws_dir.name) if ws_dir.is_dir() else None
+            if ws is None:
                 continue
-            meta = brand.brand
-            ws = coerce_uuid(getattr(meta, "workspace_id", None)) or bootstrap_workspace_id
-            async with scoped_session(session, workspace_id=ws):
-                await repo.upsert_brand(
-                    session,
-                    ws,
-                    slug=meta.slug,
-                    display_name=meta.display_name,
-                    parent_slug=meta.parent,
-                    tagline=meta.tagline,
-                    status="active",
-                )
-            counts[ws] = counts.get(ws, 0) + 1
+            for slug in list_brands(kits_dir=ws_dir):
+                try:
+                    brand = load_brand(slug, kits_dir=ws_dir)
+                except (BrandNotFound, ValueError):
+                    continue
+                meta = brand.brand
+                async with scoped_session(session, workspace_id=ws):
+                    await repo.upsert_brand(
+                        session,
+                        ws,
+                        slug=meta.slug,
+                        display_name=meta.display_name,
+                        parent_slug=meta.parent,
+                        tagline=meta.tagline,
+                        status="active",
+                    )
+                counts[ws] = counts.get(ws, 0) + 1
     return counts
 
 

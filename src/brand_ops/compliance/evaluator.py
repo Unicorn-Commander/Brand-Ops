@@ -23,7 +23,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from ..brand_loader import DEFAULT_KITS_DIR
+from ..brand_loader import current_kits_dir
 
 # An em-dash is off-house-style: we flag its presence in copy. The hyphen-minus
 # and en-dash are fine; only U+2014 is banned.
@@ -382,7 +382,7 @@ def _resolve_image_path(
     brand_slug: str, file: str, asset_type: str, kind: str, kits_dir: Path | None
 ) -> Path:
     """Resolve a catalog file to its on-disk path under the kits tree."""
-    root = (kits_dir or DEFAULT_KITS_DIR).resolve()
+    root = (kits_dir or current_kits_dir()).resolve()
     return (root / brand_slug / kind / asset_type / file).resolve()
 
 

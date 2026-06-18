@@ -13,7 +13,7 @@ from pathlib import Path
 from . import cards
 from .asset_types import get_asset_spec
 from .backends.base import BackendNotConfigured, GenRequest, GenResult, load_backend
-from .brand_loader import DEFAULT_KITS_DIR, load_brand, resolve_reference_images
+from .brand_loader import current_kits_dir, load_brand, resolve_reference_images
 from .config import Settings, get_settings
 from .output import generated_dir, output_name, save_result
 from .prompt_builder import BuiltPrompt, build_prompt
@@ -137,7 +137,7 @@ def _resolve_mark(brand_slug, brand, mark, kits_dir):
     """Find the brand mark to composite: an explicit one, the brand's declared
     mark, else the most recent generated (then imported) logo. None if there is
     no logo yet (the card still renders, just without a mark)."""
-    base = (kits_dir or DEFAULT_KITS_DIR) / brand_slug
+    base = (kits_dir or current_kits_dir()) / brand_slug
     if mark:
         explicit = Path(mark)
         if explicit.is_file():

@@ -29,9 +29,9 @@ from pathlib import Path
 import yaml
 
 from .brand_loader import (
-    DEFAULT_KITS_DIR,
     BrandNotFound,
     allow_brand,
+    current_kits_dir,
     get_allowed_brands,
     get_current_workspace_id,
     load_brand,
@@ -161,7 +161,7 @@ def clone_brand(
     """
     _validate_slug(new_slug)
 
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
 
     # Resolve the source first: this both validates the source exists (raising
     # BrandNotFound, a FileNotFoundError subclass is not used here so the route
@@ -269,7 +269,7 @@ def create_brand_from_draft(
     """
     _validate_slug(slug)
 
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     dest_dir = root / slug
     _assert_slug_available(slug, root)
 

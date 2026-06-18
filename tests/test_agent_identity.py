@@ -296,11 +296,11 @@ def api_kits(monkeypatch: pytest.MonkeyPatch, kits: Path) -> Path:
     routes resolve avatars under the tmp tree instead of the repo's brand-kits.
     """
     from brand_ops import brand_loader
-    from brand_ops.api import routes
 
+    # Every module resolves its kits root through brand_loader.current_kits_dir(),
+    # which reads brand_loader.DEFAULT_KITS_DIR, so patching the one source point
+    # redirects them all (unscoped, so current_kits_dir() is the flat tmp root).
     monkeypatch.setattr(brand_loader, "DEFAULT_KITS_DIR", kits)
-    monkeypatch.setattr(agent_identity, "DEFAULT_KITS_DIR", kits)
-    monkeypatch.setattr(routes, "DEFAULT_KITS_DIR", kits)
     return kits
 
 

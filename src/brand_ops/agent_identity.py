@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import quote
 
 from .backends.base import GenRequest
-from .brand_loader import DEFAULT_KITS_DIR, load_brand
+from .brand_loader import current_kits_dir, load_brand
 from .compliance.evaluator import check_image_colors
 from .compliance.rules import build_rules
 from .engine import resolve_image_backend
@@ -94,7 +94,7 @@ def slugify(name: str) -> str:
 
 
 def _agents_root(brand_slug: str, kits_dir: Path | None) -> Path:
-    root = kits_dir or DEFAULT_KITS_DIR
+    root = kits_dir or current_kits_dir()
     return root / brand_slug / "agents"
 
 

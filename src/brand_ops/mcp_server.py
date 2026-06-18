@@ -41,6 +41,7 @@ from .brand_clone import create_brand_from_draft as _create_brand_from_draft
 from .brand_loader import (
     DEFAULT_KITS_DIR,
     BrandNotFound,
+    current_kits_dir,
     get_allowed_brands,
     get_current_workspace_id,
     load_brand,
@@ -343,7 +344,7 @@ def list_generated_assets(
     Returns a list of records, each including the image path it describes.
     """
     try:
-        root = DEFAULT_KITS_DIR
+        root = current_kits_dir()
         if not root.exists():
             return {"assets": [], "count": 0}
 
@@ -889,12 +890,14 @@ def new_brand(
     Returns the created path and the brand.yaml path.
     """
     try:
-        root = DEFAULT_KITS_DIR
-        template = root / "_template"
+        # The template is a shared, global seed resource (a "_"-prefixed dir that
+        # is not a tenant brand), so it is read from the global root; the new brand
+        # is written into the active workspace's subtree.
+        template = DEFAULT_KITS_DIR / "_template"
         if not template.is_dir():
             return _error(f"template not found at {template}")
 
-        dest = root / slug
+        dest = current_kits_dir() / slug
         if dest.exists():
             return _error(f"brand {slug!r} already exists at {dest}", slug=slug)
 
@@ -1009,7 +1012,7 @@ def intake_brand(
             name=clean_name,
         )
     slug = _slugify(clean_name)
-    if (DEFAULT_KITS_DIR / slug).exists():
+    if (current_kits_dir() / slug).exists():
         # Non-leaky existence check (matches brand_clone._assert_slug_available):
         # a scoped caller who is not a member of the brand's workspace gets a
         # generic "unavailable", never confirmation it exists in another tenant.

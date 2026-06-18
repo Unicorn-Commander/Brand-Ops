@@ -83,6 +83,25 @@ def kits(tmp_path: Path) -> Path:
     return dest
 
 
+@pytest.fixture
+def scoped_kits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """A per-workspace kits tree: ``brand-kits/<WS>/<slug>/`` for a few seed brands.
+
+    A scoped read resolves through ``current_kits_dir()`` to ``<root>/<WS>``, where
+    these brands physically live, so this exercises the real per-workspace layout
+    (the on-disk isolation) on top of the allow-list filter. Heavy generated dirs
+    are skipped so the copy is just the authoring files.
+    """
+    root = tmp_path / "brand-kits"
+    ws_dir = root / WS
+    ws_dir.mkdir(parents=True)
+    skip = shutil.ignore_patterns("generated", "imported", "refs", "agents")
+    for slug in ("center-deep", "majiks", "magic-unicorn"):
+        shutil.copytree(DEFAULT_KITS_DIR / slug, ws_dir / slug, ignore=skip)
+    monkeypatch.setattr(brand_loader, "DEFAULT_KITS_DIR", root)
+    return root
+
+
 # ─────────────────── unscoped (anonymous / CLI) sees all ────────────────────
 
 
@@ -123,7 +142,7 @@ def test_unscoped_lists_every_brand() -> None:
 # ──────────────── scoped to a set: only those brands ────────────────────────
 
 
-def test_scoped_to_subset_lists_only_those() -> None:
+def test_scoped_to_subset_lists_only_those(scoped_kits: Path) -> None:
     set_workspace_scope(WS, frozenset({"center-deep", "majiks"}))
     assert set(list_brands()) == {"center-deep", "majiks"}
 
@@ -135,7 +154,7 @@ def test_scoped_cross_tenant_read_is_brandnotfound() -> None:
         load_brand("magic-unicorn")
 
 
-def test_scoped_in_set_still_resolves() -> None:
+def test_scoped_in_set_still_resolves(scoped_kits: Path) -> None:
     set_workspace_scope(WS, frozenset({"magic-unicorn"}))
     assert load_brand("magic-unicorn").brand.slug == "magic-unicorn"
 
@@ -158,7 +177,7 @@ def test_empty_allow_list_read_is_brandnotfound() -> None:
 # ──────────────── allow_brand: a just-created brand becomes visible ─────────
 
 
-def test_allow_brand_adds_to_scope() -> None:
+def test_allow_brand_adds_to_scope(scoped_kits: Path) -> None:
     set_workspace_scope(WS, frozenset({"center-deep"}))
     with pytest.raises(BrandNotFound):
         load_brand("magic-unicorn")
@@ -353,7 +372,9 @@ def test_mcp_index_noop_when_unscoped(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls["n"] == 0
 
 
-def test_mcp_index_records_when_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_index_records_when_scoped(
+    monkeypatch: pytest.MonkeyPatch, scoped_kits: Path
+) -> None:
     from brand_ops import mcp_server
     from brand_ops.db import tenancy
 
@@ -370,7 +391,9 @@ def test_mcp_index_records_when_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen.get("slug") == "magic-unicorn"
 
 
-def test_mcp_index_swallows_db_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mcp_index_swallows_db_error(
+    monkeypatch: pytest.MonkeyPatch, scoped_kits: Path
+) -> None:
     from brand_ops import mcp_server
     from brand_ops.db import tenancy
 
@@ -381,3 +404,125 @@ def test_mcp_index_swallows_db_error(monkeypatch: pytest.MonkeyPatch) -> None:
     set_workspace_scope(WS, frozenset({"magic-unicorn"}))
     # Best effort: a DB failure must not raise (the boot import is the backstop).
     mcp_server._index_brand_best_effort(load_brand("magic-unicorn"))
+
+
+# ─────── per-workspace on-disk isolation: two tenants, same brand slug ────────
+# The enterprise property: brand files live at brand-kits/<workspace_id>/<slug>/,
+# so two workspaces may hold the SAME slug without colliding and a read can never
+# resolve into another tenant's subtree. This is the physical isolation beneath
+# the allow-list visibility gate.
+
+_WS1 = "019e5111-0000-7000-a000-000000000001"
+_WS2 = "019e5222-0000-7000-a000-000000000002"
+
+
+def _write_min_brand(path: Path, slug: str, display_name: str) -> None:
+    """Write a minimal valid brand.yaml at path/<slug>/brand.yaml."""
+    d = path / slug
+    d.mkdir(parents=True)
+    (d / "brand.yaml").write_text(
+        f"brand:\n  slug: {slug}\n  display_name: {display_name}\n"
+        "visual:\n  colors:\n    primary: '#112233'\n    accent: '#445566'\n"
+    )
+
+
+def test_two_workspaces_isolated_same_slug(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    root = tmp_path / "brand-kits"
+    # The SAME slug 'acme' in two workspaces, with distinct files.
+    _write_min_brand(root / _WS1, "acme", "Acme One")
+    _write_min_brand(root / _WS2, "acme", "Acme Two")
+    monkeypatch.setattr(brand_loader, "DEFAULT_KITS_DIR", root)
+
+    # Scoped to WS1, 'acme' is WS1's brand; the read resolves WS1's subtree.
+    set_workspace_scope(_WS1, frozenset({"acme"}))
+    assert load_brand("acme").brand.display_name == "Acme One"
+    assert list_brands() == ["acme"]
+    brand_loader.reset_workspace_scope()
+
+    # Scoped to WS2, the same slug resolves WS2's distinct file -- no collision,
+    # no cross-tenant bleed.
+    set_workspace_scope(_WS2, frozenset({"acme"}))
+    assert load_brand("acme").brand.display_name == "Acme Two"
+    brand_loader.reset_workspace_scope()
+
+
+def test_workspace_subtree_does_not_see_other_tenant_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # WS1 owns 'alpha', WS2 owns 'beta'. Scoped to WS1, 'beta' is not even on
+    # WS1's subtree, so it is unreadable regardless of the allow-list.
+    root = tmp_path / "brand-kits"
+    _write_min_brand(root / _WS1, "alpha", "Alpha")
+    _write_min_brand(root / _WS2, "beta", "Beta")
+    monkeypatch.setattr(brand_loader, "DEFAULT_KITS_DIR", root)
+
+    set_workspace_scope(_WS1, frozenset({"alpha", "beta"}))  # allow-list even lists beta
+    assert load_brand("alpha").brand.slug == "alpha"
+    # beta is on WS2's subtree, not WS1's -> not found, even though allow-lists it.
+    with pytest.raises(BrandNotFound):
+        load_brand("beta")
+
+
+# ─────── the flat -> per-workspace storage migration (non-destructive) ────────
+
+
+def test_migrate_storage_copy_then_cleanup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from brand_ops import migrate_storage
+
+    root = tmp_path / "brand-kits"
+    # Pre-migration shape: a flat brand (with a generated asset) + the global feed.
+    _write_min_brand(root, "acme", "Acme")
+    (root / "acme" / "logo.png").write_bytes(b"png-bytes")
+    (root / ".activity.jsonl").write_text('{"id":"1","action":"made"}\n')
+    monkeypatch.setenv("BRAND_OPS_BOOTSTRAP_WORKSPACE_ID", WS)
+
+    # Dry run changes nothing.
+    monkeypatch.setattr("sys.argv", ["m", "--dry-run", "--root", str(root)])
+    migrate_storage.main()
+    assert (root / "acme").is_dir()
+    assert not (root / WS).exists()
+
+    # Copy builds the per-workspace layout beside the flat one (non-destructive).
+    monkeypatch.setattr("sys.argv", ["m", "--root", str(root)])
+    migrate_storage.main()
+    assert (root / WS / "acme" / "brand.yaml").exists()
+    assert (root / WS / "acme" / "logo.png").read_bytes() == b"png-bytes"
+    assert (root / WS / ".activity.jsonl").exists()
+    assert (root / "acme").is_dir()  # flat copy still present until cleanup
+
+    # Idempotent: a second copy is a no-op (nothing new), flat still intact.
+    migrate_storage.main()
+    assert (root / "acme").is_dir()
+
+    # Cleanup removes the verified flat copies.
+    monkeypatch.setattr("sys.argv", ["m", "--cleanup", "--root", str(root)])
+    migrate_storage.main()
+    assert not (root / "acme").exists()
+    assert not (root / ".activity.jsonl").exists()
+    assert (root / WS / "acme" / "brand.yaml").exists()
+
+
+def test_migrate_storage_honors_recorded_workspace(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A flat brand whose brand.yaml records a workspace goes to THAT workspace,
+    # not the bootstrap one.
+    from brand_ops import migrate_storage
+
+    root = tmp_path / "brand-kits"
+    d = root / "acme"
+    d.mkdir(parents=True)
+    (d / "brand.yaml").write_text(
+        f"brand:\n  slug: acme\n  display_name: Acme\n  workspace_id: {_WS2}\n"
+        "visual:\n  colors:\n    primary: '#112233'\n    accent: '#445566'\n"
+    )
+    monkeypatch.setenv("BRAND_OPS_BOOTSTRAP_WORKSPACE_ID", WS)
+    monkeypatch.setattr("sys.argv", ["m", "--root", str(root)])
+    migrate_storage.main()
+    # Placed under its recorded workspace _WS2, not the bootstrap WS.
+    assert (root / _WS2 / "acme" / "brand.yaml").exists()
+    assert not (root / WS / "acme").exists()
