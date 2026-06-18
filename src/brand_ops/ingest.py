@@ -28,8 +28,27 @@ _CDP = f"{_DEV}/Center-Deep-Pro/keycloak-theme/center-deep/login/resources/img"
 # (tracked); ingest mirrors it into imported/ (managed copies) like the rest.
 _CO_SRC = str(DEFAULT_KITS_DIR / "contact-ops" / "source")
 
+# Repo root, resolved the same way brand_loader.DEFAULT_KITS_DIR is (this module
+# lives at src/brand_ops/ingest.py, so parents[2] is the repo). A brand that is
+# native to this suite keeps its canonical marks tracked inside its own kit at
+# brand-kits/<slug>/source/, rather than in an external tree, so a fresh clone
+# can reproduce it end to end: git clone -> ingest_brand(slug) copies the marks
+# into imported/. The source/ folder is NOT gitignored (only imported/ and
+# generated/ are), so the marks travel with the repo.
+_REPO = str(Path(__file__).resolve().parents[2])
+_POS = f"{_REPO}/brand-kits/project-ops/source"
+
 # Per brand: (path or glob, asset_type). Missing paths are skipped quietly.
 IMPORT_SOURCES: dict[str, list[tuple[str, str]]] = {
+    # Project-Ops is native to the suite: its marks live tracked in-repo (see
+    # _REPO above), so this entry reproduces from a clone. projectops-mascot.png
+    # is the brand mark declared in brand.yaml -> imported/logo/.
+    "project-ops": [
+        (f"{_POS}/projectops-mascot.png", "logo"),
+        (f"{_POS}/the-colonel.png", "logo"),
+        (f"{_POS}/projectops-crew-light.png", "logo"),
+        (f"{_POS}/projectops-crew-dark.png", "logo"),
+    ],
     "magic-unicorn": [
         (f"{_HOME}/Pictures/magic_unicorn_logo.png", "logo"),
         (f"{_HOME}/Pictures/unicorn_subdued_black_logo.png", "logo"),

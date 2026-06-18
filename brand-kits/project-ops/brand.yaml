@@ -1,0 +1,123 @@
+# Project-Ops brand. Sub-brand of Unicorn Commander, the professional-services
+# spine of the suite (projects, tasks, CRM, time tracking, and billing; logged
+# time becomes billable rollups that flow to Accounting-Ops). Two-layer identity
+# like the rest of the *-Ops family: the FACE is a unicorn officer mascot (the
+# Project-Ops crew, led by the Colonel, who is also the in-app AI assistant), and
+# the CHROME stays deliberately calm. The signature move: the mascot artwork
+# carries the rainbow while the UI chrome stays a calm, professional indigo, so a
+# tool that bills real clients reads as trustworthy. Distinct from the suite's
+# emerald/navy/gold lanes by an indigo primary. mark = the Project-Ops mascot.
+brand:
+  slug: project-ops
+  display_name: Project Ops
+  tagline: Project delivery you self-host.
+  parent: unicorn-commander
+  mark:
+    asset_type: logo
+    file: projectops-mascot.png
+    kind: imported
+  description: |
+    Project-Ops is the Unicorn Commander suite app for getting work done and
+    paid for. It runs projects and tasks (list, kanban, and Gantt), a real CRM
+    of organizations and contacts, time tracking, and billing, with a client
+    portal for external clients and an embedded AI assistant, the Colonel, over
+    a per-user MCP server. It is the professional-services spine of the suite:
+    logged time becomes billable rollups that flow to Accounting-Ops for
+    invoicing. It is multi-tenant and multi-user, enforced by Postgres
+    row-level security, and runs on your own infrastructure. It serves agencies,
+    consultancies, and professional-services teams who would rather own their
+    delivery and billing data than rent it. The voice is confident and
+    technical, tuned calm and professional for software that touches money.
+
+visual:
+  colors:
+    primary: "#4f46e5"      # indigo-600, the calm SaaS CTA (light mode)
+    accent: "#f59e0b"       # amber, the one warm accent
+    background: "#fafaf9"   # warm off-white, not pure white (light mode)
+    foreground: "#171717"   # near-black text
+    muted: "#71717a"        # zinc, secondary text
+    # Extended (beyond the 5-key schema; the real shipping themes):
+    #   Light:   card #ffffff  border #e4e4e7  destructive #dc2626
+    #   Dark:    bg #08080a  card #17171c  primary #6366f1 (indigo-500)  border #2e2e33
+    #   Vibrant: bg #0c0a1a (aubergine)  card #1a1530  primary #a78bfa (violet-400)
+    #            fg #f4f0ff  accent #fb923c  border #2d2548  ("Magic Unicorn at night")
+  typography:
+    primary_font: DM Sans          # the shipping Project-Ops UI + body font
+    display_font: DM Sans          # same family for headings, weighted semibold
+    mono_font: JetBrains Mono      # code, ids, and P-XXXXX project numbers
+  style_keywords:
+    - calm professional chrome; the mascot carries the rainbow, the UI stays calm
+    - indigo-600 primary with a single warm amber accent, no rainbow in the chrome
+    - warm off-white surfaces in light, near-black in dark, deep aubergine in vibrant
+    - three first-class themes, Light, Dark, and Vibrant (Magic Unicorn at night)
+    - for the mascot, a bold thick black-outlined sticker-style cartoon unicorn officer
+    - white face, gold spiral horn, vibrant full rainbow mane, navy military beret
+    - clean flat color comic finish, centered, generous margin, transparent-ready
+
+voice:
+  tone:
+    - confident
+    - direct
+    - technical
+    - professional
+    - calm
+    - unapologetic
+  forbidden_phrases:
+    - revolutionary
+    - game-changer
+    - synergize
+    - unleash
+
+prompts:
+  logo:
+    base: |
+      Create a brand logo mark for {brand_context}. This is the Project-Ops
+      crew officer: a bold, thick black-outlined sticker-style cartoon unicorn
+      head, white face, gold spiral horn, a vibrant full rainbow mane, and a
+      navy military beret, in the EXACT art style of the reference images. Give
+      the officer a steady, organized, dependable expression, the project lead
+      who keeps delivery on track. Add a small neat indigo project insignia on
+      the beret (a tidy checklist or kanban glyph). Match the proportions,
+      outline weight, and crisp flat-color comic finish of the references.
+      Style: {style_keywords}. Variant: {variant}. Single centered mark,
+      transparent background, no text and no wordmark. {ref_block}
+    variants: [flat, color, mono, app-icon]
+  app_icon:
+    base: |
+      App icon for {brand_context}. The Project-Ops crew officer head on a
+      rounded-corner indigo tile. {style_keywords}. Must read at 32x32: keep the
+      bold outline, gold horn, rainbow mane, and navy beret crisp. {ref_block}
+    variants: [color, dark]
+  og_image:
+    base: |
+      1200x630 share image for {brand_context}. Warm off-white background in the
+      light variant (deep aubergine in dark), headline on the left in near-black
+      with a small indigo PROJECT-OPS label above it, the crew officer mark in a
+      rounded tile on the right. Topic: {topic}. {style_keywords}. {ref_block}
+    variants: [default, dark]
+  social_card:
+    base: |
+      Square social card for {brand_context}. Topic: {topic}. Platform:
+      {platform}. Calm indigo and amber accents on a warm-neutral surface, the
+      crew officer mark, generous negative space. {style_keywords}. {ref_block}
+    variants: [instagram, twitter, linkedin]
+  avatar:
+    base: |
+      Create a polished, production-grade brand mascot for {brand_context}, in
+      the EXACT art style of the reference images: a bold, thick black-outlined
+      sticker-style cartoon unicorn head with a clean white face, a gold spiral
+      horn, a vibrant full rainbow mane, and a navy military beret. Match the
+      proportions, outline weight, and crisp flat-color comic finish of the
+      references exactly. This is the Project-Ops crew lead, the dependable
+      officer who keeps delivery and billing on track: a confident, organized,
+      reassuring expression. Small neat indigo project insignia on the beret (a
+      tidy checklist or kanban glyph). One centered character, balanced, generous
+      margin, on a single flat even near-black background so it can be cleanly
+      cut to transparency. No other objects, no text, no wordmark. {ref_block}
+    variants: [color]
+
+# Mascot generation refs (the *-Ops unicorn officer house style), shared with
+# Meeting-Ops / Contact-Ops / Brand-Ops so the Project-Ops officer matches the family.
+reference_images:
+  colonel: refs/colonel.png
+  canonical: refs/canonical-unicorn.png
