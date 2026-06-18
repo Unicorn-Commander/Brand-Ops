@@ -163,8 +163,7 @@
   .v2-wordmark img {
     height: 27px;
     width: 27px;
-    object-fit: cover;
-    object-position: 50% 14%;
+    object-fit: contain;
     border-radius: 8px;
     outline: 1px solid rgba(242, 241, 238, 0.15);
   }

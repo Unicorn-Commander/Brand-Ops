@@ -107,6 +107,43 @@ def _voice_tone(brand: Brand) -> list[str]:
     return list(getattr(voice, "tone", []) or [])
 
 
+def _voice_binding(
+    voice_id: str | None, engine: str | None = None, speed: float = 1.0
+) -> dict[str, Any] | None:
+    """Shape a stored/assigned voice into the agent.json ``voice`` object, or None.
+
+    A bound voice is ``{"voice_id", "engine", "speed"}``: the orator voice name,
+    the engine that owns it (resolved from the catalog when not given so the
+    manifest is self-describing), and a playback speed. An empty/None ``voice_id``
+    clears the binding (returns None), which is how an agent goes back to unvoiced.
+    """
+    from . import voices
+
+    if not voice_id:
+        return None
+    try:
+        spd = float(speed)
+    except (TypeError, ValueError):
+        spd = 1.0
+    return {
+        "voice_id": voice_id,
+        "engine": engine or voices.engine_for(voice_id),
+        "speed": min(max(spd, 0.5), 2.0),
+    }
+
+
+def _brand_signature_voice(brand: Brand) -> dict[str, Any] | None:
+    """The brand's signature voice as an agent voice binding, or None if unset.
+
+    New agents inherit this so a brand's cast sounds consistent by construction,
+    the same way they inherit the written voice tone.
+    """
+    voice = getattr(brand, "voice", None)
+    return _voice_binding(
+        getattr(voice, "voice_id", None), getattr(voice, "voice_engine", None)
+    )
+
+
 def _variants_urls(
     brand_slug: str, agent_slug: str, data: dict
 ) -> dict[str, str]:
@@ -143,6 +180,10 @@ def _identity_dict(
         "role": data.get("role", ""),
         "bio": data.get("bio", ""),
         "voice_tone": data.get("voice_tone", []),
+        # The bound spoken voice ({voice_id, engine, speed}) or None. Distinct from
+        # voice_tone (the written voice): this is the TTS voice Stable/orator speak
+        # the agent in.
+        "voice": data.get("voice"),
         "avatar_file": avatar_file,
         "avatar_url": avatar_url,
         "variants": _variants_urls(brand_slug, agent_slug, data),
@@ -208,11 +249,85 @@ def create_agent(
         "role": role,
         "bio": bio.strip(),
         "voice_tone": _voice_tone(brand),
+        # Inherit the brand's signature voice (None when the brand declares none),
+        # so a new agent is on-brand in sound as well as look from the start.
+        "voice": _brand_signature_voice(brand),
         "avatar_file": None,
         "compliance": None,
         "created_at": datetime.now(UTC).isoformat(),
     }
     (d / "agent.json").write_text(json.dumps(data, indent=2))
+    return _identity_dict(brand_slug, agent_slug, data, kits_dir)
+
+
+def _load_agent_data(
+    brand_slug: str, agent_slug: str, kits_dir: Path | None
+) -> tuple[Path, dict[str, Any]]:
+    """Resolve an agent's agent.json path and parsed data, gated by the brand.
+
+    ``load_brand`` runs first so a brand outside the request's workspace allow-list
+    reads as not-found before any agent file is touched (the same tenant guard the
+    read path uses). Raises ``AgentIdentityError`` for a bad slug or missing agent.
+    """
+    load_brand(brand_slug, kits_dir)  # tenant guard + brand-exists
+    if not _SLUG_RE.match(agent_slug or ""):
+        raise AgentIdentityError(f"invalid agent slug {agent_slug!r}")
+    meta = _agent_dir(brand_slug, agent_slug, kits_dir) / "agent.json"
+    if not meta.is_file():
+        raise AgentIdentityError(
+            f"agent {agent_slug!r} not found for brand {brand_slug!r}"
+        )
+    return meta, json.loads(meta.read_text())
+
+
+def set_agent_voice(
+    brand_slug: str,
+    agent_slug: str,
+    voice_id: str | None,
+    engine: str | None = None,
+    speed: float = 1.0,
+    kits_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Bind (or clear) the agent's spoken voice and persist it.
+
+    A non-empty ``voice_id`` must be one of the curated catalog voices, so an
+    agent can only be bound to a voice orator actually serves; the engine is
+    resolved from the catalog when not supplied. An empty/None ``voice_id`` clears
+    the binding. Returns the refreshed identity dict.
+    """
+    from . import voices
+
+    meta, data = _load_agent_data(brand_slug, agent_slug, kits_dir)
+    voice_id = (voice_id or "").strip() or None
+    if voice_id is not None and not voices.is_known(voice_id):
+        raise AgentIdentityError(f"unknown voice {voice_id!r}")
+    data["voice"] = _voice_binding(voice_id, engine, speed)
+    meta.write_text(json.dumps(data, indent=2))
+    return _identity_dict(brand_slug, agent_slug, data, kits_dir)
+
+
+def update_agent(
+    brand_slug: str,
+    agent_slug: str,
+    role: str | None = None,
+    bio: str | None = None,
+    kits_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Update an agent's persona text (role and/or bio) and persist it.
+
+    Only the fields passed (non-None) change; the avatar, voice, voice tone, and
+    compliance are untouched. An empty role is rejected (every agent has a role);
+    an empty bio is allowed (it clears the bio).
+    """
+    meta, data = _load_agent_data(brand_slug, agent_slug, kits_dir)
+    if role is not None:
+        role = role.strip()
+        if not role:
+            raise AgentIdentityError("agent role cannot be empty")
+        data["role"] = role
+    if bio is not None:
+        data["bio"] = bio.strip()
+    meta.write_text(json.dumps(data, indent=2))
     return _identity_dict(brand_slug, agent_slug, data, kits_dir)
 
 
@@ -489,7 +604,10 @@ def build_manifest(
             # The size derivatives the avatar/variant routes can serve via ?size=.
             "sizes": list(AVATAR_SIZES),
         },
-        "voice": {"tone": ident["voice_tone"]},
+        # The voice block carries both halves of "voice": the written tone and the
+        # spoken TTS binding ({voice_id, engine, speed} or None). Stable/orator read
+        # ``tts`` to speak the agent; an LLM reads ``tone`` to write as it.
+        "voice": {"tone": ident["voice_tone"], "tts": ident.get("voice")},
         "palette": {
             "primary": brand.visual.colors.primary,
             "accent": brand.visual.colors.accent,

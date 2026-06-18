@@ -11,6 +11,7 @@ import { useActiveBrand } from "../brand-context";
 import { useViewMode } from "../view-mode";
 import { NAV_LABELS, BRAND_NAV_LABELS, pick } from "../lib/labels";
 import { MarkImg } from "./MarkImg";
+import { LightboxProvider } from "./ImageLightbox";
 
 const CHROME_NAV = [
   { to: "/", label: "Portfolio", end: true },
@@ -116,13 +117,15 @@ export function Layout() {
   }, []);
   return (
     <EnvProvider>
-      <Topbar />
-      <main className="v2-wrap">
-        <ErrorBoundary>
-          <Outlet />
-        </ErrorBoundary>
-      </main>
-      <CommandPalette />
+      <LightboxProvider>
+        <Topbar />
+        <main className="v2-wrap">
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </main>
+        <CommandPalette />
+      </LightboxProvider>
     </EnvProvider>
   );
 }
@@ -138,17 +141,19 @@ export function BrandLayout() {
 
   return (
     <EnvProvider slug={slug}>
-      <Topbar
-        brandSlug={slug}
-        brandName={brandQ.data?.display_name}
-        markUrl={brandQ.data?.mark_url}
-      />
-      <main className="v2-wrap">
-        <ErrorBoundary>
-          <Outlet />
-        </ErrorBoundary>
-      </main>
-      <CommandPalette />
+      <LightboxProvider>
+        <Topbar
+          brandSlug={slug}
+          brandName={brandQ.data?.display_name}
+          markUrl={brandQ.data?.mark_url}
+        />
+        <main className="v2-wrap">
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </main>
+        <CommandPalette />
+      </LightboxProvider>
     </EnvProvider>
   );
 }

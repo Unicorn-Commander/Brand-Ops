@@ -72,6 +72,16 @@ class Settings(BaseModel):
     agent_model_default: str = "qwen/qwen3.6-35b-a3b"
     agent_model_strong: str = "anthropic/claude-opus-4.1"
 
+    # Orator (the suite TTS service) for agent voices. When set, Brand-Ops can
+    # refresh the voice catalog live from orator and synthesize short voice
+    # previews; when blank (the default), the catalog falls back to the curated
+    # built-in roster and preview is reported unavailable. Brand-Ops never stores a
+    # voice's audio: it binds a voice id to an agent and, on request, proxies one
+    # short utterance to this single configured service (never a caller-supplied
+    # host), so there is no SSRF surface. base_url is the orator root (it serves
+    # /voices and /v1/audio/speech).
+    orator_base_url: str = ""
+
     # Live-site capture for new-brand intake. The intake "Research" stage fetches
     # the operator-supplied URL to ground the draft (no Brigade required). The
     # suite has hit Cloudflare bot blocks with default/library User-Agents, so the
@@ -104,6 +114,7 @@ def get_settings() -> Settings:
             [x.strip() for x in os.getenv("FALLBACK_IMAGE_BACKENDS", "").split(",") if x.strip()]
             or d.fallback_image_backends
         ),
+        orator_base_url=os.getenv("ORATOR_BASE_URL", ""),
         brigade_base_url=os.getenv("BRIGADE_BASE_URL", d.brigade_base_url),
         brigade_api_key=os.getenv("BRIGADE_API_KEY", ""),
         garage_s3_endpoint=os.getenv("GARAGE_S3_ENDPOINT", ""),

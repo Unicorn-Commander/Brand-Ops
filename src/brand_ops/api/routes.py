@@ -29,7 +29,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 
-from .. import agent_identity, engine, governance
+from .. import agent_identity, engine, governance, voices
 from ..activity import append_event, read_events
 from ..agents.brand_intake import BrandIntakeAgent
 from ..agents.brand_research import _slugify
@@ -113,10 +113,15 @@ from .schemas import (
     PlanGenerationReply,
     PlanGenerationRequest,
     PromptPreview,
+    SetAgentVoiceRequest,
     TemplateList,
     TransitionRequest,
     TransitionResult,
+    UpdateAgentRequest,
     UploadResult,
+    VoiceCatalog,
+    VoiceOption,
+    VoicePreviewRequest,
     WorkspaceOut,
 )
 from .upload import MAX_UPLOAD_BYTES, UploadError, save_upload
@@ -253,6 +258,8 @@ def _brand_detail(brand: Brand) -> BrandDetail:
         voice=BrandVoiceOut(
             tone=list(brand.voice.tone),
             forbidden_phrases=list(brand.voice.forbidden_phrases),
+            voice_id=brand.voice.voice_id,
+            voice_engine=brand.voice.voice_engine,
         ),
         prompt_assets=sorted(brand.prompts),
         reference_roles=sorted(brand.reference_images),
@@ -1905,6 +1912,97 @@ def get_brand_agent_manifest(slug: str, agent: str, _: _Auth) -> dict:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
     except agent_identity.AgentIdentityError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+
+
+@router.patch("/brands/{slug}/agents/{agent}", response_model=AgentIdentityOut)
+def update_brand_agent(
+    slug: str, agent: str, body: UpdateAgentRequest, _: _Auth
+) -> AgentIdentityOut:
+    """Edit an agent's persona text (role and/or bio); avatar and voice untouched."""
+    if body.role is not None and not body.role.strip():
+        raise HTTPException(status_code=_HTTP_422, detail="agent role cannot be empty")
+    try:
+        ident = agent_identity.update_agent(slug, agent, role=body.role, bio=body.bio)
+    except BrandNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    except agent_identity.AgentIdentityError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    try:
+        append_event(
+            "iris", "agent", "updated agent", brand=slug, target=ident["slug"],
+            ts=datetime.now(UTC).isoformat(),
+        )
+    except Exception:  # noqa: BLE001 - advisory feed
+        pass
+    return AgentIdentityOut(**ident)
+
+
+@router.put("/brands/{slug}/agents/{agent}/voice", response_model=AgentIdentityOut)
+def set_brand_agent_voice(
+    slug: str, agent: str, body: SetAgentVoiceRequest, _: _Auth
+) -> AgentIdentityOut:
+    """Bind (or clear) the agent's spoken voice from the catalog.
+
+    A null/empty ``voice_id`` clears the binding; a non-empty one must be a catalog
+    voice (else 422). The engine is resolved from the catalog when omitted.
+    """
+    voice_id = (body.voice_id or "").strip() or None
+    if voice_id is not None and not voices.is_known(voice_id):
+        raise HTTPException(status_code=_HTTP_422, detail=f"unknown voice {voice_id!r}")
+    try:
+        ident = agent_identity.set_agent_voice(
+            slug, agent, voice_id, engine=body.engine, speed=body.speed
+        )
+    except BrandNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    except agent_identity.AgentIdentityError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    try:
+        append_event(
+            "iris", "agent",
+            "set agent voice" if voice_id else "cleared agent voice",
+            brand=slug, target=ident["slug"], ts=datetime.now(UTC).isoformat(),
+        )
+    except Exception:  # noqa: BLE001 - advisory feed
+        pass
+    return AgentIdentityOut(**ident)
+
+
+@router.get("/voices", response_model=VoiceCatalog)
+def list_voice_catalog(_: _Auth) -> VoiceCatalog:
+    """The catalog of assignable agent voices, and whether live preview is wired."""
+    return VoiceCatalog(
+        voices=[VoiceOption(**v) for v in voices.list_voices()],
+        preview_available=voices.preview_available(),
+    )
+
+
+@router.post("/voices/preview")
+def preview_voice(body: VoicePreviewRequest, _: _Auth) -> Response:
+    """Synthesize one short sample utterance in a voice, via the configured orator.
+
+    Best-effort: returns audio bytes when orator is wired and reachable, a 422 for
+    an unknown voice, and a 503 when preview is not configured or orator is down,
+    so the GUI can hide the control rather than surface a 500. The proxy only ever
+    targets the one configured orator (no caller-supplied host).
+    """
+    if not voices.is_known(body.voice_id):
+        raise HTTPException(
+            status_code=_HTTP_422, detail=f"unknown voice {body.voice_id!r}"
+        )
+    try:
+        audio, content_type = voices.synthesize_preview(
+            body.voice_id, text=body.text, speed=body.speed
+        )
+    except voices.VoicePreviewError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from None
+    return Response(
+        content=audio,
+        media_type=content_type,
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+    )
 
 
 # ---------------------------------------------------------------------------

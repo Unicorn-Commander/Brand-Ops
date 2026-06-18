@@ -45,6 +45,16 @@ class BrandVisual(BaseModel):
 class BrandVoice(BaseModel):
     tone: list[str] = Field(default_factory=list)
     forbidden_phrases: list[str] = Field(default_factory=list)
+    # The brand's signature spoken voice: the TTS voice its agents speak in by
+    # default, so a brand's whole cast sounds like one brand instead of a set of
+    # unrelated bots. ``voice_id`` is an orator voice name (e.g. "af_sky" or
+    # "alba"); ``voice_engine`` is the orator engine that owns it ("pocket-tts" or
+    # "kokoro-onnx"), carried so a downstream consumer (Stable / orator) can route
+    # without a catalog lookup. Both optional: a brand with none simply has no
+    # default, and an agent stays unvoiced until one is assigned. Tone above is
+    # the written voice; this is the spoken one.
+    voice_id: str | None = None
+    voice_engine: str | None = None
 
 
 class AssetPrompt(BaseModel):

@@ -19,6 +19,7 @@ import { EmptyState } from "../../components/EmptyState";
 import { CoverageRing } from "../../components/CoverageRing";
 import { AssetThumb } from "../../components/AssetThumb";
 import { AgentAvatar } from "../../components/AgentAvatar";
+import { useLightbox } from "../../components/ImageLightbox";
 import { ActivityFeed } from "../../components/ActivityFeed";
 import { useActiveBrand } from "../../brand-context";
 import { deriveSteward } from "../../lib/agents";
@@ -389,6 +390,7 @@ export default function BrandDetailPage() {
   const { slug = "" } = useParams();
   const navigate = useNavigate();
   const { setActiveSlug } = useActiveBrand();
+  const { open: openLightbox } = useLightbox();
 
   const brandQ = useQuery({
     queryKey: ["brand", slug],
@@ -488,7 +490,8 @@ export default function BrandDetailPage() {
                 <img
                   src={logo}
                   alt={`${brand.display_name} logo`}
-                  className="relative max-h-24 max-w-[70%] object-contain drop-shadow-xl"
+                  onClick={() => openLightbox(logo, `${brand.display_name} logo`)}
+                  className="relative max-h-24 max-w-[70%] cursor-zoom-in object-contain drop-shadow-xl"
                 />
               ) : (
                 <span className="relative font-display text-5xl font-semibold text-white/90">

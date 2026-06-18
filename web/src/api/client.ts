@@ -55,6 +55,7 @@ import type {
   TemplateDef,
   TransitionRequest,
   UploadResult,
+  VoiceCatalog,
 } from "../lib/types";
 
 // ---------------------------------------------------------------------------
@@ -687,6 +688,65 @@ export async function generateAgentVariants(
 /** The /api URL of an agent's consumable identity manifest (for download/links). */
 export function agentManifestUrl(slug: string, agent: string): string {
   return `/api/brands/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent)}/manifest`;
+}
+
+/** GET /api/voices -> the assignable voice catalog and whether preview is wired. */
+export async function listVoices(signal?: AbortSignal): Promise<VoiceCatalog> {
+  return request<VoiceCatalog>("/voices", { signal });
+}
+
+/** PUT /api/brands/{slug}/agents/{agent}/voice -> bind or clear the agent's voice. */
+export async function setBrandAgentVoice(
+  slug: string,
+  agent: string,
+  body: { voice_id: string | null; engine?: string | null; speed?: number },
+  signal?: AbortSignal,
+): Promise<AgentIdentity> {
+  return request<AgentIdentity>(
+    `/brands/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent)}/voice`,
+    { method: "PUT", body, signal },
+  );
+}
+
+/** PATCH /api/brands/{slug}/agents/{agent} -> edit the agent's role and/or bio. */
+export async function updateBrandAgent(
+  slug: string,
+  agent: string,
+  body: { role?: string; bio?: string },
+  signal?: AbortSignal,
+): Promise<AgentIdentity> {
+  return request<AgentIdentity>(
+    `/brands/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent)}`,
+    { method: "PATCH", body, signal },
+  );
+}
+
+/**
+ * POST /api/voices/preview -> synthesize one short sample utterance and return it
+ * as an audio Blob (for an Audio() to play). Best-effort: a 503 means preview is
+ * not wired (no orator), surfaced as an ApiError the caller can choose to ignore.
+ */
+export async function previewVoice(
+  body: { voice_id: string; text?: string; speed?: number },
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (_activeWorkspaceId) headers["X-Workspace-Id"] = _activeWorkspaceId;
+  const res = await fetch("/api/voices/preview", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const parsed = await parseBody(res);
+    throw new ApiError(
+      res.status,
+      messageFromBody(parsed, `voice preview failed (${res.status})`),
+      parsed,
+    );
+  }
+  return res.blob();
 }
 
 /** The verified principal behind this session (drives the user menu). */

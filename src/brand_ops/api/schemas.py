@@ -37,6 +37,10 @@ class BrandVisualOut(BaseModel):
 class BrandVoiceOut(BaseModel):
     tone: list[str] = Field(default_factory=list)
     forbidden_phrases: list[str] = Field(default_factory=list)
+    # The brand's signature spoken voice (an orator voice id + its engine), or
+    # null when the brand declares none. New agents inherit it.
+    voice_id: str | None = None
+    voice_engine: str | None = None
 
 
 class BrandSummary(BaseModel):
@@ -765,6 +769,10 @@ class GuidelineVoice(BaseModel):
 
     tone: list[str] = Field(default_factory=list)
     forbidden_phrases: list[str] = Field(default_factory=list)
+    # The brand's signature spoken voice, surfaced in the brand book alongside the
+    # written tone, or null when unset.
+    voice_id: str | None = None
+    voice_engine: str | None = None
 
 
 class GuidelineLogo(BaseModel):
@@ -837,6 +845,20 @@ class NeedsKeyError(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class AgentVoice(BaseModel):
+    """An agent's bound spoken voice: an orator voice id, its engine, and speed.
+
+    Distinct from ``voice_tone`` (the written voice). ``engine`` is the orator
+    engine that owns the voice ("pocket-tts" | "kokoro-onnx"), carried so a
+    consumer can route without a catalog lookup; ``speed`` is a 0.5-2.0 playback
+    multiplier.
+    """
+
+    voice_id: str
+    engine: str | None = None
+    speed: float = 1.0
+
+
 class AgentIdentityOut(BaseModel):
     """One agent identity owned by a brand (GET/POST /brands/{slug}/agents)."""
 
@@ -846,6 +868,9 @@ class AgentIdentityOut(BaseModel):
     role: str
     bio: str = ""
     voice_tone: list[str] = Field(default_factory=list)
+    # The bound spoken voice, or null until one is assigned (inherited from the
+    # brand's signature voice at create time when the brand declares one).
+    voice: AgentVoice | None = None
     avatar_file: str | None = None
     avatar_url: str | None = None
     # The agent's avatar state set: each generated state mapped to its variant
@@ -919,6 +944,59 @@ class CreateAgentIdentityRequest(BaseModel):
     name: str
     role: str
     bio: str = ""
+
+
+class UpdateAgentRequest(BaseModel):
+    """Body for PATCH /brands/{slug}/agents/{agent}: persona text edits.
+
+    Only the fields present change; both optional so a caller can update role,
+    bio, or both. An empty bio clears it; an empty role is rejected.
+    """
+
+    role: str | None = None
+    bio: str | None = None
+
+
+class SetAgentVoiceRequest(BaseModel):
+    """Body for PUT /brands/{slug}/agents/{agent}/voice: bind (or clear) a voice.
+
+    A null/empty ``voice_id`` clears the binding (the agent goes unvoiced). The
+    engine is resolved from the catalog when omitted; ``speed`` is a 0.5-2.0
+    multiplier.
+    """
+
+    voice_id: str | None = None
+    engine: str | None = None
+    speed: float = 1.0
+
+
+class VoiceOption(BaseModel):
+    """One assignable voice in the catalog (GET /voices)."""
+
+    id: str
+    label: str
+    engine: str
+    kind: str
+    descriptor: str | None = None
+
+
+class VoiceCatalog(BaseModel):
+    """The assignable voice roster, plus whether live preview is wired."""
+
+    voices: list[VoiceOption] = Field(default_factory=list)
+    preview_available: bool = False
+
+
+class VoicePreviewRequest(BaseModel):
+    """Body for POST /voices/preview: synthesize one short sample utterance.
+
+    ``text`` is optional (a short default line is used when omitted) and capped
+    server-side; ``voice_id`` must be a catalog voice.
+    """
+
+    voice_id: str
+    text: str | None = None
+    speed: float = 1.0
 
 
 class MeOut(BaseModel):

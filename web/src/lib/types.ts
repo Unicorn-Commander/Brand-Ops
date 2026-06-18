@@ -917,6 +917,17 @@ export interface ListAssetsParams {
 export type GovernanceStatus = "on_brand" | "needs_review" | "unrated";
 
 /**
+ * An agent's bound spoken voice: an orator voice id, the engine that owns it, and
+ * a 0.5-2.0 playback speed. Distinct from `voice_tone` (the written voice). Null
+ * on an agent until a voice is assigned.
+ */
+export interface AgentVoice {
+  voice_id: string;
+  engine: string | null;
+  speed: number;
+}
+
+/**
  * An agent identity owned by a brand: the on-brand visual + verbal identity for
  * an agent (a Steward, a Specialist, or a company's own agent). Distinct from
  * the runnable AgentInfo (the Brigade registry). `avatar_url` is a ready-to-render
@@ -930,6 +941,8 @@ export interface AgentIdentity {
   role: string;
   bio: string;
   voice_tone: string[];
+  /** The bound spoken voice, or null until one is assigned. */
+  voice: AgentVoice | null;
   avatar_file: string | null;
   avatar_url: string | null;
   /**
@@ -949,6 +962,24 @@ export interface AgentIdentity {
    */
   governance_status: GovernanceStatus;
   created_at: string | null;
+}
+
+/** One assignable voice in the catalog (GET /api/voices). */
+export interface VoiceOption {
+  id: string;
+  label: string;
+  engine: string;
+  kind: string;
+  descriptor: string | null;
+}
+
+/**
+ * The assignable voice roster plus whether live preview is wired (an orator is
+ * configured). When `preview_available` is false the UI hides the preview button.
+ */
+export interface VoiceCatalog {
+  voices: VoiceOption[];
+  preview_available: boolean;
 }
 
 // ---------------------------------------------------------------------------

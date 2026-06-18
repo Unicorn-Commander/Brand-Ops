@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Download, Layers, Plus, Sparkles } from "lucide-react";
+import { Bot, Download, Layers, Plus, Sparkles, Volume2 } from "lucide-react";
 
 import {
   agentManifestUrl,
@@ -8,6 +8,9 @@ import {
   generateAgentVariants,
   generateBrandAgentAvatar,
   getAgentTeam,
+  listVoices,
+  previewVoice,
+  setBrandAgentVoice,
 } from "../../../api/client";
 import { AgentAvatar } from "../../../components/AgentAvatar";
 import { Button } from "../../../components/Button";
@@ -18,11 +21,114 @@ import type {
   AgentIdentity,
   AgentTeamMember,
   GovernanceStatus,
+  VoiceCatalog,
 } from "../../../lib/types";
 
 const INPUT =
   "w-full rounded-lg border border-white/10 bg-chrome-900/60 px-3 py-2 text-sm " +
   "text-text placeholder:text-text-faint accent-ring focus:outline-none";
+
+const SELECT =
+  "rounded-lg border border-white/10 bg-chrome-900/60 px-2.5 py-1.5 text-sm " +
+  "text-text accent-ring focus:outline-none";
+
+/**
+ * One agent's spoken-voice control: the bound voice (or none), a picker that
+ * assigns from the catalog on change, and a preview button that plays a short
+ * sample when an orator is wired. The catalog is loaded once by the panel and
+ * passed down. Brand-Ops owns the voice; Stable/orator speak it.
+ */
+function VoiceControl({
+  slug,
+  agent,
+  catalog,
+  onChanged,
+}: {
+  slug: string;
+  agent: AgentIdentity;
+  catalog: VoiceCatalog | undefined;
+  onChanged: () => void;
+}) {
+  const [previewing, setPreviewing] = useState(false);
+  const current = agent.voice?.voice_id ?? "";
+
+  const setVoice = useMutation({
+    mutationFn: (voiceId: string) =>
+      setBrandAgentVoice(slug, agent.slug, { voice_id: voiceId || null }),
+    onSuccess: onChanged,
+  });
+
+  async function preview() {
+    if (!current) return;
+    setPreviewing(true);
+    try {
+      const blob = await previewVoice({ voice_id: current });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => URL.revokeObjectURL(url);
+      await audio.play();
+    } catch {
+      // Best-effort: preview needs a reachable orator; a failure is non-fatal and
+      // leaves the binding untouched.
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  const custom = (catalog?.voices ?? []).filter((v) => v.kind === "custom");
+  const builtin = (catalog?.voices ?? []).filter((v) => v.kind !== "custom");
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-text-faint">
+        <Volume2 size={12} className="text-accent" />
+        Voice
+      </span>
+      <select
+        className={SELECT}
+        value={current}
+        disabled={setVoice.isPending || !catalog}
+        onChange={(e) => setVoice.mutate(e.target.value)}
+      >
+        <option value="">No voice</option>
+        {custom.length > 0 ? (
+          <optgroup label="Premium">
+            {custom.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+                {v.descriptor ? ` - ${v.descriptor}` : ""}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
+        {builtin.length > 0 ? (
+          <optgroup label="Standard">
+            {builtin.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+                {v.descriptor ? ` - ${v.descriptor}` : ""}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
+      </select>
+      {current && catalog?.preview_available ? (
+        <button
+          type="button"
+          onClick={preview}
+          disabled={previewing}
+          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-text-muted hover:text-text disabled:opacity-60"
+        >
+          <Volume2 size={14} />
+          {previewing ? "Playing..." : "Preview"}
+        </button>
+      ) : null}
+      {setVoice.isError ? (
+        <span className="text-[11px] text-rose-400">Could not save</span>
+      ) : null}
+    </div>
+  );
+}
 
 /** Visual treatment for an agent's governance badge, keyed by status. */
 const BADGE: Record<GovernanceStatus, { label: string; className: string }> = {
@@ -86,6 +192,12 @@ export function AgentsPanel({ slug, brandName }: { slug: string; brandName: stri
   const teamQ = useQuery({
     queryKey: ["agent-team", slug],
     queryFn: ({ signal }) => getAgentTeam(slug, signal),
+  });
+  // The voice catalog is brand-agnostic; load it once and share across cards.
+  const voicesQ = useQuery({
+    queryKey: ["voices"],
+    queryFn: ({ signal }) => listVoices(signal),
+    staleTime: 5 * 60 * 1000,
   });
 
   const [open, setOpen] = useState(false);
@@ -284,6 +396,12 @@ export function AgentsPanel({ slug, brandName }: { slug: string; brandName: stri
                           ))}
                         </div>
                       ) : null}
+                      <VoiceControl
+                        slug={slug}
+                        agent={a}
+                        catalog={voicesQ.data}
+                        onChanged={refetchTeam}
+                      />
                       {variantStates.length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-3">
                           {variantStates.map(([state, url]) => (

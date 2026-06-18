@@ -15,6 +15,7 @@ import {
   ClipboardCheck,
 } from "lucide-react";
 import { Button } from "../../../components/Button";
+import { useLightbox } from "../../../components/ImageLightbox";
 import type {
   AssetCompliance,
   AssetLifecycleStatus,
@@ -449,6 +450,7 @@ export function AssetDetailDrawer({
 }: AssetDetailDrawerProps) {
   const open = group !== null;
   const reduce = useReducedMotion();
+  const { open: openLightbox } = useLightbox();
 
   // Close on Escape while open.
   useEffect(() => {
@@ -544,7 +546,14 @@ export function AssetDetailDrawer({
                     layoutId={assetMorphId(record.file)}
                     src={record.url}
                     alt={`${assetTitle(record)} for ${record.brand}`}
-                    className="h-full w-full object-contain"
+                    onClick={() =>
+                      record.url &&
+                      openLightbox(
+                        record.url,
+                        `${assetTitle(record)} for ${record.brand}`,
+                      )
+                    }
+                    className="h-full w-full cursor-zoom-in object-contain"
                   />
                 ) : (
                   <motion.img
@@ -558,7 +567,14 @@ export function AssetDetailDrawer({
                     transition={easeExpo}
                     src={record.url}
                     alt={`${assetTitle(record)} for ${record.brand}`}
-                    className="h-full w-full object-contain"
+                    onClick={() =>
+                      record.url &&
+                      openLightbox(
+                        record.url,
+                        `${assetTitle(record)} for ${record.brand}`,
+                      )
+                    }
+                    className="h-full w-full cursor-zoom-in object-contain"
                   />
                 )
               ) : (

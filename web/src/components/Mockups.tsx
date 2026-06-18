@@ -8,6 +8,7 @@
  * frame still reads.
  */
 import { ImageIcon } from "lucide-react";
+import { useLightbox } from "./ImageLightbox";
 
 function Placeholder({ rounded = "rounded-md" }: { rounded?: string }) {
   return (
@@ -30,6 +31,7 @@ export function PhoneHomePreview({
   /** A CSS background for the wallpaper; defaults to the brand accent gradient. */
   wallpaper?: string;
 }) {
+  const { open } = useLightbox();
   return (
     <div className="relative mx-auto h-[380px] w-[190px] rounded-[2.6rem] bg-black/80 p-2.5 shadow-float ring-1 ring-white/10">
       <div className="absolute left-1/2 top-3 z-10 h-5 w-20 -translate-x-1/2 rounded-full bg-black" />
@@ -48,7 +50,12 @@ export function PhoneHomePreview({
           <div className="flex flex-col items-center gap-1">
             <div className="h-11 w-11 overflow-hidden rounded-[13px] shadow-md ring-1 ring-black/20">
               {icon ? (
-                <img src={icon} alt={`${label} app icon`} className="h-full w-full object-cover" />
+                <img
+                  src={icon}
+                  alt={`${label} app icon`}
+                  onClick={() => open(icon, `${label} app icon`)}
+                  className="h-full w-full cursor-zoom-in object-contain"
+                />
               ) : (
                 <Placeholder rounded="rounded-[13px]" />
               )}
@@ -76,12 +83,18 @@ export function TabPreview({
   title: string;
   domain?: string;
 }) {
+  const { open } = useLightbox();
   return (
     <div className="flex w-72 items-end gap-1 rounded-t-xl bg-chrome-raised px-2 pt-2">
       <div className="flex max-w-[220px] items-center gap-2 rounded-t-lg bg-chrome-bg px-3 py-1.5">
         <span className="h-4 w-4 shrink-0 overflow-hidden rounded-[3px]">
           {favicon ? (
-            <img src={favicon} alt="" className="h-full w-full object-cover" />
+            <img
+              src={favicon}
+              alt=""
+              onClick={() => open(favicon, `${title} favicon`)}
+              className="h-full w-full cursor-zoom-in object-contain"
+            />
           ) : (
             <span className="block h-full w-full bg-accent" />
           )}
@@ -107,11 +120,17 @@ export function LinkPreviewCard({
   title: string;
   description: string;
 }) {
+  const { open } = useLightbox();
   return (
     <div className="w-[400px] max-w-full overflow-hidden rounded-xl border border-chrome-border bg-chrome-panel">
       <div className="aspect-[1.91/1] w-full bg-chrome-raised">
         {ogImage ? (
-          <img src={ogImage} alt="" className="h-full w-full object-cover" />
+          <img
+            src={ogImage}
+            alt=""
+            onClick={() => open(ogImage, `${title} link preview`)}
+            className="h-full w-full cursor-zoom-in object-contain"
+          />
         ) : (
           <Placeholder rounded="" />
         )}
@@ -135,12 +154,18 @@ export function BusinessCardPreview({
   name: string;
   tagline?: string | null;
 }) {
+  const { open } = useLightbox();
   return (
     <div className="group [perspective:1000px]">
       <div className="flex aspect-[1.75/1] w-72 flex-col justify-between rounded-2xl border border-white/10 bg-gradient-to-br from-chrome-raised to-chrome-panel p-5 shadow-float transition-transform duration-300 ease-spring [transform:rotateX(0deg)] group-hover:[transform:rotateX(6deg)_rotateY(-6deg)]">
         <div className="h-8">
           {logo ? (
-            <img src={logo} alt={`${name} logo`} className="h-8 w-auto object-contain" />
+            <img
+              src={logo}
+              alt={`${name} logo`}
+              onClick={() => open(logo, `${name} logo`)}
+              className="h-8 w-auto cursor-zoom-in object-contain"
+            />
           ) : (
             <span
               className="inline-block h-7 w-7 rounded-md"

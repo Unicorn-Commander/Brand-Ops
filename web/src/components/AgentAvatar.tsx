@@ -1,4 +1,5 @@
 import { Sparkles } from "lucide-react";
+import { useLightbox } from "./ImageLightbox";
 
 interface AgentAvatarProps {
   /** The agent's name. Drives the fallback initial and the alt text. */
@@ -30,6 +31,7 @@ export function AgentAvatar({
   size = 40,
   ring = true,
 }: AgentAvatarProps) {
+  const { open } = useLightbox();
   // The Sparkles glyph scales with the avatar but stays a tasteful accent, not a
   // badge; the initial owns the orb.
   const glyph = Math.max(9, Math.round(size * 0.26));
@@ -38,9 +40,26 @@ export function AgentAvatar({
   const ringClass = ring ? "accent-ring" : "ring-1 ring-white/10";
 
   if (src) {
+    // The chip keeps the round object-cover crop; clicking it opens the full
+    // square mark in the lightbox. stopPropagation so it does not also trigger a
+    // parent row/card click (this avatar sits inside clickable cards).
+    const enlarge = (e: { stopPropagation: () => void }) => {
+      e.stopPropagation();
+      open(src, name);
+    };
     return (
       <span
-        className={`relative inline-grid shrink-0 place-items-center overflow-hidden rounded-full bg-chrome-raised ${ringClass}`}
+        role="button"
+        tabIndex={0}
+        aria-label={`Enlarge ${name}`}
+        onClick={enlarge}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            enlarge(e);
+          }
+        }}
+        className={`relative inline-grid shrink-0 cursor-pointer place-items-center overflow-hidden rounded-full bg-chrome-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${ringClass}`}
         style={{ width: size, height: size }}
       >
         <img

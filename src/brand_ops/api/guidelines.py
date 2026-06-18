@@ -100,6 +100,8 @@ def build_guidelines(slug: str, kits_dir: Path | None = None) -> dict:
         "voice": {
             "tone": list(brand.voice.tone),
             "forbidden_phrases": list(brand.voice.forbidden_phrases),
+            "voice_id": brand.voice.voice_id,
+            "voice_engine": brand.voice.voice_engine,
         },
         "logo": {
             "mark_url": mark_url,

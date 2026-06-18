@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Check, ImageIcon } from "lucide-react";
+import { Check, ImageIcon, Maximize2 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { spring } from "../lib/motion";
+import { useLightbox } from "./ImageLightbox";
 import type { AssetRecord } from "../lib/types";
 
 interface AssetThumbProps {
@@ -60,11 +61,15 @@ export function AssetThumb({
 }: AssetThumbProps) {
   const [broken, setBroken] = useState(false);
   const reduce = useReducedMotion();
+  const { open } = useLightbox();
   const showImage = Boolean(src) && !broken;
 
   const meta = [asset.asset_type, asset.variant].filter(Boolean).join(" / ");
   const dims = asset.size.length === 2 ? `${asset.size[0]}×${asset.size[1]}` : null;
   const showBadge = selectable || selected;
+  const imgAlt = `${asset.asset_type} ${asset.variant ?? ""} for ${asset.brand}`
+    .replace(/\s+/g, " ")
+    .trim();
 
   const card = (
     <>
@@ -90,14 +95,29 @@ export function AssetThumb({
         )}
 
         {showImage ? (
-          <img
-            src={src}
-            alt={`${asset.asset_type} ${asset.variant ?? ""} for ${asset.brand}`.replace(/\s+/g, " ").trim()}
-            loading="lazy"
-            decoding="async"
-            onError={() => setBroken(true)}
-            className="relative z-0 h-full w-full object-contain"
-          />
+          <>
+            <img
+              src={src}
+              alt={imgAlt}
+              loading="lazy"
+              decoding="async"
+              onError={() => setBroken(true)}
+              className="relative z-0 h-full w-full object-contain"
+            />
+            {/* Enlarge affordance. stopPropagation so a wrapping card's onClick
+                (selection / open) never fires; it only opens the lightbox. */}
+            <button
+              type="button"
+              aria-label="Enlarge"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (src) open(src, imgAlt);
+              }}
+              className="absolute bottom-1.5 right-1.5 z-[2] grid h-6 w-6 place-items-center rounded-md bg-black/40 text-white opacity-0 backdrop-blur transition-opacity duration-150 hover:bg-black/60 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 [@media(hover:hover)]:group-hover:opacity-100"
+            >
+              <Maximize2 size={12} />
+            </button>
+          </>
         ) : (
           <div className="relative z-0 flex h-full w-full select-none flex-col items-center justify-center gap-2 text-text-faint">
             <ImageIcon size={22} aria-hidden="true" />

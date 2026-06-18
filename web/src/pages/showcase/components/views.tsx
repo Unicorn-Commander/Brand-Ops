@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import { ChevronRight, ImageIcon } from "lucide-react";
 import { CoverageRing } from "../../../components/CoverageRing";
 import { SpotlightCard } from "../../../components/SpotlightCard";
+import { useLightbox } from "../../../components/ImageLightbox";
 import { staggerContainer, staggerItem, spring } from "../../../lib/motion";
 import { resolveAccent } from "../../../theme";
 import { relativeTime } from "../../../lib/coverage";
@@ -23,6 +24,8 @@ function BrandMark({
   className?: string;
 }) {
   const accent = resolveAccent(sb.brand.slug);
+  const { open } = useLightbox();
+  const markUrl = sb.markUrl;
   return (
     <div
       className={`relative grid place-items-center overflow-hidden ${className}`}
@@ -32,11 +35,17 @@ function BrandMark({
     >
       {/* A soft dark scrim so light logos keep contrast on bright palettes. */}
       <div className="absolute inset-0 bg-black/15" />
-      {sb.markUrl ? (
+      {markUrl ? (
         <img
-          src={sb.markUrl}
+          src={markUrl}
           alt={`${sb.brand.display_name} logo`}
-          className="relative max-h-[46%] max-w-[64%] object-contain drop-shadow-lg"
+          // The mark sits inside a card-wide Link; enlarge instead of navigating.
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            open(markUrl, `${sb.brand.display_name} logo`);
+          }}
+          className="relative max-h-[46%] max-w-[64%] cursor-zoom-in object-contain drop-shadow-lg"
           loading="lazy"
         />
       ) : (
@@ -192,6 +201,7 @@ export function BrandListView({ brands }: { brands: ShowcaseBrand[] }) {
 // --- Folder ------------------------------------------------------------------
 
 export function BrandFolderView({ brands }: { brands: ShowcaseBrand[] }) {
+  const { open } = useLightbox();
   return (
     <motion.div
       variants={staggerContainer}
@@ -218,7 +228,18 @@ export function BrandFolderView({ brands }: { brands: ShowcaseBrand[] }) {
                       className="grid place-items-center overflow-hidden bg-chrome-raised text-text-faint"
                     >
                       {url ? (
-                        <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        <img
+                          src={url}
+                          alt=""
+                          // Inside the card-wide Link; enlarge instead of navigating.
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            open(url, `${sb.brand.display_name} asset`);
+                          }}
+                          className="h-full w-full cursor-zoom-in object-contain"
+                          loading="lazy"
+                        />
                       ) : (
                         <ImageIcon size={14} />
                       )}

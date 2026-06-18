@@ -31,6 +31,7 @@ import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
 import { EmptyState } from "../../components/EmptyState";
 import { AssetThumb } from "../../components/AssetThumb";
+import { useLightbox } from "../../components/ImageLightbox";
 import { applyBrandAccent, resolveAccent } from "../../theme";
 import { staggerContainer, staggerItem } from "../../lib/motion";
 import type {
@@ -222,6 +223,7 @@ function LogoPlate({
   surface: "light" | "dark";
 }) {
   const isLight = surface === "light";
+  const { open: openLightbox } = useLightbox();
   return (
     <div className="flex flex-col gap-2">
       <div
@@ -236,7 +238,8 @@ function LogoPlate({
           <img
             src={src}
             alt={`${name} mark on a ${surface} surface`}
-            className="max-h-24 max-w-[70%] object-contain"
+            onClick={() => openLightbox(src, `${name} mark`)}
+            className="max-h-24 max-w-[70%] cursor-zoom-in object-contain"
           />
         ) : (
           <span
@@ -264,6 +267,7 @@ function LogoPlate({
 function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
   const { brand, colors, typography, rules, voice, logo, asset_groups, generated_at } =
     data;
+  const { open: openLightbox } = useLightbox();
 
   // The cover gradient uses the brand's own primary/accent color tokens when
   // present; otherwise it falls back to the slug's built-in suite pairing (the
@@ -345,7 +349,8 @@ function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
                 <img
                   src={mark}
                   alt={`${brand.display_name} mark`}
-                  className="max-h-48 max-w-[28%] object-contain drop-shadow-2xl"
+                  onClick={() => openLightbox(mark, `${brand.display_name} mark`)}
+                  className="max-h-48 max-w-[28%] cursor-zoom-in object-contain drop-shadow-2xl print:cursor-auto"
                 />
               )}
             </div>
