@@ -12,6 +12,7 @@ import {
   putAgentGovernance,
 } from "../../api/client";
 import { useActiveBrand } from "../../brand-context";
+import { BrandCast } from "./components/BrandCast";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
@@ -174,6 +175,9 @@ export default function CrewPage() {
         governance={governanceFor("director", "iris")}
         recentActivity={dedupedActivity.slice(0, 4)}
       />
+
+      <SectionTitle title="Cast" note="The brand's own agents: avatars, voices, and on-brand identity." />
+      <BrandCast slug={selected.brand.slug} brandName={selected.brand.display_name} />
 
       <SectionTitle title="Brand stewards" note="One per brand. Standing orders and posture are editable; spend is metered." />
       <div className="crew-stewards" style={{ display: "grid", gap: 18 }}>
