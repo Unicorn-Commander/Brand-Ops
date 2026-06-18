@@ -8,13 +8,17 @@ Anchor: your brands, generated on brand, on your machine.
 
 ## Status
 
-See STATUS.md for the workstream tracker. The brand schema and loader, the
-prompt builder, the copy linter, the multi-backend image engine, the CLI, the
-MCP server, the REST API, the Postgres layer with per-workspace row level
-security, and the agent-first GUI are built. The 177 existing brand assets are
-ingested into the catalog and shown in the GUI. Live image generation is wired
-behind provider keys (parked until keys land); upload and the Tagger/Refine
-agents are in progress.
+See STATUS.md for the workstream tracker. Brand-Ops is **live on two nodes**:
+the dogfood (`brand-ops.magicunicorn.dev`) and production
+(`brand-ops.unicorncommander.ai`), both behind suite SSO. The brand schema and
+loader, the prompt builder, the copy linter, the multi-backend image engine, the
+CLI, the MCP server (stdio + HTTP), the REST API, the agent-first GUI, and live
+image + text generation are all shipped and in use. Multi-tenancy is enforced
+end to end: Postgres row level security **and** per-workspace on-disk storage
+(`brand-kits/<workspace_id>/<slug>/`), so a new tenant is isolated in the
+database and on the filesystem. Agents carry on-brand avatars and a bound TTS
+voice; the GUI Crew page manages the per-brand cast. The open items are
+external-only (an OpenRouter spend cap, a TLS cert for the nested MCP host).
 
 ## 30-second start
 
@@ -68,12 +72,27 @@ deploy files are `Dockerfile`, `deploy/docker-compose.yml` (generic), and
 
 ## Layout
 
-- `brand-kits/<slug>/brand.yaml` brand definition (the authoring format)
-- `brand-kits/<slug>/refs/` reference images for composition
-- `brand-kits/<slug>/imported/` ingested existing assets (not tracked in git)
-- `brand-kits/<slug>/generated/` outputs (not tracked in git)
+On a deployed (multi-tenant) server, brand files live under a per-workspace
+subtree so each tenant is isolated on disk: `brand-kits/<workspace_id>/<slug>/`.
+Unscoped (the CLI, the stdio MCP, tests) uses the flat `brand-kits/<slug>/` root.
+The single resolver is `brand_loader.current_kits_dir()`.
+
+- `brand-kits/<ws>/<slug>/brand.yaml` brand definition (the authoring format)
+- `brand-kits/<ws>/<slug>/refs/` reference images for composition
+- `brand-kits/<ws>/<slug>/imported/` ingested existing assets (not tracked in git)
+- `brand-kits/<ws>/<slug>/generated/` outputs (not tracked in git)
+- `brand-kits/<ws>/<slug>/agents/<agent>/` per-brand agent identities (avatar + persona)
 - `src/brand_ops/` the library, CLI, REST API, MCP server, agents, and DB layer
+- `src/brand_ops/migrate_storage.py` the flat -> per-workspace migration (run once per volume)
 - `web/` the agent-first GUI
+
+To migrate an existing flat volume (non-destructive copy, verify, then cleanup):
+
+```bash
+python -m brand_ops.migrate_storage --dry-run   # report the plan
+python -m brand_ops.migrate_storage             # copy beside the flat tree
+python -m brand_ops.migrate_storage --cleanup   # remove the flat copies once verified
+```
 
 ## Conventions
 
