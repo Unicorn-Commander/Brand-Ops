@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Row, func, select, update
+from sqlalchemy import Row, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
@@ -635,3 +635,118 @@ async def agent_spend_since(
     )
     result = await session.execute(stmt)
     return result.all()
+
+
+# --- admin: offboarding + provisioning + the cross-tenant view --------------
+# These back the admin API (api/admin.py). They are the deliberate exception to
+# this module's per-workspace rule: a tenant DELETE and the cross-tenant usage
+# read necessarily act outside one workspace, so they DO NOT take the workspace
+# GUC the way every function above does. They are admin-gated at the route, and
+# each is commented where it crosses the tenant boundary so the bypass is never
+# accidental. None commit; the caller owns the transaction.
+
+
+async def get_workspace(
+    session: AsyncSession, workspace_id: _UUID
+) -> Workspace | None:
+    """The workspace anchor row, or None when no such workspace exists.
+
+    The ``workspace`` table is the tenant root and is NOT row-level-secured, so
+    this read needs no GUC. Admin-only via the route; used to 404 a delete or an
+    export of a workspace that does not exist before any destructive work.
+    """
+    return await session.get(Workspace, _as_uuid(workspace_id))
+
+
+async def delete_workspace(session: AsyncSession, workspace_id: _UUID) -> bool:
+    """Delete the workspace anchor row; the FK CASCADE removes all its data.
+
+    Every workspace-scoped table (brand, asset, generation_job,
+    brand_research_run, agent_governance, agent_spend_event, workspace_member)
+    declares ``ForeignKey(workspace.id, ondelete='CASCADE')``, and asset_version
+    cascades from asset, so deleting this one row removes the tenant's entire DB
+    footprint in a single statement. DELIBERATE cross-tenant write: the
+    ``workspace`` table is not RLS-guarded (it is the tenant root), so this runs
+    without a workspace GUC; it is admin-gated at the route. Returns True when a
+    row was deleted, False when the workspace did not exist (idempotent: a second
+    delete is a no-op False). The caller owns the transaction / commit.
+    """
+    result = await session.execute(
+        delete(Workspace).where(Workspace.id == _as_uuid(workspace_id))
+    )
+    return bool(result.rowcount)
+
+
+async def delete_membership(
+    session: AsyncSession, *, workspace_id: _UUID, user_key: str
+) -> bool:
+    """Revoke one membership row (admin provisioning). Idempotent.
+
+    Deletes by the (workspace_id, user_key) primary key. The ``workspace_member``
+    table is FORCE row-level-secured by the user-scoped ``workspace_member_self``
+    policy, which filters even a DELETE by ``app.current_user_key``; so the caller
+    MUST run this inside ``scoped_session(user_key=user_key)`` (scoped to the
+    member being revoked) or the delete matches zero rows. The admin revoke route
+    does exactly that -- the admin gate is the authorization to act on someone
+    else's row, the GUC just names the row's owner so FORCE RLS permits it.
+    Returns True when a row was removed, False when there was none (so re-revoking
+    is a safe no-op).
+    """
+    result = await session.execute(
+        delete(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == _as_uuid(workspace_id),
+            WorkspaceMember.user_key == user_key,
+        )
+    )
+    return bool(result.rowcount)
+
+
+async def list_all_workspaces(session: AsyncSession) -> Sequence[Row[Any]]:
+    """Every workspace anchor row (id, slug), slug-ordered. Admin-only.
+
+    The ``workspace`` table is the tenant root and is NOT row-level-secured, so
+    this enumerates all tenants WITHOUT a workspace GUC. It is the seed of the
+    cross-tenant usage view: the admin route walks these rows and, for each, opens
+    a transaction scoped to that one workspace to count its data under RLS (rather
+    than trying to read every tenant's scoped tables at once, which the
+    NOBYPASSRLS runtime role with FORCE row level security correctly forbids).
+    """
+    stmt = select(Workspace.id.label("workspace_id"), Workspace.slug.label("slug")).order_by(
+        Workspace.slug
+    )
+    result = await session.execute(stmt)
+    return result.all()
+
+
+async def workspace_counts(
+    session: AsyncSession, workspace_id: _UUID
+) -> tuple[int, int, float]:
+    """(brand_count, asset_count, spend_cents) for ONE workspace, under its scope.
+
+    Counts the brand and asset rows and sums the spend ledger for a single
+    workspace. Like every per-workspace read in this module it filters by
+    ``workspace_id`` explicitly and relies on the row level security the caller
+    has set: the admin route calls this inside ``scoped_session(workspace_id=...)``
+    for each workspace in turn, so each count sees exactly that tenant's rows.
+    Two cheap COUNTs plus one SUM; ``cost_cents`` is coalesced to 0 so a workspace
+    with no spend reports 0.0, not NULL.
+    """
+    ws_id = _as_uuid(workspace_id)
+    brand_count = (
+        await session.execute(
+            select(func.count()).select_from(Brand).where(Brand.workspace_id == ws_id)
+        )
+    ).scalar_one()
+    asset_count = (
+        await session.execute(
+            select(func.count()).select_from(Asset).where(Asset.workspace_id == ws_id)
+        )
+    ).scalar_one()
+    spend_cents = (
+        await session.execute(
+            select(func.coalesce(func.sum(AgentSpendEvent.cost_cents), 0)).where(
+                AgentSpendEvent.workspace_id == ws_id
+            )
+        )
+    ).scalar_one()
+    return int(brand_count), int(asset_count), float(spend_cents)
