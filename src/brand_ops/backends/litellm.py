@@ -78,6 +78,14 @@ class Backend:
             "n": max(1, req.count),
             "size": self._size(req),
         }
+        # Forward the calling workspace as the OpenAI-compatible ``user`` field so
+        # the gateway attributes the spend centrally (per-tenant) rather than
+        # only to this app's shared virtual key. The engine sets req.extra["user"]
+        # to the active workspace id; omit it when there is none (CLI / stdio MCP /
+        # tests). Never a secret: the workspace id is an opaque uuid.
+        user = req.extra.get("user")
+        if user:
+            body["user"] = str(user)
         # gpt-image-1 honors a quality tier; default medium keeps cost sane (the
         # gateway otherwise bills the high tier). The gateway cannot return a
         # transparent background, so we do not ask for one here; the engine cuts

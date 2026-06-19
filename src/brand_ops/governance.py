@@ -187,6 +187,51 @@ def estimate_cost_cents(model: str | None, usage: Any) -> float | None:
     return round((total / 1000.0) * price_per_1k, 4)
 
 
+# ---------------------------------------------------------------------------
+# Image cost estimation + cap arithmetic (the per-tenant governance T1.2)
+# ---------------------------------------------------------------------------
+
+# A conservative per-image fallback estimate in US cents, used only when a
+# backend did not return its own ``cost_cents`` for the generation. Image models
+# carry no token ``usage``, so the per-token estimator above does not apply; this
+# keeps a metered image turn recording a non-null, order-of-magnitude-correct
+# number (the gateway/Lago reconciles the exact figure later, same as the text
+# path). The litellm backend already estimates per quality tier (~1.1 to 17
+# cents); this default sits in that range for a backend that reports nothing.
+_DEFAULT_IMAGE_COST_CENTS: float = 4.0
+
+
+def estimate_image_cost_cents(
+    backend_cost_cents: float | None, count: int = 1
+) -> float:
+    """The cost to record for an image generation, in US cents (never None).
+
+    Prefers the backend's own ``cost_cents`` (the litellm backend reports a
+    per-quality estimate, already multiplied by the image count). Falls back to a
+    conservative per-image default times ``count`` when the backend reported
+    nothing, so an image turn always records a non-zero spend rather than a
+    fabricated zero that would let a tenant generate under any cap for free.
+    Rounded to 4 decimals to match the ledger's Numeric(12, 4) column.
+    """
+    if backend_cost_cents is not None and backend_cost_cents >= 0:
+        return round(float(backend_cost_cents), 4)
+    return round(_DEFAULT_IMAGE_COST_CENTS * max(1, count), 4)
+
+
+def over_cap(spent_cents: float, cap_cents: int | None) -> bool:
+    """True when accumulated spend has reached or passed a cap. Pure.
+
+    ``cap_cents`` of None or 0 means "no cap" and always returns False (the
+    default-disabled, never-breaks behavior). A positive cap is enforced
+    inclusively: once ``spent_cents`` is greater than or equal to the cap the
+    next charge is denied, so the cap is a real ceiling the window cannot exceed
+    rather than a soft target a final charge can overshoot.
+    """
+    if not cap_cents or cap_cents <= 0:
+        return False
+    return spent_cents >= cap_cents
+
+
 def validate_governance_update(
     *,
     agent_kind: str,

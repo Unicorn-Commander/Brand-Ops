@@ -55,6 +55,19 @@ class BackendNotConfigured(BackendError):
     """Required credentials or endpoint are missing. health() returns False."""
 
 
+class QuotaExceeded(BackendError):
+    """A per-workspace spend cap or an agent's budget would be exceeded.
+
+    Raised by the engine BEFORE any backend call when this workspace's image
+    spend over the rolling window already meets or exceeds its cap, or when the
+    attributed agent's ``weekly_budget_cents`` is already met. It subclasses
+    ``BackendError`` so the existing REST and MCP handlers map it to a clean 4xx
+    with no edit to those files; the application factory additionally maps it to
+    HTTP 429 (Too Many Requests) at integration so a quota denial reads as a
+    rate/quota limit rather than a generic upstream error.
+    """
+
+
 @runtime_checkable
 class ImageBackend(Protocol):
     name: str
