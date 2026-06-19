@@ -38,6 +38,12 @@ backends = [
 sentry = [
   "sentry-sdk[fastapi]>=2.0",
 ]
+# Optional cross-worker / cross-node rate-limit backend. The in-memory limiter is
+# the default and needs nothing here; the redis package is lazy-imported only
+# when BRAND_OPS_RATELIMIT_REDIS_URL is set, so it stays an opt-in extra.
+ratelimit-redis = [
+  "redis>=5.0",
+]
 dev = [
   "pytest>=8.3",
   "pytest-asyncio>=0.24",
