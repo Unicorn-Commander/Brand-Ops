@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 from ..activity import append_event
@@ -54,6 +55,23 @@ _AMBIGUOUS_MIME = frozenset(
 # Cap the upload at ~25 MB. Large enough for a high-resolution PNG or podcast
 # cover, small enough to refuse an accidental video or archive.
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+# Cap the DECODED pixel count, independent of the byte cap. A decompression bomb
+# stays tiny on disk (well under the 25 MB byte limit) yet expands to billions of
+# pixels on decode, which would exhaust memory. 64 megapixels (~8000x8000) clears
+# any legitimate brand asset (an 8K image is ~33 MP) while refusing a bomb. This
+# is stricter than Pillow's own ~89 MP default DOS guard.
+MAX_IMAGE_PIXELS = 64 * 1024 * 1024
+
+# The stored extensions Pillow can decode as raster images, mapped to the exact
+# Pillow format string an honest file of that type must report. A .svg is vector,
+# not Pillow-decodable, so it is intentionally absent and bypasses the decode
+# check. .jpeg never reaches storage (normalized to .jpg) so it is not listed.
+_RASTER_EXT_TO_PIL_FORMAT: dict[str, str] = {
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".webp": "WEBP",
+}
 
 
 @dataclass(frozen=True)
@@ -103,6 +121,89 @@ def _resolve_extension(content_type: str, safe_name: str) -> str | None:
         suffix = Path(safe_name).suffix.lower()
         return _EXT_FALLBACK.get(suffix)
     return None
+
+
+def _verify_raster_bytes(data: bytes, ext: str) -> None:
+    """Decode-verify that ``data`` is a real image whose format matches ``ext``.
+
+    Runs only for the raster extensions in ``_RASTER_EXT_TO_PIL_FORMAT`` (SVG and
+    any other non-raster type bypass this, since Pillow cannot decode a vector).
+    Three checks, in order:
+
+    1. The bytes parse as an image of a recognized format, and that format matches
+       the format the declared extension requires. A renamed file (PNG bytes sent
+       as ``.jpg``) or junk fails the format match or fails to open at all.
+    2. The header pixel count is under ``MAX_IMAGE_PIXELS``. Checked from the
+       dimensions *before* decoding, so a decompression bomb (tiny on disk,
+       enormous decoded) is rejected without ever allocating the full raster, even
+       though it slips under the byte cap.
+    3. The pixels actually decode (``load()``). This catches a truncated or
+       corrupt body that opens but cannot be read.
+
+    Structural strictness is deliberately left to ``load()`` rather than
+    ``verify()``: ``verify()`` fails on a bad chunk CRC, which many real,
+    browser-renderable PNGs carry and which the rest of this app already serves,
+    so using it would reject valid assets. ``load()`` proves the bytes are
+    decodable, which is the property that matters here.
+
+    Pillow is optional (the ``[backends]`` extra). When it is absent this is a
+    no-op and the upload falls back to the content-type/size/name checks that
+    guarded it before, matching how the rest of the suite treats Pillow.
+
+    Raises ``UploadError`` (mapped to HTTP 422 by the route) on any failure, never
+    a bare exception that would surface as a 500.
+    """
+    try:
+        from PIL import Image, UnidentifiedImageError
+    except ImportError:
+        # Pillow not installed: keep the prior behavior (content-type + size +
+        # filename checks already ran). No decode verification available.
+        return
+
+    expected_format = _RASTER_EXT_TO_PIL_FORMAT.get(ext)
+    if expected_format is None:  # pragma: no cover - guarded by the caller
+        return
+
+    # Tighten the decode cap to the app limit so a clearly oversized image raises
+    # in Pillow itself; the dimension check below closes the gap between the cap
+    # and Pillow's own warn-only 2x band.
+    previous_cap = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+    try:
+        with Image.open(BytesIO(data)) as img:
+            actual_format = (img.format or "").upper()
+            if actual_format != expected_format:
+                raise UploadError(
+                    "type_mismatch",
+                    f"file content is {actual_format or 'an unrecognized format'}, "
+                    f"which does not match the declared {expected_format} type",
+                )
+            # Enforce the pixel cap from the header dimensions before decoding, so
+            # a bomb is refused without materializing its raster.
+            width, height = img.size
+            if width * height > MAX_IMAGE_PIXELS:
+                raise UploadError(
+                    "image_too_large",
+                    "the image decodes to too many pixels and was rejected as a "
+                    "decompression bomb",
+                )
+            # Decode the pixels to confirm the body is real (not truncated).
+            img.load()
+    except UploadError:
+        raise
+    except Image.DecompressionBombError as exc:
+        raise UploadError(
+            "image_too_large",
+            "the image decodes to too many pixels and was rejected as a "
+            "decompression bomb",
+        ) from exc
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError) as exc:
+        raise UploadError(
+            "corrupt_image",
+            "the file is not a valid image of the declared type",
+        ) from exc
+    finally:
+        Image.MAX_IMAGE_PIXELS = previous_cap
 
 
 def _mime_for_ext(ext: str) -> str:
@@ -189,6 +290,13 @@ def save_upload(
             "unsupported_type",
             f"unsupported image type. Accepted content types: {accepted}",
         )
+
+    # Decode-verify the bytes for raster types: the content-type and extension are
+    # declarations the client controls, so confirm the bytes are a real image of
+    # that format (rejecting a renamed file or junk) and are not a decompression
+    # bomb, before anything is written. SVG and any non-raster type bypass this.
+    _verify_raster_bytes(data, ext)
+
     stored_name = _ensure_extension(safe_name, ext)
 
     root = kits_dir or current_kits_dir()
