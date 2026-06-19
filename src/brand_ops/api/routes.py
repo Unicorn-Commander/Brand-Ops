@@ -37,7 +37,7 @@ from ..agents.director import DirectorAgent
 from ..agents.planner import GenerationPlanner
 from ..agents.registry import AGENT_REGISTRY
 from ..asset_types import ASSET_TYPES, get_asset_spec
-from ..backends.base import BackendError, BackendNotConfigured
+from ..backends.base import BackendError, BackendNotConfigured, QuotaExceeded
 from ..brand_clone import clone_brand, create_brand_from_draft
 from ..brand_loader import (
     BrandNotFound,
@@ -895,6 +895,12 @@ def generate(body: GenerateRequest, _: _Auth) -> GenerateResult:
                 "backend": backend_name,
                 "detail": str(exc),
             },
+        ) from None
+    except QuotaExceeded as exc:
+        # Over the workspace image spend cap (or an agent weekly budget). The
+        # request was valid; the tenant is rate/spend limited, so 429.
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
         ) from None
     except BackendError as exc:
         # A real provider failure (network, quota, bad response). Surface it as a
@@ -1849,6 +1855,12 @@ def generate_brand_agent_avatar(slug: str, agent: str, _: _Auth) -> AgentIdentit
             status_code=_HTTP_422,
             detail={"error": "backend_not_configured", "backend": "image", "detail": str(exc)},
         ) from None
+    except QuotaExceeded as exc:
+        # Over the workspace image spend cap (or an agent weekly budget). The
+        # request was valid; the tenant is rate/spend limited, so 429.
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+        ) from None
     except BackendError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None
     try:
@@ -1941,6 +1953,12 @@ def generate_brand_agent_variants(slug: str, agent: str, _: _Auth) -> AgentIdent
         raise HTTPException(
             status_code=_HTTP_422,
             detail={"error": "backend_not_configured", "backend": "image", "detail": str(exc)},
+        ) from None
+    except QuotaExceeded as exc:
+        # Over the workspace image spend cap (or an agent weekly budget). The
+        # request was valid; the tenant is rate/spend limited, so 429.
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
         ) from None
     except BackendError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from None

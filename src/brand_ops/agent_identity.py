@@ -21,8 +21,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from . import cost, governance
 from .backends.base import GenRequest
-from .brand_loader import current_kits_dir, load_brand
+from .brand_loader import current_kits_dir, get_current_workspace_id, load_brand
 from .compliance.evaluator import check_image_colors
 from .compliance.rules import build_rules
 from .engine import resolve_image_backend
@@ -381,12 +382,24 @@ def generate_avatar(
         count=1,
         extra={"colors": [brand.visual.colors.primary, brand.visual.colors.accent]},
     )
+    # Avatar generation is image generation on the shared key, so it goes through
+    # the same per-workspace cost gate + metering the engine chokepoint uses
+    # (no-op when unscoped or when no cap is set).
+    _ws = get_current_workspace_id()
+    cost.enforce_image_quota_sync(_ws)
     result = backend_impl.generate(req)
     if not result.images:
         raise AgentIdentityError("avatar backend returned no image")
 
     avatar_path = meta_path.parent / "avatar.png"
     avatar_path.write_bytes(result.images[0])
+    cost.meter_image_spend_sync(
+        _ws,
+        brand_slug=brand_slug,
+        backend=_AVATAR_DEFAULT_BACKEND,
+        model=getattr(result, "model", None),
+        cost_cents=governance.estimate_image_cost_cents(getattr(result, "cost_cents", None)),
+    )
 
     try:
         compliance = check_image_colors(avatar_path, build_rules(brand))
@@ -431,9 +444,11 @@ def generate_variants(
     rules = build_rules(brand)
     variants: dict[str, str] = {}
     primary_compliance = data.get("compliance")
+    _ws = get_current_workspace_id()
 
     for state in STATES:
         _, backend_impl, _ = resolve_image_backend(_AVATAR_DEFAULT_BACKEND, None, settings)
+        cost.enforce_image_quota_sync(_ws)
         req = GenRequest(
             prompt=_variant_prompt(brand, name, role, state),
             width=_AVATAR_SIZE[0],
@@ -448,6 +463,13 @@ def generate_variants(
         filename = _variant_filename(state)
         out_path = meta_path.parent / filename
         out_path.write_bytes(result.images[0])
+        cost.meter_image_spend_sync(
+            _ws,
+            brand_slug=brand_slug,
+            backend=_AVATAR_DEFAULT_BACKEND,
+            model=getattr(result, "model", None),
+            cost_cents=governance.estimate_image_cost_cents(getattr(result, "cost_cents", None)),
+        )
 
         try:
             compliance = check_image_colors(out_path, rules)

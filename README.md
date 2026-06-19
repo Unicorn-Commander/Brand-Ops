@@ -19,12 +19,14 @@ end to end: Postgres row level security **and** per-workspace on-disk storage
 (`brand-kits/<workspace_id>/<slug>/`), so a new tenant is isolated in the
 database and on the filesystem. Agents carry on-brand avatars and a bound TTS
 voice; the GUI Crew page manages the per-brand cast. A 2026-06-18
-production-readiness audit found the foundation strong (no critical/high
-vulnerability) and scoped a tiered enterprise-hardening plan, tracked in
-Project-Ops P-00073: backups + DR, per-tenant cost governance, rate limiting,
-fail-secure AUTH default (Tier 1), then offboarding/export, observability, CI,
-and audit-log hardening (Tier 2). Full MCP agent parity (Tier 1) shipped in
-0.11.0.
+production-readiness audit (no critical/high vulnerability) scoped a tiered
+enterprise-hardening plan (Project-Ops P-00073) that is now COMPLETE and live:
+backups + DR, per-tenant image cost metering + cap, API rate limiting, full MCP
+agent parity, fail-secure AUTH default, tenant offboarding/export, observability
+(structured logs + `/metrics` + Sentry), `/readyz` + graceful drain, a CI gate,
+runtime provisioning, audit-log hash-chain, upload content-verification, and an
+SSRF gate on provider URLs. The remaining items are owner-side only (an off-host
+backup target, an OpenRouter cap, the nested MCP host TLS).
 
 ## 30-second start
 

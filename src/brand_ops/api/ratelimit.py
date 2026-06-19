@@ -63,6 +63,7 @@ _SEG = r"[^/]+"
 _LIMITED_SPECS: tuple[tuple[str, str], ...] = (
     ("POST", r"/api/generate"),
     ("POST", r"/api/generate-card"),
+    ("POST", r"/api/plan-generation"),
     ("POST", r"/api/voices/preview"),
     ("POST", rf"/api/agents/{_SEG}/run"),
     ("POST", r"/api/brands/intake"),
