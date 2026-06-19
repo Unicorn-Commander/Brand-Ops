@@ -21,6 +21,7 @@ from pathlib import Path
 
 import httpx
 
+from ..agents.web_fetch import is_url_fetchable
 from .base import BackendError, BackendNotConfigured, GenRequest, GenResult
 
 # Default to nano-banana 2 (Pro-level quality at Flash speed and cost). Env
@@ -53,6 +54,18 @@ _MIME_BY_SUFFIX = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+
+
+def _redirect_chain_is_safe(response: httpx.Response) -> bool:
+    """True when the landing URL and every redirect hop pass the SSRF guard.
+
+    The up-front check on the initial URL cannot see a 30x to an internal target,
+    so re-validate the final URL plus each hop in ``response.history``. Any one
+    unsafe hop fails the whole fetch.
+    """
+    if not is_url_fetchable(str(response.url)):
+        return False
+    return all(is_url_fetchable(str(hop.url)) for hop in response.history)
 
 
 class Backend:
@@ -197,10 +210,18 @@ class Backend:
             url = ((item or {}).get("image_url") or {}).get("url")
             if not url:
                 continue
-            decoded, item_mime = self._decode_data_url(url)
-            if decoded:
-                out.append(decoded)
-                mime = item_mime or mime
+            if url.startswith("data:"):
+                decoded, item_mime = self._decode_data_url(url)
+                if decoded:
+                    out.append(decoded)
+                    mime = item_mime or mime
+                continue
+            # A non-data URL points at a remote image. Fetch it through the SSRF
+            # guard so a compromised upstream cannot aim the fetch at an internal
+            # service; a legitimate provider CDN (public IP) passes.
+            fetched = self._fetch(url)
+            if fetched:
+                out.append(fetched)
         return out, mime
 
     def _decode_data_url(self, url: str) -> tuple[bytes | None, str | None]:
@@ -216,6 +237,24 @@ class Backend:
         except ValueError:
             # binascii.Error subclasses ValueError; a malformed payload is just skipped.
             return None, None
+
+    def _fetch(self, url: str) -> bytes | None:
+        """Fetch a provider-returned remote image URL, gated against SSRF.
+
+        Mirrors the litellm backend: validate the URL through the shared guard
+        before connecting, follow redirects, then re-validate every hop so a 30x
+        to an internal target is rejected. A public provider CDN passes unchanged.
+        """
+        if not is_url_fetchable(url):
+            return None
+        try:
+            with httpx.Client(timeout=_TIMEOUT_S, follow_redirects=True) as client:
+                r = client.get(url)
+            if not _redirect_chain_is_safe(r):
+                return None
+            return r.content if r.status_code == 200 else None
+        except httpx.HTTPError:
+            return None
 
 
 def build(settings) -> Backend:

@@ -141,11 +141,14 @@ def _host_is_safe(host: str) -> bool:
     return True
 
 
-def _url_is_fetchable(url: str) -> bool:
+def is_url_fetchable(url: str) -> bool:
     """True when ``url`` is http/https and resolves to a safe (non-internal) host.
 
-    The SSRF gate. Rejects any non-http(s) scheme up front, then defers to
-    ``_host_is_safe`` for the address classification.
+    The SSRF gate, exposed as the package's reusable guard: the image backends
+    route a provider-returned image URL through this before fetching it, so a
+    compromised upstream cannot redirect a fetch at an internal service or the
+    cloud metadata endpoint. Rejects any non-http(s) scheme up front, then defers
+    to ``_host_is_safe`` for the address classification.
     """
     try:
         parsed = urlparse(url)
@@ -154,6 +157,11 @@ def _url_is_fetchable(url: str) -> bool:
     if parsed.scheme not in ("http", "https"):
         return False
     return _host_is_safe(parsed.hostname or "")
+
+
+# Back-compat alias: the original private name kept so existing imports and tests
+# that reference ``_url_is_fetchable`` keep resolving to the same guard.
+_url_is_fetchable = is_url_fetchable
 
 
 class _TextExtractor(HTMLParser):
@@ -312,7 +320,7 @@ async def fetch_page_text(
         return None
     url = url.strip()
     # SSRF gate: validate scheme and the initial host before any connection.
-    if not _url_is_fetchable(url):
+    if not is_url_fetchable(url):
         return None
 
     import httpx
@@ -331,7 +339,7 @@ async def fetch_page_text(
                 # Re-validate the final host after redirects: a public URL can
                 # 30x to an internal target, which the initial check would miss.
                 final_url = str(response.url)
-                if not _url_is_fetchable(final_url):
+                if not is_url_fetchable(final_url):
                     return None
                 if response.status_code >= 400:
                     return None

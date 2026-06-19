@@ -17,6 +17,7 @@ import base64
 
 import httpx
 
+from ..agents.web_fetch import is_url_fetchable
 from .base import BackendError, BackendNotConfigured, GenRequest, GenResult
 
 # gpt-image-1 / dall-e accept a fixed set of sizes; we snap to the nearest by
@@ -35,6 +36,19 @@ _DEFAULT_QUALITY = "medium"
 # Rough per-image cost estimate in cents by quality (square output). Surfaced to
 # callers for parity with the openai backend; the gateway does the real metering.
 _COST_BY_QUALITY = {"low": 1.1, "medium": 4.0, "high": 17.0, "auto": 4.0}
+
+
+def _redirect_chain_is_safe(response: httpx.Response) -> bool:
+    """True when the landing URL and every redirect hop pass the SSRF guard.
+
+    httpx follows redirects when ``follow_redirects=True`` and records each prior
+    response in ``response.history``. The up-front check on the initial URL cannot
+    see a 30x to an internal target, so re-validate the final URL plus each hop's
+    URL through the shared guard. Any one unsafe hop fails the whole fetch.
+    """
+    if not is_url_fetchable(str(response.url)):
+        return False
+    return all(is_url_fetchable(str(hop.url)) for hop in response.history)
 
 
 class Backend:
@@ -153,9 +167,24 @@ class Backend:
         return out, "image/png"
 
     def _fetch(self, url: str) -> bytes | None:
+        """Fetch a provider-returned image URL, gated against SSRF.
+
+        The URL comes from the upstream JSON, so a compromised or buggy gateway
+        could hand back a link at an internal service or the cloud metadata
+        endpoint. Defense in depth: validate the URL through the same guard the
+        intake fetcher uses before connecting, follow redirects, then re-validate
+        every hop (a public URL can 30x to an internal one). A legitimate
+        provider CDN resolves to a public address and passes unchanged.
+        """
+        if not is_url_fetchable(url):
+            return None
         try:
-            with httpx.Client(timeout=_TIMEOUT_S) as client:
+            with httpx.Client(timeout=_TIMEOUT_S, follow_redirects=True) as client:
                 r = client.get(url)
+            # Re-validate the landing URL and every redirect hop: the initial
+            # check cannot see where a 30x sent us.
+            if not _redirect_chain_is_safe(r):
+                return None
             return r.content if r.status_code == 200 else None
         except httpx.HTTPError:
             return None
