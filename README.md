@@ -12,13 +12,19 @@ See STATUS.md for the workstream tracker. Brand-Ops is **live on two nodes**:
 the dogfood (`brand-ops.magicunicorn.dev`) and production
 (`brand-ops.unicorncommander.ai`), both behind suite SSO. The brand schema and
 loader, the prompt builder, the copy linter, the multi-backend image engine, the
-CLI, the MCP server (stdio + HTTP), the REST API, the agent-first GUI, and live
-image + text generation are all shipped and in use. Multi-tenancy is enforced
+CLI, the MCP server (stdio + HTTP, at full agent parity with the GUI/REST), the
+REST API, the agent-first GUI, and live image + text generation are all shipped
+and in use. Multi-tenancy is enforced
 end to end: Postgres row level security **and** per-workspace on-disk storage
 (`brand-kits/<workspace_id>/<slug>/`), so a new tenant is isolated in the
 database and on the filesystem. Agents carry on-brand avatars and a bound TTS
-voice; the GUI Crew page manages the per-brand cast. The open items are
-external-only (an OpenRouter spend cap, a TLS cert for the nested MCP host).
+voice; the GUI Crew page manages the per-brand cast. A 2026-06-18
+production-readiness audit found the foundation strong (no critical/high
+vulnerability) and scoped a tiered enterprise-hardening plan, tracked in
+Project-Ops P-00073: backups + DR, per-tenant cost governance, rate limiting,
+fail-secure AUTH default (Tier 1), then offboarding/export, observability, CI,
+and audit-log hardening (Tier 2). Full MCP agent parity (Tier 1) shipped in
+0.11.0.
 
 ## 30-second start
 
