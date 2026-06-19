@@ -26,8 +26,13 @@ from typing import Any
 from .. import __version__
 from ..brand_loader import set_workspace_scope
 from ..db.tenancy import resolve_context
-from ..mcp_server import mcp
 from .auth import _candidate_workspace, authenticate
+
+# NOTE: ``mcp`` (the FastMCP instance) is imported lazily inside the functions
+# that use it, never at module level. mcp_server imports api.catalog, so a
+# top-level ``from ..mcp_server import mcp`` here closes an import cycle
+# (api -> app -> mcp_http -> mcp_server) that breaks importing mcp_server first,
+# including the stdio entrypoint ``python -m brand_ops.mcp_server``.
 
 
 def mcp_http_enabled() -> bool:
@@ -57,6 +62,8 @@ _inner: Any = None
 def _ensure_inner() -> Any:
     global _inner
     if _inner is None:
+        from ..mcp_server import mcp  # lazy: breaks the api <-> mcp_server cycle
+
         mcp.settings.streamable_http_path = "/"
         _inner = mcp.streamable_http_app()
     return _inner
@@ -75,6 +82,8 @@ async def mcp_lifespan(app: Any):
     the whole service down.
     """
     import logging
+
+    from ..mcp_server import mcp  # lazy: breaks the api <-> mcp_server cycle
 
     log = logging.getLogger("brand_ops")
     _ensure_inner()
@@ -175,6 +184,8 @@ async def build_manifest() -> dict[str, Any]:
     prompt, so a consumer can discover the full surface and a tool's safety
     posture from the manifest alone.
     """
+    from ..mcp_server import mcp  # lazy: breaks the api <-> mcp_server cycle
+
     tools = await mcp.list_tools()
     resources = await mcp.list_resources()
     templates = await mcp.list_resource_templates()
