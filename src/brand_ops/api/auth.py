@@ -43,6 +43,7 @@ except ImportError:  # pragma: no cover - python-jose is a hard dependency
     JWTError = Exception  # type: ignore[assignment]
     jwt = None  # type: ignore[assignment]
 
+from ..activity import set_current_actor
 from ..brand_loader import set_workspace_scope
 from ..config import get_settings
 from ..db.tenancy import resolve_context
@@ -521,6 +522,9 @@ async def _scope_principal(principal: Principal, x_workspace_id: str | None) -> 
     candidate = _candidate_workspace(principal.claims or {}, x_workspace_id)
     ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
     set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
+    # Publish the real caller for the activity feed: every event written during
+    # this request records principal.uc_uid alongside its persona label.
+    set_current_actor(principal.uc_uid)
     return replace(
         principal,
         workspace_id=ctx.workspace_id,
@@ -539,6 +543,9 @@ def _anonymous_principal() -> Principal:
     open path behaves exactly like the authed path.
     """
     set_workspace_scope(None, None)
+    # No authenticated caller: the activity feed records an unattributed
+    # (null uc_uid) act, which reads as "system" -- the CLI / local / test path.
+    set_current_actor(None)
     return Principal(uc_uid="anonymous", anonymous=True, issuer=None)
 
 

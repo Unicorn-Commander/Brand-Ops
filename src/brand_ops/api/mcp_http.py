@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from .. import __version__
+from ..activity import set_current_actor
 from ..brand_loader import set_workspace_scope
 from ..db.tenancy import resolve_context
 from ..mcp_server import mcp
@@ -136,9 +137,13 @@ async def mcp_asgi_app(scope, receive, send) -> None:
         candidate = _candidate_workspace(principal.claims or {}, x_ws)
         ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
         set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
+        # Stamp the real caller onto the activity feed for this MCP request, the
+        # same uc_uid the REST path publishes, so a tool's writes are attributed.
+        set_current_actor(principal.uc_uid)
     else:
         # Auth off (dev only; MCP_AUTH_REQUIRED defaults on): unscoped = all brands.
         set_workspace_scope(None, None)
+        set_current_actor(None)
 
     await inner(scope, receive, send)
 
