@@ -22,9 +22,11 @@ services:
     env_file:
       - .env
     environment:
-      # Auth is opt-in. Set AUTH_REQUIRED=true in .env to enforce a Keycloak or
-      # Brigade bearer on every /api route in production.
-      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+      # Auth is ON by default (fail-secure): every /api route requires a Keycloak
+      # or Brigade bearer. A missing setting must not silently serve every
+      # tenant's brands to the anonymous principal. Set AUTH_REQUIRED=false in
+      # .env only for explicit local or dev use.
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-true}
     expose:
       - "8000"
     networks:
