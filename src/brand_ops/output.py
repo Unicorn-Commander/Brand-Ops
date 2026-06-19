@@ -8,9 +8,10 @@ brand-kits/<slug>/generated/<asset>/ and are gitignored.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
+from .activity import append_event
 from .backends.base import GenResult
 from .brand_loader import current_kits_dir
 from .compliance.lifecycle import stamp_compliance
@@ -78,11 +79,30 @@ def save_result(
         }
         path.with_suffix(path.suffix + ".json").write_text(json.dumps(record, indent=2))
         # Gate the asset at creation time: stamp its lifecycle status into the
-        # sidecar from the deterministic compliance verdict. Best-effort — a
+        # sidecar from the deterministic compliance verdict. Best-effort -- a
         # stamping failure must never fail the generation that just succeeded.
         try:
             stamp_compliance(brand_slug, asset_type, path.name, "generated", kits_dir)
         except Exception:  # noqa: BLE001 - stamping is advisory, never fatal
+            pass
+        # Land the generation on the provenance feed: who generated what asset for
+        # which brand. The single generation chokepoint, so one append here covers
+        # the REST, MCP, and CLI paths. uc_uid is the request-scoped caller (the
+        # auth boundary published it); the persona is the generating agent (iris).
+        # Best-effort and after the bytes + sidecar are written, so a feed failure
+        # never undoes a generation that already succeeded.
+        try:
+            append_event(
+                "iris",
+                "agent",
+                "generated",
+                brand=brand_slug,
+                target=f"{asset_type}/{path.name}",
+                note=result.model or result.backend,
+                ts=datetime.now(UTC).isoformat(),
+                kits_dir=kits_dir,
+            )
+        except Exception:  # noqa: BLE001 - the feed is advisory; never fail generation
             pass
         paths.append(path)
     return paths
