@@ -10,10 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import cards
+from . import cards, cost
 from .asset_types import get_asset_spec
 from .backends.base import BackendNotConfigured, GenRequest, GenResult, load_backend
-from .brand_loader import current_kits_dir, load_brand, resolve_reference_images
+from .brand_loader import (
+    current_kits_dir,
+    get_current_workspace_id,
+    load_brand,
+    resolve_reference_images,
+)
 from .config import Settings, get_settings
 from .output import generated_dir, output_name, save_result
 from .prompt_builder import BuiltPrompt, build_prompt
@@ -105,6 +110,15 @@ def generate_asset(
     if note:
         outcome.notes.append(note)
 
+    # Per-tenant cost governance, BEFORE the (paid) backend call: deny when this
+    # workspace's image spend over the rolling window already meets its cap or the
+    # attributed agent's weekly budget. Default-disabled (cap 0, null budgets) and
+    # a no-op when unscoped (CLI / stdio MCP / tests), so nothing changes until an
+    # operator sets a limit. Raises QuotaExceeded (a BackendError) on a breach,
+    # which the existing REST/MCP handlers already map to a clean 4xx.
+    workspace_id = get_current_workspace_id()
+    cost.enforce_image_quota_sync(workspace_id)
+
     # Recompute vector against the backend that will actually run (only recraft
     # emits SVG; a fallback off recraft produces raster).
     vector = _wants_vector(active_backend, asset_type)
@@ -116,7 +130,14 @@ def generate_asset(
         reference_images=built.reference_images,
         count=max(1, count),
         vector=vector,
-        extra={"colors": [brand.visual.colors.primary, brand.visual.colors.accent]},
+        extra={
+            "colors": [brand.visual.colors.primary, brand.visual.colors.accent],
+            # Attribute the gateway spend to this workspace (the litellm backend
+            # forwards it as the OpenAI ``user`` field). Empty when unscoped, in
+            # which case the backend simply omits it. Never a secret: the
+            # workspace id is an opaque uuid.
+            "user": workspace_id or "",
+        },
     )
     result = backend_impl.generate(req)
     # Transparent asset types (logo, app_icon, ...) must end up with a real alpha
@@ -130,6 +151,21 @@ def generate_asset(
         result.images = [knockout_background(img) for img in result.images]
     outcome.result = result
     outcome.paths = save_result(brand_slug, asset_type, variant, built, result, kits_dir)
+
+    # Meter the successful generation per workspace, mirroring the text path's
+    # chat metering: one agent_spend_event (kind=image) carrying the estimated
+    # cost + model/backend, so the next request's cap check, the Crew rollup, and
+    # Lago reconciliation all see this charge. Best-effort and after the bytes are
+    # written: a metering failure never undoes a generation that already
+    # succeeded. No-op when unscoped (no tenant to bill).
+    cost.meter_image_spend_sync(
+        workspace_id,
+        brand_slug=brand_slug,
+        backend=result.backend,
+        model=result.model,
+        cost_cents=result.cost_cents,
+        count=len(result.images) or max(1, count),
+    )
     return outcome
 
 

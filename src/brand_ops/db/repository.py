@@ -606,6 +606,52 @@ async def record_spend_event(
     return event
 
 
+async def workspace_image_spend_since(
+    session: AsyncSession, workspace_id: _UUID, since: Any
+) -> float:
+    """Total image spend (cents) for one workspace at or after ``since``.
+
+    Sums ``cost_cents`` over the workspace's ``kind='image'`` events in the
+    window, coalescing to 0.0 so a workspace with no image spend reports 0.0 not
+    NULL. This is the per-tenant image cap's accumulator: the engine compares it
+    against ``BRAND_OPS_IMAGE_CAP_CENTS`` before generating, so one tenant can no
+    longer drain the shared image budget for the rest. Filters by ``workspace_id``
+    explicitly over RLS (belt-and-suspenders); the caller owns the transaction.
+    """
+    stmt = select(func.coalesce(func.sum(AgentSpendEvent.cost_cents), 0)).where(
+        AgentSpendEvent.workspace_id == _as_uuid(workspace_id),
+        AgentSpendEvent.kind == "image",
+        AgentSpendEvent.created_at >= since,
+    )
+    return float((await session.execute(stmt)).scalar_one())
+
+
+async def agent_spend_total_since(
+    session: AsyncSession,
+    workspace_id: _UUID,
+    since: Any,
+    *,
+    agent_kind: str,
+    agent_ref: str,
+) -> float:
+    """Total spend (cents) for ONE agent in this workspace at or after ``since``.
+
+    Sums ``cost_cents`` across every kind (chat and image) the agent accrued in
+    the window, coalescing to 0.0. This is the accumulator the ``weekly_budget_cents``
+    gate compares against before an agent-attributed charge: when the agent has a
+    budget and the window total already meets it, the engine denies the next
+    generation (``QuotaExceeded``). Filters by ``workspace_id`` + the agent key
+    explicitly over RLS; the caller owns the transaction.
+    """
+    stmt = select(func.coalesce(func.sum(AgentSpendEvent.cost_cents), 0)).where(
+        AgentSpendEvent.workspace_id == _as_uuid(workspace_id),
+        AgentSpendEvent.agent_kind == agent_kind,
+        AgentSpendEvent.agent_ref == agent_ref,
+        AgentSpendEvent.created_at >= since,
+    )
+    return float((await session.execute(stmt)).scalar_one())
+
+
 async def agent_spend_since(
     session: AsyncSession, workspace_id: _UUID, since: Any
 ) -> Sequence[Row[Any]]:
