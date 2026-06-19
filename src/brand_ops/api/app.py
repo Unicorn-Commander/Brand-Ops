@@ -31,6 +31,7 @@ from .auth import auth_required
 from .lifecycle import setup_lifecycle
 from .mcp_http import attach_mcp_http, mcp_http_enabled, mcp_lifespan
 from .observability import configure_logging, setup_observability
+from .ratelimit import setup_ratelimit
 from .routes import router
 from .schemas import HealthOut
 
@@ -129,6 +130,16 @@ def create_app() -> FastAPI:
     # Operational hardening: request-id + tenant log middleware, /metrics, Sentry
     # (if SENTRY_DSN), and a /readyz probe that checks the DB + a usable backend.
     # /health stays liveness-only. Added last so every route is instrumented.
+    # Per-caller rate limiting on the spend-bearing POST routes (cost-exhaustion /
+    # DoS guard against the shared paid keys). Added BEFORE observability so the
+    # request-context middleware ends up wrapping it (Starlette runs the
+    # last-added middleware outermost): a 429 the limiter returns still flows back
+    # out through observability, so it is logged with a request id and carries the
+    # X-Request-ID header. The limiter matches by path + method, so the routes
+    # carry no per-route code, and reads / the infra probes are never limited.
+    # Enabled by default; tune via BRAND_OPS_RATELIMIT and toggle via
+    # BRAND_OPS_RATELIMIT_ENABLED (see brand_ops.api.ratelimit).
+    setup_ratelimit(app)
     setup_observability(app)
     setup_lifecycle(app)
     return app
