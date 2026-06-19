@@ -13,7 +13,18 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from brand_ops import brand_loader
 from brand_ops.api.app import create_app
+
+# A few tests serve a real on-disk seeded asset (magic-unicorn's mark), which is
+# gitignored and so absent in a fresh checkout (e.g. CI). Skip those there; they
+# run wherever the brand-kits assets are present (dev + the deploy image).
+_needs_seeded_assets = pytest.mark.skipif(
+    not (
+        brand_loader.DEFAULT_KITS_DIR / "magic-unicorn" / "imported" / "logo" / "unicorn.svg"
+    ).exists(),
+    reason="seeded magic-unicorn assets absent (gitignored; fresh CI checkout)",
+)
 
 
 @pytest.fixture
@@ -149,6 +160,7 @@ def test_prompt_preview_unknown_brand_is_404(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+@_needs_seeded_assets
 def test_served_svg_asset_is_forced_download(client: TestClient) -> None:
     # An SVG can carry <script>, so the file route must serve it as a download,
     # never inline, and tell the browser not to sniff the bytes into HTML. The
@@ -167,6 +179,7 @@ def test_served_svg_asset_is_forced_download(client: TestClient) -> None:
     assert resp.headers["x-content-type-options"] == "nosniff"
 
 
+@_needs_seeded_assets
 def test_served_raster_asset_stays_inline(client: TestClient) -> None:
     # A raster image must keep serving inline so the GUI's <img> tags render it:
     # no attachment disposition. magic-unicorn ships a PNG logo on disk.

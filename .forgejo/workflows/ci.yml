@@ -1,0 +1,54 @@
+# Brand-Ops CI gate (Forgejo Actions). Runs on push to main / feat branches and
+# on pull requests: lint + the full Python suite, the web typecheck + build +
+# unit tests, and a dependency-advisory scan. Requires a Forgejo Actions runner
+# registered with the `ubuntu-latest` label on git.unicorncommander.ai; until one
+# exists this file is inert (it activates the moment a runner is available).
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Ruff
+        run: uv run --extra backends --extra dev ruff check .
+      - name: Pytest
+        # The few asset-serving tests self-skip when the gitignored brand-kit
+        # assets are absent (a fresh checkout has none); everything else runs.
+        run: uv run --extra backends --extra dev pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+  deps-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Python advisories (pip-audit)
+        # Report-only so a freshly disclosed CVE surfaces in the logs without
+        # turning the gate red on every new advisory; review and pin as needed.
+        run: uvx pip-audit || true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Node advisories (npm audit)
+        run: npm --prefix web audit --omit=dev || true

@@ -10,7 +10,18 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from brand_ops import brand_loader
 from brand_ops.api.app import create_app
+
+# The brand book reads a real on-disk seeded mark (magic-unicorn's unicorn.svg),
+# which is gitignored and so absent in a fresh checkout (e.g. CI). Skip there; it
+# runs wherever the brand-kits assets are present (dev + the deploy image).
+_needs_seeded_assets = pytest.mark.skipif(
+    not (
+        brand_loader.DEFAULT_KITS_DIR / "magic-unicorn" / "imported" / "logo" / "unicorn.svg"
+    ).exists(),
+    reason="seeded magic-unicorn assets absent (gitignored; fresh CI checkout)",
+)
 
 
 @pytest.fixture
@@ -20,6 +31,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(create_app())
 
 
+@_needs_seeded_assets
 def test_guidelines_assembles_the_brand_book(client: TestClient) -> None:
     resp = client.get("/api/brands/magic-unicorn/guidelines")
     assert resp.status_code == 200
