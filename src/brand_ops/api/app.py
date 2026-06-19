@@ -24,8 +24,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .. import __version__
+from ..config import validate_runtime_config
+from ..db.base import shutdown as db_shutdown
+from .admin import admin_router
 from .auth import auth_required
+from .lifecycle import setup_lifecycle
 from .mcp_http import attach_mcp_http, mcp_http_enabled, mcp_lifespan
+from .observability import configure_logging, setup_observability
 from .routes import router
 from .schemas import HealthOut
 
@@ -60,6 +65,9 @@ async def _lifespan(app: FastAPI):
     When the HTTP MCP transport is enabled its session manager runs for the app's
     lifetime, nested inside.
     """
+    # Configure structured logging here (real startup) rather than at import, so
+    # it never reconfigures structlog under the tests' own log capture.
+    configure_logging()
     log = logging.getLogger("brand_ops")
     try:
         from ..db.bootstrap import bootstrap
@@ -67,11 +75,15 @@ async def _lifespan(app: FastAPI):
         await bootstrap()
     except Exception:  # noqa: BLE001 - bootstrap is best-effort; never block boot
         log.exception("tenancy bootstrap raised; serving without it")
-    if mcp_http_enabled():
-        async with mcp_lifespan(app):
+    try:
+        if mcp_http_enabled():
+            async with mcp_lifespan(app):
+                yield
+        else:
             yield
-    else:
-        yield
+    finally:
+        # Drain the DB pool cleanly on shutdown so in-flight connections close.
+        await db_shutdown()
 
 
 def create_app() -> FastAPI:
@@ -110,10 +122,21 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(router)
+    app.include_router(admin_router)
     if mcp_http:
         attach_mcp_http(app)
+
+    # Operational hardening: request-id + tenant log middleware, /metrics, Sentry
+    # (if SENTRY_DSN), and a /readyz probe that checks the DB + a usable backend.
+    # /health stays liveness-only. Added last so every route is instrumented.
+    setup_observability(app)
+    setup_lifecycle(app)
     return app
 
 
-# Module-level app for ``uvicorn brand_ops.api.app:app``.
+# Fail fast on a misconfigured prod profile, then build the module-level app for
+# ``uvicorn brand_ops.api.app:app``. Runs on import (the real boot), not on each
+# create_app() the tests call. Logging is configured in the lifespan startup so it
+# does not run at import time and interfere with the tests' log capture.
+validate_runtime_config()
 app = create_app()

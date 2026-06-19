@@ -112,7 +112,11 @@ def configure_logging() -> None:
         ],
         wrapper_class=structlog.make_filtering_bound_logger(level),
         logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
+        # False (structlog's own default) so a later structlog.configure() is
+        # honored by already-created loggers. The per-call resolve cost is
+        # negligible for access logging, and it keeps logging reconfigurable
+        # (notably under tests that swap in a capture processor).
+        cache_logger_on_first_use=False,
     )
 
     formatter = structlog.stdlib.ProcessorFormatter(
