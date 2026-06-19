@@ -198,6 +198,41 @@
       "read_only": false
     },
     {
+      "name": "generate_card",
+      "description": "Compose a text-bearing card (og_image or social_card) deterministically. Unlike generate_asset, the text is rendered with the brand's real fonts and exact colors over a brand background with the mark composited in, so the copy is always correct and on brand: no model text rendering, no provider key, no cost (this writes a catalog asset locally; it does not call the metered gateway). Saves into the same catalog as generate_asset (shows in the GUI, gets a compliance stamp).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example meeting-ops."
+          },
+          "asset": {
+            "type": "string",
+            "description": "og_image or social_card."
+          },
+          "message": {
+            "type": ["string", "null"],
+            "description": "Main copy (headline for og_image, tagline for social_card). Defaults to the brand tagline."
+          },
+          "mark": {
+            "type": ["string", "null"],
+            "description": "Optional mark to composite: an absolute path, or a filename under the brand's generated/imported logo dir. Defaults to the brand's declared mark, else its most recent logo."
+          },
+          "variant": {
+            "type": ["string", "null"],
+            "description": "Optional variant label recorded on the asset."
+          }
+        },
+        "required": ["brand", "asset"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Compose text card", "read_only": false, "destructive": false, "idempotent": false}
+    },
+    {
       "name": "new_brand",
       "description": "Bootstrap a new brand kit from the blank template. Copies the template to a new brand directory and replaces the placeholder tokens with the supplied slug, display name, and optional parent slug.",
       "input_schema": {
@@ -511,6 +546,414 @@
       "scopes_required": ["brand-ops:generate"],
       "tier_required": "pro",
       "read_only": false
+    },
+    {
+      "name": "list_agents",
+      "description": "List the in-module specialist agents (director, brand_research, brand_intake, asset_pack, avatar, brand_critic, tagger, refine) and their input contracts. The same roster GET /api/agents serves, projected from the one Brigade registry that also backs the REST surface. Each entry carries the stable name, a human description, the JSON-schema input_schema an agent payload must satisfy, the auth scopes a caller must hold, and the minimum tier. Use a name and its input_schema with run_agent.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true,
+      "annotations": {"title": "List specialist agents", "read_only": true}
+    },
+    {
+      "name": "run_agent",
+      "description": "Run one specialist agent against a JSON payload and return its result. The agent-facing form of POST /api/agents/{name}/run. name is one of the specialists from list_agents; payload is that agent's input verbatim (see its input_schema). Routes through the same registry-resolved class and runner the REST route uses, with the caller's workspace threaded for best-effort spend attribution. The specialists degrade gracefully (a status like skipped or research_only) when the LLM gateway or Brigade is absent. Some agents (asset_pack, avatar) plan against the metered gateway, so a non-dry-run payload may incur spend.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The specialist agent name. See list_agents."
+          },
+          "payload": {
+            "type": "object",
+            "description": "The agent's input dict (its shape is per-agent; see its input_schema). Defaults to empty."
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Run a specialist agent", "read_only": false, "destructive": false, "idempotent": false}
+    },
+    {
+      "name": "plan_generation",
+      "description": "Turn a free-text generation ask into a concrete, valid GenerateRequest. The agent-facing form of POST /api/plan-generation. From a plain instruction plus any control values you know, the planner picks a brand, asset type, variant, topic, and platform from the real brand slugs and asset types this backend knows (the same workspace-scoped brand context the GUI sees), validates the pick, and returns a valid request plus a rationale and the fields it assumed. No image is generated and no spend occurs; this only plans. Degrades to a deterministic heuristic when the gateway is unavailable.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The free-text generation instruction."
+          },
+          "brand": {
+            "type": ["string", "null"],
+            "description": "Optional active brand slug to default to when the text is silent."
+          },
+          "asset": {
+            "type": ["string", "null"],
+            "description": "Optional asset-type key to keep."
+          },
+          "variant": {
+            "type": ["string", "null"],
+            "description": "Optional variant to keep."
+          },
+          "topic": {
+            "type": ["string", "null"],
+            "description": "Optional topic to keep."
+          },
+          "platform": {
+            "type": ["string", "null"],
+            "description": "Optional platform to keep."
+          },
+          "backend": {
+            "type": ["string", "null"],
+            "description": "Optional explicit backend override to keep."
+          }
+        },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Plan a generation from free text", "read_only": false, "destructive": false, "idempotent": false}
+    },
+    {
+      "name": "director_chat",
+      "description": "Talk to Iris, the brand director, and get a reply plus a routed intent. The agent-facing form of POST /api/director/chat. Iris answers in persona and classifies the turn into an intent (chat, single, pack, research, agent, compliance). For the agent and compliance intents she ACTS through the same shared flow the route uses (creating the identity, or scoring the catalog/copy), so the reply already reflects the result. Routes through the same Director flow with the caller's workspace threaded. Never fails on an LLM problem: an unreachable gateway degrades to a graceful in-persona chat reply.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The operator's new line to Iris."
+          },
+          "brand": {
+            "type": ["string", "null"],
+            "description": "Active brand slug in the Studio, if any."
+          },
+          "history": {
+            "type": ["array", "null"],
+            "description": "Recent conversation turns, oldest first.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string",
+                  "description": "Who spoke: user or agent."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "The turn's plain text."
+                }
+              }
+            }
+          }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Talk to the brand director", "read_only": false, "destructive": false, "idempotent": false}
+    },
+    {
+      "name": "approve_asset",
+      "description": "Operator override: flip an asset's lifecycle status to approved. The agent-facing form of POST /api/assets/approve, a thin alias for transition_asset with to=approved. Writes lifecycle_status=approved into the sidecar (preserving every other key) and appends an approved activity event, through the same shared boundary the REST route uses. Returns the refreshed catalog record.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "asset": {
+            "type": "string",
+            "description": "Asset type key the file lives under, for example logo."
+          },
+          "file": {
+            "type": "string",
+            "description": "The asset file name to approve, for example logo-wordmark.png."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Which tree the file is in: generated (default) or imported.",
+            "default": "generated"
+          }
+        },
+        "required": ["brand", "asset", "file"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Approve an asset", "read_only": false, "destructive": false, "idempotent": true}
+    },
+    {
+      "name": "transition_asset",
+      "description": "Move an asset to a new lifecycle state and record it on the activity feed. The agent-facing form of POST /api/assets/transition. Locates the asset's sidecar and writes lifecycle_status=to into it, preserving every other key, then appends one activity event attributing the move to actor with an optional note. Routes through the same shared boundary the REST route and approve_asset use. to is one of needs_review, approved, changes_requested, archived.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "asset": {
+            "type": "string",
+            "description": "Asset type key the file lives under, for example logo."
+          },
+          "file": {
+            "type": "string",
+            "description": "The asset file name to move, for example logo-wordmark.png."
+          },
+          "to": {
+            "type": "string",
+            "enum": ["needs_review", "approved", "changes_requested", "archived"],
+            "description": "Target lifecycle state."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Which tree the file is in: generated (default) or imported.",
+            "default": "generated"
+          },
+          "note": {
+            "type": ["string", "null"],
+            "description": "Optional human reason recorded on the activity feed."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Who is acting (default mcp, so an agent-driven move is attributed to the MCP surface).",
+            "default": "mcp"
+          }
+        },
+        "required": ["brand", "asset", "file", "to"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Move an asset's lifecycle", "read_only": false, "destructive": false, "idempotent": true}
+    },
+    {
+      "name": "upload_asset",
+      "description": "Bring an existing image into a brand kit's imported/ tree. The agent-facing form of POST /api/assets/upload. Supply the image either as file_path (an absolute path the server can read) or as file_base64 (the raw bytes, base64-encoded) with a filename. The bytes land under imported/<asset_type>/ with a catalog sidecar (source=upload), are compliance-stamped on landing, and come back in the same AssetRecord shape GET /api/assets serves. Routes through the same upload.save_upload core the REST route uses (same validation, same size cap, same sidecar).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug the asset belongs to. Must exist."
+          },
+          "asset_type": {
+            "type": "string",
+            "description": "Asset type key the image is, for example logo. See list_asset_types."
+          },
+          "file_path": {
+            "type": ["string", "null"],
+            "description": "Absolute path to a readable image file. Use this OR file_base64."
+          },
+          "file_base64": {
+            "type": ["string", "null"],
+            "description": "The image bytes, base64-encoded. Use this OR file_path; when set, also pass filename."
+          },
+          "filename": {
+            "type": ["string", "null"],
+            "description": "The file name to store under (and, for file_base64, the source of the stored extension)."
+          },
+          "content_type": {
+            "type": ["string", "null"],
+            "description": "Optional MIME type (image/png, image/jpeg, image/svg+xml, image/webp). Inferred from the filename when omitted."
+          },
+          "variant": {
+            "type": ["string", "null"],
+            "description": "Optional variant label recorded on the asset."
+          }
+        },
+        "required": ["brand", "asset_type"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Upload an asset into a brand kit", "read_only": false, "destructive": false, "idempotent": false}
+    },
+    {
+      "name": "update_agent",
+      "description": "Edit an agent's persona text (role and/or bio); avatar and voice untouched. The agent-facing form of PATCH /api/brands/{slug}/agents/{agent}. Only the fields you pass change; the avatar, voice, voice tone, and compliance are left alone. An empty role is rejected; an empty bio clears the bio. Routes through the same agent_identity layer the REST API and Studio use.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent slug, for example iris. See list_brand_agents."
+          },
+          "role": {
+            "type": ["string", "null"],
+            "description": "New role text, if changing it. An empty/whitespace role is rejected."
+          },
+          "bio": {
+            "type": ["string", "null"],
+            "description": "New bio text, if changing it. An empty string clears the bio."
+          }
+        },
+        "required": ["brand", "agent"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Update an agent's persona", "read_only": false, "destructive": false, "idempotent": true}
+    },
+    {
+      "name": "set_agent_voice",
+      "description": "Bind (or clear) the agent's spoken voice from the catalog. The agent-facing form of PUT /api/brands/{slug}/agents/{agent}/voice. A non-empty voice_id must be one of the catalog voices (see list_voices); a null/empty voice_id clears the binding. The engine is resolved from the catalog when omitted. Routes through the same agent_identity layer the REST API and Studio use.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Agent slug, for example iris. See list_brand_agents."
+          },
+          "voice_id": {
+            "type": ["string", "null"],
+            "description": "A catalog voice id (see list_voices), or null/empty to clear."
+          },
+          "engine": {
+            "type": ["string", "null"],
+            "description": "Optional engine override (resolved from the catalog when omitted)."
+          },
+          "speed": {
+            "type": "number",
+            "description": "Optional speech speed multiplier recorded on the binding.",
+            "default": 1.0
+          }
+        },
+        "required": ["brand", "agent", "voice_id"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:generate"],
+      "tier_required": "pro",
+      "read_only": false,
+      "annotations": {"title": "Bind an agent's voice", "read_only": false, "destructive": false, "idempotent": true}
+    },
+    {
+      "name": "list_voices",
+      "description": "List the catalog of assignable agent voices. The same roster GET /api/voices serves: the curated TTS voices an agent can be bound to (each with id, label, engine, kind, and a short descriptor) plus whether live preview is wired. Use a voice id with set_agent_voice.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true,
+      "annotations": {"title": "List assignable voices", "read_only": true}
+    },
+    {
+      "name": "read_activity",
+      "description": "Read the append-only activity / provenance feed, newest first. The agent-facing form of GET /api/activity. Returns the recent events from the on-disk feed (who did what, when, to which asset), optionally filtered to one brand slug, capped at limit. Mirrors the route's tenancy: a workspace-scoped caller sees only its own brands' events; unscoped (stdio / CLI) sees the global feed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": ["string", "null"],
+            "description": "Optional brand slug to filter to one brand's events."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max events to return, 1..500 (default 50). Out-of-range is clamped.",
+            "default": 50
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true,
+      "annotations": {"title": "Read the activity feed", "read_only": true}
+    },
+    {
+      "name": "get_brand_compliance",
+      "description": "Run the deterministic compliance check over a brand's whole catalog. The agent-facing form of GET /api/brands/{slug}/compliance. Scores every catalog asset with the same engine check_compliance uses, then rolls the verdicts into a summary (pass/warn/fail/skipped counts and an average score) plus a per-asset row list. Routes through the same shared rollup the REST route uses. No LLM and no spend.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          }
+        },
+        "required": ["brand"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true,
+      "annotations": {"title": "Audit a brand's compliance", "read_only": true}
+    },
+    {
+      "name": "fetch_asset_bytes",
+      "description": "Fetch one catalog asset's bytes as MCP image content the agent can SEE. The agent-facing form of GET /api/assets/file, but returning native MCP image content (not a URL) so a vision-capable agent can actually view the output and judge it. Resolves brand-kits/<brand>/<kind>/<asset>/<file> and refuses anything that escapes the kits root, with the same workspace visibility guard the REST file route uses. Raster images (png/jpg/webp/gif) are returned as image content; a vector (svg) or any other type is returned as a structured error pointing at its on-disk path.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string",
+            "description": "Brand slug, for example magic-unicorn."
+          },
+          "asset": {
+            "type": "string",
+            "description": "Asset type key the file lives under, for example logo."
+          },
+          "file": {
+            "type": "string",
+            "description": "The asset file name, for example logo-wordmark.png."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Which tree the file is in: generated (default) or imported.",
+            "default": "generated"
+          }
+        },
+        "required": ["brand", "asset", "file"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true,
+      "annotations": {"title": "Fetch asset bytes as an image", "read_only": true}
     }
+  ],
+  "resource_templates": [
+    {"uri_template": "brand-ops://brand/{slug}/guidelines", "name": "brand_guidelines_resource"},
+    {"uri_template": "brand-ops://brand/{slug}/assets", "name": "brand_assets_resource"},
+    {"uri_template": "brand-ops://brand/{slug}/tokens", "name": "brand_tokens_resource"},
+    {"uri_template": "brand-ops://brand/{slug}/agents", "name": "brand_agents_resource"}
+  ],
+  "prompts": [
+    {"name": "launch_full_brand_kit", "description": "Stand up a brand from a name and generate its full on-brand asset kit."},
+    {"name": "audit_brand_compliance", "description": "Audit a brand's catalog against its rules and remediate the fails."},
+    {"name": "stand_up_steward_agent", "description": "Create an on-brand steward agent for a brand and give it an avatar."}
   ]
 }

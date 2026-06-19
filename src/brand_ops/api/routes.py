@@ -692,16 +692,17 @@ def compliance_check(body: ComplianceCheckRequest, _: _Auth) -> ComplianceResult
     return ComplianceResult.model_validate(result)
 
 
-@router.get("/brands/{slug}/compliance", response_model=BrandComplianceRollup)
-def get_brand_compliance(slug: str, _: _Auth) -> BrandComplianceRollup:
-    """Run the compliance check over every catalog asset of the brand.
+def compute_brand_compliance(slug: str) -> BrandComplianceRollup:
+    """Score every catalog asset of a brand and roll the verdicts into a summary.
 
-    Iterates the brand's catalog, scores each asset deterministically, and rolls
-    the verdicts into a summary (pass/warn/fail/skipped counts and an average
-    score) plus a per-asset row list. The same engine POST /compliance/check
-    uses, applied brand-wide.
+    The shared core of GET /brands/{slug}/compliance, callable from the MCP server
+    so the agent path and the HTTP path run the exact same deterministic engine
+    (``build_rules`` + ``check_asset`` over the same ``read_assets`` catalog) with
+    the same workspace scoping, and can never drift. Raises ``BrandNotFound`` /
+    ``ValueError`` for an unknown or malformed brand, which each caller maps to
+    its own error shape.
     """
-    brand = _load_brand_or_404(slug)
+    brand = load_brand(slug)
     rules = build_rules(brand)
 
     counts = {"pass": 0, "warn": 0, "fail": 0, "skipped": 0}
@@ -739,6 +740,23 @@ def get_brand_compliance(slug: str, _: _Auth) -> BrandComplianceRollup:
         score=avg,
     )
     return BrandComplianceRollup(brand=slug, summary=summary, assets=rows)
+
+
+@router.get("/brands/{slug}/compliance", response_model=BrandComplianceRollup)
+def get_brand_compliance(slug: str, _: _Auth) -> BrandComplianceRollup:
+    """Run the compliance check over every catalog asset of the brand.
+
+    Iterates the brand's catalog, scores each asset deterministically, and rolls
+    the verdicts into a summary (pass/warn/fail/skipped counts and an average
+    score) plus a per-asset row list. The same engine POST /compliance/check
+    uses, applied brand-wide.
+    """
+    try:
+        return compute_brand_compliance(slug)
+    except BrandNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
 
 
 # ---------------------------------------------------------------------------
@@ -1300,6 +1318,54 @@ async def run_agent_route(
 # ---------------------------------------------------------------------------
 
 
+async def run_plan_generation(
+    *,
+    text: str,
+    brand: str | None = None,
+    asset: str | None = None,
+    variant: str | None = None,
+    topic: str | None = None,
+    platform: str | None = None,
+    backend: str | None = None,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
+    """Plan a free-text generation ask into a valid GenerateRequest dict.
+
+    The shared core of POST /plan-generation, callable from the MCP server so the
+    agent path and the HTTP path run the exact same planner over the exact same
+    brand context with the same workspace scoping. Returns the planner result
+    dict ({request, rationale, assumed}). Raises ``ValueError`` when no brand or
+    asset type could be resolved (the operator has no brands), which the HTTP
+    route maps to a 422 and the MCP tool maps to a structured error; never raises
+    for a normal LLM problem (the planner degrades to a deterministic heuristic).
+    """
+    brands = _brands_context()
+    planner = GenerationPlanner(
+        workspace_id=workspace_id,
+        agent_kind="specialist",
+        agent_ref="generation_planner",
+        brand_slug=brand,
+    )
+    result = await planner.plan(
+        text,
+        brands,
+        brand=brand,
+        asset=asset,
+        variant=variant,
+        topic=topic,
+        platform=platform,
+        backend=backend,
+    )
+    request = result.get("request") or {}
+    if not request.get("brand") or not request.get("asset"):
+        # No brand or no asset could be resolved (the operator has no brands, or no
+        # asset types are registered). There is nothing valid to plan.
+        raise ValueError(
+            "cannot plan a generation: no brand or asset type is available"
+        )
+    return result
+
+
 @router.post("/plan-generation", response_model=PlanGenerationReply)
 async def plan_generation(body: PlanGenerationRequest, principal: _Auth) -> PlanGenerationReply:
     """Interpret a free-text generation ask into a concrete, valid GenerateRequest.
@@ -1319,32 +1385,19 @@ async def plan_generation(body: PlanGenerationRequest, principal: _Auth) -> Plan
     sensible plan. An operator with no brands at all is the one 422 (there is
     nothing to generate for).
     """
-    brands = _brands_context()
-    planner = GenerationPlanner(
-        workspace_id=principal.workspace_id,
-        agent_kind="specialist",
-        agent_ref="generation_planner",
-        brand_slug=body.brand,
-    )
-    result = await planner.plan(
-        body.text,
-        brands,
-        brand=body.brand,
-        asset=body.asset,
-        variant=body.variant,
-        topic=body.topic,
-        platform=body.platform,
-        backend=body.backend,
-    )
-    request = result.get("request") or {}
-    if not request.get("brand") or not request.get("asset"):
-        # No brand or no asset could be resolved (the operator has no brands, or no
-        # asset types are registered). There is nothing valid to plan, so this is a
-        # clean 422 rather than a request that would fail at generate time.
-        raise HTTPException(
-            status_code=_HTTP_422,
-            detail="cannot plan a generation: no brand or asset type is available",
+    try:
+        result = await run_plan_generation(
+            text=body.text,
+            brand=body.brand,
+            asset=body.asset,
+            variant=body.variant,
+            topic=body.topic,
+            platform=body.platform,
+            backend=body.backend,
+            workspace_id=principal.workspace_id,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
     return PlanGenerationReply.model_validate(result)
 
 
@@ -1372,6 +1425,78 @@ def _brands_context() -> list[dict[str, str]]:
     return context
 
 
+async def run_director_chat(
+    *,
+    message: str,
+    brand: str | None = None,
+    history: list[dict[str, str]] | None = None,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
+    """Run one Director (Iris) turn and return her structured reply dict.
+
+    The shared core of POST /director/chat, callable from the MCP server so the
+    agent path and the HTTP path run the exact same Director flow: build the
+    payload with the operator's brand context, run the agent (degrading to a
+    graceful in-persona fallback on any LLM problem), fulfill an ``agent`` or
+    ``compliance`` intent through the same helpers the route uses, and emit the
+    provenance event. ``history`` is a list of {role, text} turns, oldest first.
+    Returns the DirectorReply-shaped dict; never raises.
+    """
+    turns = [
+        {"role": str(t.get("role", "")), "text": str(t.get("text", ""))}
+        for t in (history or [])
+    ]
+    payload = {
+        "message": message,
+        "brand": brand,
+        "history": turns,
+        "brands_context": _brands_context(),
+    }
+    try:
+        # Thread metering context: when the caller is workspace-scoped, the
+        # Director's LLM turn records a best-effort spend event against
+        # director/iris. agent_ref is "iris" (the persona), not the registry name
+        # "director", so it matches the synthesized governance row the Crew page
+        # shows. Metering never affects the run (see Agent.chat).
+        director = DirectorAgent(
+            workspace_id=workspace_id,
+            agent_kind="director",
+            agent_ref="iris",
+            brand_slug=brand,
+        )
+        result = await director.run(payload)
+    except Exception:  # noqa: BLE001 - an LLM/agent problem degrades to a fallback, never raises
+        result = {
+            "reply": (
+                "I hit a snag reaching my planner. Tell me the brand and what "
+                "you need and I will line it up."
+            ),
+            "intent": "chat",
+            "brand": brand,
+            "asset": None,
+            "variant": None,
+            "pack": None,
+            "topic": None,
+        }
+
+    # When Iris classified the turn as creating an agent, act on it here: stand
+    # up (or surface) the on-brand identity through agent_identity and rewrite
+    # the reply in her voice. Any failure degrades to a normal chat reply inside
+    # the helper, so this still returns a clean reply.
+    if result.get("intent") == "agent":
+        result = _fulfill_agent_intent(result)
+    # When Iris classified the turn as a compliance CHECK, run the deterministic
+    # gate here and rewrite the reply with the verdict. Degrades to chat inside
+    # the helper.
+    elif result.get("intent") == "compliance":
+        result = _fulfill_compliance_intent(result)
+
+    # Record what Iris did on the provenance feed. Best-effort: a feed failure
+    # never changes the reply.
+    _emit_director_event(result)
+    return result
+
+
 @router.post("/director/chat", response_model=DirectorReply)
 async def director_chat(body: DirectorChatRequest, principal: _Auth) -> DirectorReply:
     """Talk to Iris, the brand director, and get a reply plus a routed intent.
@@ -1390,59 +1515,12 @@ async def director_chat(body: DirectorChatRequest, principal: _Auth) -> Director
     is always live.
     """
     history = [{"role": turn.role, "text": turn.text} for turn in body.history]
-    payload = {
-        "message": body.message,
-        "brand": body.brand,
-        "history": history,
-        "brands_context": _brands_context(),
-    }
-    try:
-        # Thread metering context: when the caller is workspace-scoped, the
-        # Director's LLM turn records a best-effort spend event against
-        # director/iris. agent_ref is "iris" (the persona), not the registry name
-        # "director", so it matches the synthesized governance row the Crew page
-        # shows. Metering never affects the run (see Agent.chat).
-        director = DirectorAgent(
-            workspace_id=principal.workspace_id,
-            agent_kind="director",
-            agent_ref="iris",
-            brand_slug=body.brand,
-        )
-        result = await director.run(payload)
-    except Exception:  # noqa: BLE001 - an LLM/agent problem degrades to a 200 fallback, never a 500
-        result = {
-            "reply": (
-                "I hit a snag reaching my planner. Tell me the brand and what "
-                "you need and I will line it up."
-            ),
-            "intent": "chat",
-            "brand": body.brand,
-            "asset": None,
-            "variant": None,
-            "pack": None,
-            "topic": None,
-        }
-
-    # When Iris classified the turn as creating an agent, act on it here: stand
-    # up (or surface) the on-brand identity through agent_identity and rewrite
-    # the reply in her voice. This is the agentic half of agent identity on the
-    # Director surface, co-equal with the GUI's create form. Any failure degrades
-    # to a normal chat reply inside the helper, so the route still answers 200.
-    if result.get("intent") == "agent":
-        result = _fulfill_agent_intent(result)
-    # When Iris classified the turn as a compliance CHECK, run the deterministic
-    # gate here and rewrite the reply with the verdict. This is the fix for the
-    # check-vs-make confusion: "check this against the rules" lands on the real
-    # auditor, not the asset_pack planner. Degrades to chat inside the helper.
-    elif result.get("intent") == "compliance":
-        result = _fulfill_compliance_intent(result)
-
-    # Record what Iris did on the provenance feed: the intent she routed the turn
-    # to. Emitted here at the route (the director's flow) rather than inside the
-    # agent's run, so the agent's unit tests stay side-effect free. Best-effort:
-    # a feed failure never changes the reply the Studio receives.
-    _emit_director_event(result)
-
+    result = await run_director_chat(
+        message=body.message,
+        brand=body.brand,
+        history=history,
+        workspace_id=principal.workspace_id,
+    )
     return DirectorReply.model_validate(result)
 
 

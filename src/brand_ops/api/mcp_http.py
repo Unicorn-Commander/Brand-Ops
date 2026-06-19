@@ -143,10 +143,42 @@ async def mcp_asgi_app(scope, receive, send) -> None:
     await inner(scope, receive, send)
 
 
+def _tool_annotations(tool: Any) -> dict[str, Any]:
+    """Project a tool's MCP ToolAnnotations to a compact manifest flag block.
+
+    Only the hints that are set are emitted, so the manifest stays small and a
+    consumer (the Ops-Center / Brigade gateway) can read a tool's read-only and
+    spend posture without fetching the full tool schema. ``read_only`` and
+    ``destructive`` are the two flags routing cares about most; ``title`` is the
+    human label.
+    """
+    ann = getattr(tool, "annotations", None)
+    if ann is None:
+        return {}
+    out: dict[str, Any] = {}
+    if ann.title:
+        out["title"] = ann.title
+    if ann.readOnlyHint is not None:
+        out["read_only"] = ann.readOnlyHint
+    if ann.destructiveHint is not None:
+        out["destructive"] = ann.destructiveHint
+    if ann.idempotentHint is not None:
+        out["idempotent"] = ann.idempotentHint
+    return out
+
+
 async def build_manifest() -> dict[str, Any]:
-    """The public ``.well-known/mcps.json`` descriptor for discovery."""
+    """The public ``.well-known/mcps.json`` descriptor for discovery.
+
+    Lists every tool with its annotation flags (read-only, destructive/spend,
+    idempotent), every static resource and per-brand resource template, and every
+    prompt, so a consumer can discover the full surface and a tool's safety
+    posture from the manifest alone.
+    """
     tools = await mcp.list_tools()
     resources = await mcp.list_resources()
+    templates = await mcp.list_resource_templates()
+    prompts = await mcp.list_prompts()
     return {
         "schema": "unicorn-suite/mcp-manifest@1",
         "name": "brand-ops",
@@ -164,8 +196,21 @@ async def build_manifest() -> dict[str, Any]:
             "issuers": ["keycloak-uchub", "brigade"],
         },
         "entitlement": "brand_ops",
-        "tools": [{"name": t.name, "description": t.description or ""} for t in tools],
+        "tools": [
+            {
+                "name": t.name,
+                "description": t.description or "",
+                "annotations": _tool_annotations(t),
+            }
+            for t in tools
+        ],
         "resources": [{"uri": str(r.uri), "name": r.name or ""} for r in resources],
+        "resource_templates": [
+            {"uri_template": t.uriTemplate, "name": t.name or ""} for t in templates
+        ],
+        "prompts": [
+            {"name": p.name, "description": p.description or ""} for p in prompts
+        ],
     }
 
 
