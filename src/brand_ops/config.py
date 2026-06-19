@@ -7,10 +7,13 @@ backend reports unhealthy rather than crashing.
 """
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 
 from pydantic import BaseModel
+
+_log = logging.getLogger("brand_ops")
 
 
 class Settings(BaseModel):
@@ -129,7 +132,21 @@ def validate_runtime_config() -> Settings:
     )
     settings = get_settings()
     if not auth_required:
-        # Dev / CLI / MCP / tests: no production guarantees are required.
+        # Dev / CLI / MCP / tests: no production guarantees are required, so this
+        # never raises here. But a set DATABASE_URL means a real deployment is
+        # talking to a tenancy DB while serving every request as the anonymous,
+        # unscoped principal (which sees every tenant's brands). That is a deploy
+        # that forgot to set AUTH_REQUIRED. Warn loudly (the compose default is
+        # now fail-secure, so this only fires on an explicit override) without
+        # raising, to keep the CLI and the DB-less tests working.
+        if settings.database_url:
+            _log.warning(
+                "AUTH_REQUIRED is off but DATABASE_URL is set: this looks like a "
+                "deployment serving UNAUTHENTICATED requests, where every caller "
+                "is the anonymous principal and sees every tenant's brands. Set "
+                "AUTH_REQUIRED=true in this deployment (only unset it for explicit "
+                "local, CLI, or MCP use)."
+            )
         return settings
 
     missing: list[str] = []
