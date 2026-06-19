@@ -94,6 +94,58 @@ class Settings(BaseModel):
     )
 
 
+class ConfigError(RuntimeError):
+    """A required runtime setting is missing or invalid in a production profile."""
+
+
+def validate_runtime_config() -> Settings:
+    """Fail fast at boot when a prod deploy is missing a required setting.
+
+    "Prod profile" is keyed on ``AUTH_REQUIRED`` being truthy: that flag is on for
+    every real deployment and off for the CLI, the stdio MCP server, local dev,
+    and the tests, so this gate only ever fires where it should. When the profile
+    is prod it asserts the two settings the surface cannot safely run without and
+    that otherwise fail late and obscurely:
+
+      * ``DATABASE_URL`` -- without it the tenancy DB is unreachable, so every
+        authed caller silently sees no brands (the read path fails closed). Better
+        to refuse to boot than to serve an empty, broken surface.
+      * the bootstrap workspace -- ``BRAND_OPS_BOOTSTRAP_WORKSPACE_ID`` is the
+        uuid the deploy's file brands are stamped into; without it the seed binds
+        brands to a generated/placeholder workspace no real membership points at,
+        so again the brands are invisible. (The slug has a safe default, so only
+        the id is required here.)
+
+    Returns the validated :class:`Settings` for convenience. Raises
+    :class:`ConfigError` with a single message naming every missing key, so a
+    deploy sees one clear error rather than discovering them one boot at a time.
+    Never called from import; the application entrypoint calls it once at startup.
+    """
+    auth_required = os.getenv("AUTH_REQUIRED", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    settings = get_settings()
+    if not auth_required:
+        # Dev / CLI / MCP / tests: no production guarantees are required.
+        return settings
+
+    missing: list[str] = []
+    if not settings.database_url:
+        missing.append("DATABASE_URL")
+    if not os.getenv("BRAND_OPS_BOOTSTRAP_WORKSPACE_ID", "").strip():
+        missing.append("BRAND_OPS_BOOTSTRAP_WORKSPACE_ID")
+    if missing:
+        names = ", ".join(missing)
+        raise ConfigError(
+            "AUTH_REQUIRED is on (production profile) but required settings are "
+            f"missing: {names}. Set them, or unset AUTH_REQUIRED for local/CLI use."
+        )
+    return settings
+
+
 @lru_cache
 def get_settings() -> Settings:
     d = Settings()

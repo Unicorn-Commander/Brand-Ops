@@ -8,6 +8,8 @@ require a DATABASE_URL. The application gets sessions from
 """
 from __future__ import annotations
 
+import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -21,6 +23,24 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from ..config import get_settings
+
+_log = logging.getLogger("brand_ops.db.base")
+
+# Pool and timeout knobs, env-tunable but with safe production defaults.
+#
+#   pool_timeout    how long a caller waits for a free connection before failing
+#                   (so an overloaded instance returns an error fast instead of
+#                   hanging every request behind an exhausted pool).
+#   pool_recycle    recycle a connection older than this many seconds, so a
+#                   connection a proxy / Postgres idle-timeout has silently
+#                   killed is replaced before it is handed out (pool_pre_ping
+#                   already catches dead ones; recycle avoids the round trip).
+#   statement_timeout_ms  a server-side cap (ms) on any single statement, set via
+#                   asyncpg ``server_settings`` (see _connect_args), so a runaway
+#                   query cannot pin a backend connection indefinitely. 0 disables.
+_POOL_TIMEOUT_SEC = float(os.getenv("DB_POOL_TIMEOUT", "30"))
+_POOL_RECYCLE_SEC = int(os.getenv("DB_POOL_RECYCLE", "1800"))
+_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "30000"))
 
 
 class Base(DeclarativeBase):
@@ -45,8 +65,29 @@ def get_engine() -> AsyncEngine:
                 "DATABASE_URL is not set. The database layer needs an "
                 "asyncpg URL like postgresql+asyncpg://user:pass@host/db."
             )
-        _engine = create_async_engine(url, pool_pre_ping=True, future=True)
+        _engine = create_async_engine(
+            url,
+            pool_pre_ping=True,
+            pool_timeout=_POOL_TIMEOUT_SEC,
+            pool_recycle=_POOL_RECYCLE_SEC,
+            future=True,
+            connect_args=_connect_args(url),
+        )
     return _engine
+
+
+def _connect_args(url: str) -> dict:
+    """Per-connection settings for the driver, including a server statement timeout.
+
+    The statement timeout is applied via asyncpg's ``server_settings`` (a GUC the
+    server enforces), so a single runaway query is killed server-side rather than
+    holding a backend connection open forever. ``server_settings`` is asyncpg
+    specific, so it is only set for an asyncpg URL; a different driver (or a
+    timeout of 0) gets no extra connect args and behaves exactly as before.
+    """
+    if _STATEMENT_TIMEOUT_MS > 0 and url.startswith("postgresql+asyncpg"):
+        return {"server_settings": {"statement_timeout": str(_STATEMENT_TIMEOUT_MS)}}
+    return {}
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
@@ -62,15 +103,33 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 
 async def dispose_engine() -> None:
-    """Dispose the engine and drop the cached sessionmaker.
+    """Dispose the engine and drop the cached sessionmaker. Robust + idempotent.
 
-    Useful for clean shutdown and for tests that need a fresh engine.
+    Closes the connection pool so a graceful shutdown drains its connections
+    instead of severing them mid-flight, and clears the module caches so a later
+    call rebuilds a fresh engine (the tests rely on this). Safe to call when no
+    engine was ever built (a keyless run never opened one), and a failure to
+    dispose is logged, not raised, so a shutdown path can call this without a
+    try/except and a half-open pool can never block the process from exiting.
     """
     global _engine, _sessionmaker
-    if _engine is not None:
-        await _engine.dispose()
-    _engine = None
+    engine, _engine = _engine, None
     _sessionmaker = None
+    if engine is not None:
+        try:
+            await engine.dispose()
+        except Exception:  # noqa: BLE001 - best-effort drain; never block shutdown
+            _log.exception("engine dispose raised during shutdown; continuing")
+
+
+async def shutdown() -> None:
+    """Graceful-shutdown hook: drain the DB pool. Call from the app lifespan exit.
+
+    A thin, intention-named wrapper over :func:`dispose_engine` so the app's
+    shutdown path reads as ``await shutdown()`` and more drain steps can be added
+    here later without touching the call site.
+    """
+    await dispose_engine()
 
 
 async def _apply_scope(

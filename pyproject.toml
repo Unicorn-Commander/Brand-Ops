@@ -23,6 +23,7 @@ dependencies = [
   "python-jose[cryptography]>=3.3",
   "structlog>=24.4",
   "python-multipart>=0.0.9",
+  "prometheus-fastapi-instrumentator>=7.0",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,11 @@ backends = [
   "google-genai>=1.0.0",
   "openai>=1.40",
   "pillow>=10.0",
+]
+# Error tracking, env-gated: the SDK is only imported when SENTRY_DSN is set, so
+# it stays an opt-in extra rather than a hard runtime dependency.
+sentry = [
+  "sentry-sdk[fastapi]>=2.0",
 ]
 dev = [
   "pytest>=8.3",
