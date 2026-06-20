@@ -46,6 +46,34 @@ def _image_response(raw: bytes) -> dict:
     return {"data": [{"b64_json": b64}], "usage": {"total_tokens": 10}}
 
 
+def _chat_data_url(raw: bytes, mime: str = "image/png") -> str:
+    return f"data:{mime};base64," + base64.b64encode(raw).decode("ascii")
+
+
+def _chat_response(raw: bytes, *, cost: float | None = None) -> dict:
+    """The /chat/completions image shape the gateway returns for Gemini."""
+    usage: dict = {"total_tokens": 10}
+    if cost is not None:
+        usage["cost"] = cost
+    return {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "images": [
+                        {"type": "image_url", "image_url": {"url": _chat_data_url(raw)}}
+                    ],
+                }
+            }
+        ],
+        "usage": usage,
+    }
+
+
+def _gemini_settings(**kw) -> Settings:
+    return _settings(litellm_image_model="google/gemini-3.1-flash-image-preview", **kw)
+
+
 def _mock_backend(monkeypatch, handler, settings: Settings | None = None):
     settings = settings or _settings()
     backend = litellm_backend.build(settings)
@@ -194,3 +222,105 @@ def test_engine_prefers_gateway_when_configured(monkeypatch: pytest.MonkeyPatch)
     assert outcome.result is not None
     assert outcome.result.backend == "litellm"
     assert any("litellm" in note for note in outcome.notes)
+
+
+# ─────────────────── chat/completions reference-conditioned path ─────────────
+
+
+def test_default_image_model_is_reference_conditioned() -> None:
+    # The gateway default is the chat-image model, so the integrated deploy is
+    # reference-conditioned out of the box (no gpt-image-1, which is prompt-only).
+    assert Settings().litellm_image_model == "google/gemini-3.1-flash-image-preview"
+
+
+def test_is_images_endpoint_model_classifier() -> None:
+    is_images = litellm_backend._is_images_endpoint_model
+    assert is_images("gpt-image-1") is True
+    assert is_images("dall-e-3") is True
+    assert is_images("google/gemini-3.1-flash-image-preview") is False
+    assert is_images("black-forest-labs/flux.2-pro") is False
+
+
+def test_chat_image_carries_reference_and_meters(monkeypatch, tmp_path) -> None:
+    png = _png_bytes()
+    ref = tmp_path / "unicorn.png"
+    ref.write_bytes(png)
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json=_chat_response(png, cost=0.04))
+
+    backend = _mock_backend(monkeypatch, handler, settings=_gemini_settings())
+    result = backend.generate(
+        GenRequest(
+            prompt="match this mark",
+            width=1024,
+            height=1024,
+            reference_images=[ref],
+            extra={"user": "ws-123"},
+        )
+    )
+
+    assert result.images == [png]
+    assert result.backend == "litellm"
+    assert result.model == "google/gemini-3.1-flash-image-preview"
+    # the reference image rode along as an image_url content part
+    content = seen["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "match this mark"}
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert seen["modalities"] == ["image", "text"]
+    # spend attributed to the workspace + the gateway's real cost surfaced (cents)
+    assert seen["user"] == "ws-123"
+    assert result.cost_cents == 4.0
+
+
+def test_chat_image_no_refs_sends_plain_prompt(monkeypatch) -> None:
+    png = _png_bytes()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        body = json.loads(request.content)
+        assert body["messages"][0]["content"] == "a logo"
+        assert "user" not in body  # no workspace -> no attribution field
+        return httpx.Response(200, json=_chat_response(png))
+
+    backend = _mock_backend(monkeypatch, handler, settings=_gemini_settings())
+    result = backend.generate(GenRequest(prompt="a logo", width=512, height=512))
+    assert result.images == [png]
+    assert result.cost_cents is None  # no usage.cost in this response
+
+
+def test_chat_image_count_loops_and_sums_cost(monkeypatch) -> None:
+    png = _png_bytes()
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json=_chat_response(png, cost=0.04))
+
+    backend = _mock_backend(monkeypatch, handler, settings=_gemini_settings())
+    result = backend.generate(GenRequest(prompt="x", width=512, height=512, count=3))
+    assert calls["n"] == 3
+    assert len(result.images) == 3
+    assert result.cost_cents == 12.0  # 3 * 4 cents
+
+
+def test_chat_image_no_images_raises(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant"}}]})
+
+    backend = _mock_backend(monkeypatch, handler, settings=_gemini_settings())
+    with pytest.raises(BackendError):
+        backend.generate(GenRequest(prompt="x", width=512, height=512))
+
+
+def test_chat_image_non_200_raises(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="boom")
+
+    backend = _mock_backend(monkeypatch, handler, settings=_gemini_settings())
+    with pytest.raises(BackendError):
+        backend.generate(GenRequest(prompt="x", width=512, height=512))

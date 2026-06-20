@@ -25,8 +25,12 @@ backups + DR, per-tenant image cost metering + cap, API rate limiting, full MCP
 agent parity, fail-secure AUTH default, tenant offboarding/export, observability
 (structured logs + `/metrics` + Sentry), `/readyz` + graceful drain, a CI gate,
 runtime provisioning, audit-log hash-chain, upload content-verification, and an
-SSRF gate on provider URLs. The remaining items are owner-side only (an off-host
-backup target, an OpenRouter cap, the nested MCP host TLS).
+SSRF gate on provider URLs. As of 0.14.0 reference-conditioned image generation
+also runs through the **metered gateway** (the `litellm` backend relays the brand
+art over `/chat/completions`), so house-consistent marks are metered on the
+`brand-ops` service key and Brand-Ops holds no provider keys of its own. The
+remaining items are owner-side only (an off-host backup target, the nested MCP
+host TLS).
 
 ## 30-second start
 

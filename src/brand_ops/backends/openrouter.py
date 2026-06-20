@@ -7,53 +7,26 @@ and settings.llm_base_url), so one key serves both the Director's reasoning and
 image generation across OpenRouter's image catalog (nano-banana 2, GPT image,
 Flux, and the rest).
 
-This is the unified path. Point llm_base_url at the Ops-Center gateway instead
-of OpenRouter and this same backend meters image spend centrally, with provider
-keys held only in Ops-Center rather than copied into every app.
+This is the BYO-key, standalone ("in a vacuum") path: it always reaches
+OpenRouter directly. The integrated suite deploy routes the same chat/completions
+image protocol through the metered gateway instead, via the ``litellm`` backend,
+which holds the provider creds centrally. The two backends share that protocol in
+``_chat_image``; this module supplies only OpenRouter's credentials, endpoint, and
+its own SSRF-gated result fetch.
 
 httpx is a hard dependency; nothing here needs the optional `backends` extra, so
 this backend is always available once an OpenRouter key (or gateway) is set.
 """
 from __future__ import annotations
 
-import base64
-from pathlib import Path
-
 import httpx
 
 from ..agents.web_fetch import is_url_fetchable
+from . import _chat_image
 from .base import BackendError, BackendNotConfigured, GenRequest, GenResult
-
-# Default to nano-banana 2 (Pro-level quality at Flash speed and cost). Env
-# OPENROUTER_IMAGE_MODEL overrides it; req.extra["model"] overrides per call.
-_DEFAULT_MODEL = "google/gemini-3.1-flash-image-preview"
-
-# OpenRouter image_size buckets. 1K is the documented default.
-_VALID_SIZES = ("0.5K", "1K", "2K", "4K")
 
 # Generous timeout: image models are slower than chat completions.
 _TIMEOUT_S = 180.0
-
-# Standard aspect ratios OpenRouter maps to pixel dimensions. We snap the
-# requested width:height to the nearest of these.
-_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (
-    ("1:1", 1.0),
-    ("16:9", 16 / 9),
-    ("9:16", 9 / 16),
-    ("4:3", 4 / 3),
-    ("3:4", 3 / 4),
-    ("3:2", 3 / 2),
-    ("2:3", 2 / 3),
-    ("21:9", 21 / 9),
-)
-
-_MIME_BY_SUFFIX = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-}
 
 
 def _redirect_chain_is_safe(response: httpx.Response) -> bool:
@@ -97,20 +70,15 @@ class Backend:
                 "openrouter backend has no API key (set OPENROUTER_API_KEY or LLM_API_KEY)"
             )
 
-        model = req.extra.get("model") or self._settings.openrouter_image_model or _DEFAULT_MODEL
+        model = (
+            req.extra.get("model")
+            or self._settings.openrouter_image_model
+            or _chat_image.DEFAULT_MODEL
+        )
         # Dual-output models (Gemini, GPT image) want ["image", "text"]; an
         # image-only model can be driven with ["image"] via req.extra.
-        modalities = req.extra.get("modalities") or ["image", "text"]
-        body = {
-            "model": model,
-            "messages": [{"role": "user", "content": self._build_content(req)}],
-            "modalities": modalities,
-            "image_config": {
-                "aspect_ratio": self._aspect_ratio(req),
-                "image_size": self._image_size(req),
-            },
-            "stream": False,
-        }
+        modalities = req.extra.get("modalities")
+        body = _chat_image.build_body(model, req, modalities=modalities)
 
         images: list[bytes] = []
         mime = "image/png"
@@ -139,7 +107,7 @@ class Backend:
             mime=mime,
             backend=self.name,
             model=model,
-            meta={"endpoint": self._base_url(), "modalities": modalities},
+            meta={"endpoint": self._base_url(), "modalities": modalities or ["image", "text"]},
         )
 
     # --- internals -----------------------------------------------------------
@@ -156,94 +124,26 @@ class Backend:
         base = self._base_url().rstrip("/")
         return httpx.Client(base_url=base, headers=headers, timeout=_TIMEOUT_S)
 
-    def _build_content(self, req: GenRequest):
-        """Plain string for text-to-image; a content array when editing with refs."""
-        if not req.reference_images:
-            return req.prompt
-        parts: list[dict] = [{"type": "text", "text": req.prompt}]
-        for path in req.reference_images:
-            parts.append({"type": "image_url", "image_url": {"url": self._data_url(path)}})
-        return parts
-
-    def _data_url(self, path: Path) -> str:
-        try:
-            raw = Path(path).read_bytes()
-        except OSError as exc:
-            raise BackendError(f"could not read reference image {path}: {exc}") from exc
-        mime = _MIME_BY_SUFFIX.get(Path(path).suffix.lower(), "image/png")
-        b64 = base64.b64encode(raw).decode("ascii")
-        return f"data:{mime};base64,{b64}"
-
+    # Thin wrappers over the shared protocol so the aspect/size snapping has one
+    # definition; kept as methods because the backend tests call them directly.
     def _aspect_ratio(self, req: GenRequest) -> str:
-        """Snap the requested dimensions to the nearest supported aspect ratio."""
-        if req.width <= 0 or req.height <= 0:
-            return "1:1"
-        target = req.width / req.height
-        return min(_ASPECT_RATIOS, key=lambda ar: abs(ar[1] - target))[0]
+        return _chat_image.aspect_ratio(req)
 
     def _image_size(self, req: GenRequest) -> str:
-        """Honor an explicit hint, else derive a tier from the larger dimension."""
-        if req.resolution_hint:
-            hint = req.resolution_hint.strip().upper()
-            if hint in _VALID_SIZES:
-                return hint
-            raise BackendError(
-                f"invalid resolution_hint {req.resolution_hint!r}; expected one of "
-                f"{', '.join(_VALID_SIZES)}"
-            )
-        longest = max(req.width, req.height)
-        if longest >= 3000:
-            return "4K"
-        if longest >= 1500:
-            return "2K"
-        return "1K"
+        return _chat_image.image_size(req)
 
     def _extract_images(self, data: dict) -> tuple[list[bytes], str | None]:
-        """Pull base64 image bytes from choices[0].message.images[]."""
-        choices = data.get("choices") or []
-        if not choices:
-            return [], None
-        message = (choices[0] or {}).get("message") or {}
-        out: list[bytes] = []
-        mime: str | None = None
-        for item in message.get("images") or []:
-            url = ((item or {}).get("image_url") or {}).get("url")
-            if not url:
-                continue
-            if url.startswith("data:"):
-                decoded, item_mime = self._decode_data_url(url)
-                if decoded:
-                    out.append(decoded)
-                    mime = item_mime or mime
-                continue
-            # A non-data URL points at a remote image. Fetch it through the SSRF
-            # guard so a compromised upstream cannot aim the fetch at an internal
-            # service; a legitimate provider CDN (public IP) passes.
-            fetched = self._fetch(url)
-            if fetched:
-                out.append(fetched)
-        return out, mime
-
-    def _decode_data_url(self, url: str) -> tuple[bytes | None, str | None]:
-        if not url.startswith("data:"):
-            return None, None
-        header, _, payload = url.partition(",")
-        if not payload:
-            return None, None
-        meta = header[len("data:") :]
-        mime = (meta.split(";", 1)[0] if ";" in meta else meta) or "image/png"
-        try:
-            return base64.b64decode(payload), mime
-        except ValueError:
-            # binascii.Error subclasses ValueError; a malformed payload is just skipped.
-            return None, None
+        """Pull image bytes from choices[0].message.images[], fetching any remote
+        URL through this backend's SSRF-gated ``_fetch``."""
+        return _chat_image.extract_chat_images(data, self._fetch)
 
     def _fetch(self, url: str) -> bytes | None:
         """Fetch a provider-returned remote image URL, gated against SSRF.
 
-        Mirrors the litellm backend: validate the URL through the shared guard
-        before connecting, follow redirects, then re-validate every hop so a 30x
-        to an internal target is rejected. A public provider CDN passes unchanged.
+        Validate the URL through the shared guard before connecting, follow
+        redirects, then re-validate every hop so a 30x to an internal target is
+        rejected. A public provider CDN passes unchanged. Defined here (not in the
+        shared helper) so the SSRF tests can patch this module's ``httpx``.
         """
         if not is_url_fetchable(url):
             return None

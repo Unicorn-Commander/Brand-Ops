@@ -1,12 +1,22 @@
 """LiteLLM gateway image backend.
 
-Calls the suite's LiteLLM gateway (the Ops-Center inference gateway) over its
-OpenAI-compatible /v1/images/generations endpoint, authenticating with a
+Calls the suite's LiteLLM gateway (the Ops-Center inference gateway) with a
 gateway-issued virtual key. The gateway holds the real provider credentials and
 meters + marks up the spend, so when Brand-Ops runs integrated inside Unicorn
 Commander it carries NO provider keys of its own. The native backends
 (openrouter / gemini / openai / recraft / flux) remain only for standalone
 "in a vacuum" deployments where someone brings their own keys.
+
+Two request shapes, picked by the configured model:
+
+* Chat-style image models (Gemini / nano-banana / Flux slugs, the default) go
+  over ``/chat/completions`` with the reference images carried as ``image_url``
+  content parts, so the gateway relays the existing brand art through to the
+  model for a style match and returns the image under
+  ``choices[0].message.images[]``. This is the reference-conditioned path and the
+  shared protocol lives in ``_chat_image``.
+* The OpenAI image family (gpt-image-1 / dall-e-*) goes over the OpenAI
+  ``/v1/images/generations`` endpoint, which is prompt-only (no references).
 
 Configured by settings.litellm_base_url + litellm_api_key + litellm_image_model.
 httpx is a hard dependency; nothing here needs the optional `backends` extra.
@@ -18,6 +28,7 @@ import base64
 import httpx
 
 from ..agents.web_fetch import is_url_fetchable
+from . import _chat_image
 from .base import BackendError, BackendNotConfigured, GenRequest, GenResult
 
 # gpt-image-1 / dall-e accept a fixed set of sizes; we snap to the nearest by
@@ -36,6 +47,16 @@ _DEFAULT_QUALITY = "medium"
 # Rough per-image cost estimate in cents by quality (square output). Surfaced to
 # callers for parity with the openai backend; the gateway does the real metering.
 _COST_BY_QUALITY = {"low": 1.1, "medium": 4.0, "high": 17.0, "auto": 4.0}
+
+
+def _is_images_endpoint_model(model: str) -> bool:
+    """True for the OpenAI image family, which uses /v1/images/generations.
+
+    Everything else (Gemini / nano-banana / Flux slugs) is a chat-completions
+    image model that can carry reference images, so it takes the chat path.
+    """
+    m = (model or "").lower()
+    return m.startswith("gpt-image") or m.startswith("dall-e")
 
 
 def _redirect_chain_is_safe(response: httpx.Response) -> bool:
@@ -72,6 +93,11 @@ class Backend:
                 "(set LITELLM_BASE_URL, LITELLM_API_KEY, LITELLM_IMAGE_MODEL)"
             )
         model = req.extra.get("model") or s.litellm_image_model
+        # Chat-style image models (Gemini / nano-banana / Flux slugs) carry
+        # reference images and return them via /chat/completions; only the OpenAI
+        # image family uses the prompt-only /v1/images/generations endpoint.
+        if not _is_images_endpoint_model(model):
+            return self._generate_chat(req, model)
         body = {
             "model": model,
             "prompt": req.prompt,
@@ -117,6 +143,55 @@ class Backend:
             model=model,
             cost_cents=(self._cost_cents(quality) * len(images)) if quality else None,
             meta={"gateway": s.litellm_base_url, "size": body["size"], "quality": quality},
+        )
+
+    def _generate_chat(self, req: GenRequest, model: str) -> GenResult:
+        """Reference-conditioned path: /chat/completions with image_url parts.
+
+        Builds the shared chat-image body (text + one image_url part per
+        reference), loops to req.count, decodes the returned image(s), and
+        surfaces the gateway's reported per-call cost so the per-tenant metering
+        records the real charge. Spend is attributed to the workspace via the
+        OpenAI ``user`` field when the engine sets one.
+        """
+        s = self._settings
+        user = req.extra.get("user")
+        body = _chat_image.build_body(
+            model, req, modalities=req.extra.get("modalities"), user=user
+        )
+        images: list[bytes] = []
+        mime = "image/png"
+        cost_cents: float | None = None
+        try:
+            with self._client() as client:
+                for _ in range(max(1, req.count)):
+                    resp = client.post("/v1/chat/completions", json=body)
+                    if resp.status_code != 200:
+                        raise BackendError(
+                            "litellm gateway chat-image request failed "
+                            f"({resp.status_code}): {resp.text[:300]}"
+                        )
+                    data = resp.json()
+                    batch, batch_mime = _chat_image.extract_chat_images(data, self._fetch)
+                    images.extend(batch)
+                    if batch_mime:
+                        mime = batch_mime
+                    call_cost = _chat_image.usage_cost_cents(data)
+                    if call_cost is not None:
+                        cost_cents = (cost_cents or 0.0) + call_cost
+        except httpx.HTTPError as exc:
+            raise BackendError(f"litellm gateway chat-image request error: {exc}") from exc
+
+        if not images:
+            raise BackendError("litellm gateway returned no image data in the chat response")
+
+        return GenResult(
+            images=images,
+            mime=mime,
+            backend=self.name,
+            model=model,
+            cost_cents=cost_cents,
+            meta={"gateway": s.litellm_base_url, "path": "chat/completions"},
         )
 
     # --- internals -----------------------------------------------------------

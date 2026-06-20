@@ -24,24 +24,28 @@ class Settings(BaseModel):
     recraft_api_key: str = ""
     comfyui_url: str = "http://localhost:8188"
     flux_model: str = "flux1-dev"
-    # OpenRouter image generation. In a single-key "vacuum" deploy it can reuse
-    # the agent LLM credentials (llm_api_key / llm_base_url). In the integrated
-    # deploy the text path points at the metered gateway, which CANNOT carry
-    # reference images, so the image backend needs its own direct OpenRouter
-    # credentials to do reference-conditioned generation (matching existing brand
-    # art). These take precedence over llm_* in the openrouter backend; when
-    # blank it falls back to llm_*. Default is nano-banana 2; any OpenRouter image
-    # slug works (openai/gpt-5.4-image-2, black-forest-labs/flux.2-pro, ...).
+    # OpenRouter image generation: the BYO-key, standalone ("vacuum") path. It can
+    # reuse the agent LLM credentials (llm_api_key / llm_base_url) or take its own
+    # dedicated openrouter_* creds, and it always reaches OpenRouter directly. In
+    # the integrated deploy the reference-conditioned path runs through the metered
+    # gateway instead (the litellm backend now carries reference images over
+    # /chat/completions), so this backend is the fallback for deploys without the
+    # gateway. Default is nano-banana 2; any OpenRouter image slug works
+    # (openai/gpt-5.4-image-2, black-forest-labs/flux.2-pro, ...).
     openrouter_image_model: str = "google/gemini-3.1-flash-image-preview"
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     # LiteLLM gateway (the suite inference gateway). When set, Brand-Ops holds no
     # provider keys: it calls the gateway with a gateway-issued virtual key and
     # the gateway holds the real provider creds and meters + marks up the spend.
-    # base_url is the gateway root (no /v1); the backend posts /v1/images/generations.
+    # base_url is the gateway root (no /v1). The default model is the
+    # reference-conditioned chat-image model (Gemini / nano-banana), which the
+    # backend drives over /chat/completions so the existing brand art is carried
+    # through; set a gpt-image-1 / dall-e-* model to use the prompt-only
+    # /v1/images/generations endpoint instead.
     litellm_base_url: str = ""
     litellm_api_key: str = ""
-    litellm_image_model: str = "gpt-image-1"
+    litellm_image_model: str = "google/gemini-3.1-flash-image-preview"
     # When an asset's default backend has no key and the caller did not request
     # one explicitly, fall back through this chain, using the first healthy one.
     # The gateway (litellm) is preferred when configured; OpenRouter is the
