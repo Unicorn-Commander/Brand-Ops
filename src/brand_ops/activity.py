@@ -43,12 +43,26 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import threading
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
+try:  # POSIX advisory file lock, for the documented multi-replica future
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX; the in-process lock still applies
+    fcntl = None
+
 from .brand_loader import current_kits_dir
+
+# Serialize the read-prev-then-append critical section WITHIN this process. Two
+# concurrent appends (live today: the sync routes run on a threadpool) must not
+# both read the same last entry_hash and fork the chain, which would make
+# verify_chain report a permanent false-positive tamper break under normal
+# multi-user load. The fcntl.flock below extends the guard across processes/replicas.
+_APPEND_LOCK = threading.Lock()
 
 # A structured logger so a feed write failure is a visible warning, not a silent
 # swallow. A sibling stream wires structlog; plain stdlib logging under the same
@@ -223,16 +237,26 @@ def append_event(
     try:
         path = _log_path(kits_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
-        # Link into the chain just before writing, so prev_hash reflects whatever
-        # is actually the last line on disk (including a concurrent prior append).
-        event["prev_hash"] = _last_entry_hash(path)
-        event["entry_hash"] = _entry_hash(event)
-        # One event per line. ensure_ascii=False keeps brand names and notes
-        # human-readable on disk; the line is newline-terminated so the next
-        # append is a clean record even after a partial prior write.
-        line = json.dumps(event, ensure_ascii=False)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
+        # Read-prev + link + append must be ONE atomic critical section, or two
+        # concurrent appends fork the chain. The in-process lock serializes threads
+        # (the sync-route threadpool); the exclusive fcntl.flock serializes
+        # processes/replicas; reading the last hash happens INSIDE both locks so
+        # prev_hash reflects any concurrent prior append; fsync makes the line
+        # durable. One event per line, ensure_ascii=False keeps it human-readable,
+        # newline-terminated so the next append is clean even after a partial write.
+        with _APPEND_LOCK:
+            with path.open("a", encoding="utf-8") as fh:
+                if fcntl is not None:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+                try:
+                    event["prev_hash"] = _last_entry_hash(path)
+                    event["entry_hash"] = _entry_hash(event)
+                    fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                finally:
+                    if fcntl is not None:
+                        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
     except Exception:  # noqa: BLE001 - the feed is advisory; a write failure is never fatal
         # Never propagate, but never swallow silently either: a lost audit line is
         # an operational signal worth a warning. Exclude the body from the message
