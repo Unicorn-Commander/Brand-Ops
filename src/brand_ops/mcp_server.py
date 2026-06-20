@@ -51,6 +51,7 @@ from .brand_loader import (
     get_current_workspace_id,
     load_brand,
     resolve_reference_images,
+    safe_subpath,
 )
 from .brand_loader import (
     list_brands as _list_brands,
@@ -396,7 +397,8 @@ def list_generated_assets(
         if brand:
             if allowed is not None and brand not in allowed:
                 return {"assets": [], "count": 0}
-            brand_dirs = [root / brand] if (root / brand).is_dir() else []
+            bd = safe_subpath(root, brand)
+            brand_dirs = [bd] if (bd is not None and bd.is_dir()) else []
         else:
             brand_dirs = [
                 p
@@ -412,7 +414,8 @@ def list_generated_assets(
             if not gen_root.is_dir():
                 continue
             if asset:
-                asset_dirs = [gen_root / asset] if (gen_root / asset).is_dir() else []
+                ad = safe_subpath(gen_root, asset)
+                asset_dirs = [ad] if (ad is not None and ad.is_dir()) else []
             else:
                 asset_dirs = [p for p in gen_root.iterdir() if p.is_dir()]
             for asset_dir in sorted(asset_dirs):

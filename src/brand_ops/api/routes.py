@@ -45,6 +45,7 @@ from ..brand_loader import (
     get_allowed_brands,
     list_brands,
     load_brand,
+    safe_subpath,
     workspace_query_suffix,
 )
 from ..compliance import (
@@ -61,7 +62,7 @@ from ..db.tenancy import record_brand, resolve_context
 from ..models import Brand
 from ..templates import list_templates
 from .agents import UnknownAgent, run_agent
-from .auth import Principal, require_principal
+from .auth import Principal, require_principal, require_role
 from .catalog import _coerce_record, read_assets
 from .guidelines import build_guidelines
 from .schemas import (
@@ -140,6 +141,11 @@ _HTTP_422 = 422
 # principal when AUTH_REQUIRED is false, so the surface stays uniform whether or
 # not auth is on.
 _Auth = Annotated[Principal, Depends(require_principal)]
+# Owner-gated dependency for the mutating, governance, and brand/identity-creation
+# routes: RLS still isolates the tenant, this adds the in-workspace authorization
+# the audit found unenforced (a member was operationally an owner). The unscoped
+# CLI / stdio MCP / tests path stays exempt (see require_role).
+_Owner = Annotated[Principal, Depends(require_role("owner"))]
 
 # Extensions a browser safely renders as a picture in an <img> tag: these stay
 # inline so the GUI keeps working. Anything else (an SVG above all, which can
@@ -383,7 +389,7 @@ def get_brand(slug: str, _: _Auth) -> BrandDetail:
 
 @router.post("/brands/{slug}/clone", response_model=BrandDetail)
 async def clone_brand_route(
-    slug: str, body: CloneBrandRequest, principal: _Auth
+    slug: str, body: CloneBrandRequest, principal: _Owner
 ) -> BrandDetail:
     """Clone an existing brand into a new sub-brand or a distinct seeded brand.
 
@@ -452,7 +458,7 @@ def _parent_identity(slug: str) -> dict[str, Any] | None:
 
 
 @router.post("/brands/intake", response_model=IntakeResult)
-async def intake_brand_route(body: IntakeRequest, principal: _Auth) -> IntakeResult:
+async def intake_brand_route(body: IntakeRequest, principal: _Owner) -> IntakeResult:
     """Draft a brand identity with the Director and create the brand.
 
     The single real-intake door: from a brand ``name`` and whatever the operator
@@ -1144,9 +1150,14 @@ def _apply_transition(
         ) from None
 
     # Rebuild the catalog record from the refreshed sidecar, resolving the same
-    # image path the catalog and approve flow resolve.
-    root = current_kits_dir().resolve()
-    image_path = (root / brand / kind / asset / file).resolve()
+    # image path the catalog and approve flow resolve. ``transition`` above already
+    # confined and would have 404'd an escaping path; re-confine here as defense in
+    # depth (and because this path feeds a served URL).
+    image_path = safe_subpath(current_kits_dir(), brand, kind, asset, file)
+    if image_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="asset sidecar not found"
+        )
     sidecar = image_path.with_suffix(image_path.suffix + ".json")
     record = _coerce_record(data, sidecar, image_path, kind=kind)
     if record is None:  # pragma: no cover - transition just wrote a valid record
@@ -1157,7 +1168,7 @@ def _apply_transition(
 
 
 @router.post("/assets/transition", response_model=TransitionResult)
-def transition_asset(body: TransitionRequest, _: _Auth) -> TransitionResult:
+def transition_asset(body: TransitionRequest, _: _Owner) -> TransitionResult:
     """Move an asset to a new lifecycle state and record it on the activity feed.
 
     Locates ``brand-kits/<brand>/<kind>/<asset>/<file>`` (and its sidecar) inside
@@ -1184,7 +1195,7 @@ def transition_asset(body: TransitionRequest, _: _Auth) -> TransitionResult:
 
 
 @router.post("/assets/approve", response_model=ApproveResult)
-def approve_asset(body: ApproveRequest, _: _Auth) -> ApproveResult:
+def approve_asset(body: ApproveRequest, _: _Owner) -> ApproveResult:
     """Operator override: flip an asset's lifecycle status to ``approved``.
 
     A thin alias for POST /api/assets/transition with ``to="approved"`` and
@@ -1821,7 +1832,7 @@ def list_brand_agents(slug: str, _: _Auth) -> AgentIdentityList:
     response_model=AgentIdentityOut,
     status_code=status.HTTP_201_CREATED,
 )
-def create_brand_agent(slug: str, body: CreateAgentIdentityRequest, _: _Auth) -> AgentIdentityOut:
+def create_brand_agent(slug: str, body: CreateAgentIdentityRequest, _: _Owner) -> AgentIdentityOut:
     """Create an on-brand agent identity (inherits the brand voice tone)."""
     try:
         ident = agent_identity.create_agent(slug, body.name, body.role, body.bio)
@@ -1842,7 +1853,7 @@ def create_brand_agent(slug: str, body: CreateAgentIdentityRequest, _: _Auth) ->
 
 
 @router.post("/brands/{slug}/agents/{agent}/avatar", response_model=AgentIdentityOut)
-def generate_brand_agent_avatar(slug: str, agent: str, _: _Auth) -> AgentIdentityOut:
+def generate_brand_agent_avatar(slug: str, agent: str, _: _Owner) -> AgentIdentityOut:
     """Generate the agent's on-brand avatar through the resolved image backend."""
     try:
         ident = agent_identity.generate_avatar(slug, agent)
@@ -1933,7 +1944,7 @@ def get_brand_agent_avatar(
 
 
 @router.post("/brands/{slug}/agents/{agent}/variants", response_model=AgentIdentityOut)
-def generate_brand_agent_variants(slug: str, agent: str, _: _Auth) -> AgentIdentityOut:
+def generate_brand_agent_variants(slug: str, agent: str, _: _Owner) -> AgentIdentityOut:
     """Generate the agent's full on-brand avatar state set (primary + variants).
 
     Produces an avatar for every state — primary (avatar.png, generated here if
@@ -2012,7 +2023,7 @@ def get_brand_agent_manifest(slug: str, agent: str, _: _Auth) -> dict:
 
 @router.patch("/brands/{slug}/agents/{agent}", response_model=AgentIdentityOut)
 def update_brand_agent(
-    slug: str, agent: str, body: UpdateAgentRequest, _: _Auth
+    slug: str, agent: str, body: UpdateAgentRequest, _: _Owner
 ) -> AgentIdentityOut:
     """Edit an agent's persona text (role and/or bio); avatar and voice untouched."""
     if body.role is not None and not body.role.strip():
@@ -2035,7 +2046,7 @@ def update_brand_agent(
 
 @router.put("/brands/{slug}/agents/{agent}/voice", response_model=AgentIdentityOut)
 def set_brand_agent_voice(
-    slug: str, agent: str, body: SetAgentVoiceRequest, _: _Auth
+    slug: str, agent: str, body: SetAgentVoiceRequest, _: _Owner
 ) -> AgentIdentityOut:
     """Bind (or clear) the agent's spoken voice from the catalog.
 
@@ -2288,7 +2299,7 @@ async def put_governance(
     agent_kind: str,
     agent_ref: str,
     body: AgentGovernanceUpdate,
-    principal: _Auth,
+    principal: _Owner,
 ) -> AgentGovernanceOut:
     """Set one agent's governance contract, returning it with its 7-day spend.
 

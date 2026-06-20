@@ -151,6 +151,41 @@ def _validate_slug(slug: str) -> None:
         raise BrandNotFound(f"brand {slug!r} not found")
 
 
+def safe_subpath(root: Path, *parts: str) -> Path | None:
+    """Confine a join of caller-supplied path segments under ``root``.
+
+    The brand ``slug`` is validated by ``_validate_slug`` at the brand-read
+    boundary, but the catalog/compliance/mark readers also join other
+    caller-influenced segments (asset type, kind, file name, mark) onto the kits
+    root. This is the one guard for those: each ``part`` must be a single safe
+    path segment (a non-empty str, not absolute, no separator, no parent ref, no
+    NUL), and the fully resolved join must stay under ``root.resolve()`` so a
+    crafted segment or a symlink cannot escape one tenant's subtree into
+    another's. Returns the resolved path, or ``None`` when any part is unsafe or
+    the result escapes; the caller turns ``None`` into a 404 / skip / empty, never
+    a read or write outside the tree. Mirrors the guard the byte-serving routes
+    already apply, centralized so every reader and writer shares one rule.
+    """
+    base = root.resolve()
+    p = base
+    for part in parts:
+        if (
+            not isinstance(part, str)
+            or not part
+            or part in (".", "..")
+            or "/" in part
+            or "\\" in part
+            or "\x00" in part
+            or Path(part).is_absolute()
+        ):
+            return None
+        p = p / part
+    resolved = p.resolve()
+    if resolved != base and not resolved.is_relative_to(base):
+        return None
+    return resolved
+
+
 def list_brands(kits_dir: Path | None = None) -> list[str]:
     root = kits_dir or current_kits_dir()
     if not root.exists():

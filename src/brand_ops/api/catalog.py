@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 from ..brand_loader import (
     current_kits_dir,
     get_allowed_brands,
+    safe_subpath,
     workspace_query_suffix,
 )
 from .schemas import AssetRecord
@@ -132,8 +133,13 @@ def read_assets(
     records: list[AssetRecord] = []
     for slug in brands:
         for kind in _KINDS:
-            scan_root = root / slug / kind / asset if asset else root / slug / kind
-            if not scan_root.exists():
+            # Confine the join: ``slug`` is already allow-list gated, but ``asset``
+            # (the asset-type segment) is caller-supplied, so route the whole join
+            # through the shared guard. A crafted segment that would escape the
+            # workspace subtree yields None and is skipped, never scanned.
+            parts = [slug, kind, asset] if asset else [slug, kind]
+            scan_root = safe_subpath(root, *parts)
+            if scan_root is None or not scan_root.exists():
                 continue
             for sidecar, image_path in _iter_sidecars(scan_root):
                 try:

@@ -533,6 +533,44 @@ async def _scope_principal(principal: Principal, x_workspace_id: str | None) -> 
     )
 
 
+# Role hierarchy for in-workspace authorization (SUITE-IDENTITY: RLS isolates
+# tenants; this constrains what a member may DO inside their own tenant). A higher
+# rank subsumes the powers of every lower one. An unrecognized role ranks at 0, so
+# a malformed/legacy role can never satisfy an owner-only gate.
+_ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
+
+
+def require_role(minimum: str):
+    """Build a dependency that requires at least ``minimum`` role in the active
+    workspace, on top of :func:`require_principal`.
+
+    RLS already confines a caller to their own tenant's data; this adds the
+    second axis the audit found unenforced -- WHAT a member may do within it. The
+    UNSCOPED/anonymous principal (AUTH_REQUIRED off: the CLI, the stdio MCP, local
+    dev, tests) is exempt, preserving the original global behavior exactly; on a
+    real deployment (AUTH on) there is no anonymous principal, so every caller is
+    gated by their resolved membership role. A caller whose role outranks or
+    equals the minimum passes; otherwise 403. The role decision is left for the
+    route to stamp into its audit event.
+    """
+    min_rank = _ROLE_RANK[minimum]
+
+    async def _require_role(
+        principal: Annotated[Principal, Depends(require_principal)],
+    ) -> Principal:
+        if principal.anonymous:
+            return principal
+        rank = _ROLE_RANK.get((principal.role or "").lower(), 0)
+        if rank < min_rank:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"this action requires the {minimum} role in this workspace",
+            )
+        return principal
+
+    return _require_role
+
+
 def _anonymous_principal() -> Principal:
     """The anonymous caller: unscoped, so the CLI / local dev see every brand.
 
@@ -555,4 +593,5 @@ __all__ = (
     "authenticate",
     "auth_required",
     "require_principal",
+    "require_role",
 )

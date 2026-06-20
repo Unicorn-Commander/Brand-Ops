@@ -23,7 +23,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from ..brand_loader import current_kits_dir
+from ..brand_loader import current_kits_dir, safe_subpath
 
 # An em-dash is off-house-style: we flag its presence in copy. The hyphen-minus
 # and en-dash are fine; only U+2014 is banned.
@@ -380,14 +380,23 @@ def _combine(brand_slug: str, target: str, checks: list[dict[str, Any]]) -> dict
 
 def _resolve_image_path(
     brand_slug: str, file: str, asset_type: str, kind: str, kits_dir: Path | None
-) -> Path:
-    """Resolve a catalog file to its on-disk path under the kits tree."""
-    root = (kits_dir or current_kits_dir()).resolve()
-    return (root / brand_slug / kind / asset_type / file).resolve()
+) -> Path | None:
+    """Resolve a catalog file to its on-disk path under the kits tree.
+
+    ``asset_type``, ``kind``, and ``file`` are caller-supplied, so the join is
+    confined through ``safe_subpath``: a crafted segment that would escape the
+    workspace subtree yields ``None`` (the caller reads/writes nothing), closing
+    cross-tenant traversal on both the read path (``check_asset``) and the write
+    paths (``stamp_compliance``, ``transition``).
+    """
+    root = kits_dir or current_kits_dir()
+    return safe_subpath(root, brand_slug, kind, asset_type, file)
 
 
-def _read_sidecar_prompt(image_path: Path) -> str | None:
+def _read_sidecar_prompt(image_path: Path | None) -> str | None:
     """Return the ``prompt`` recorded in the image's sidecar JSON, if any."""
+    if image_path is None:
+        return None
     sidecar = image_path.with_suffix(image_path.suffix + ".json")
     if not sidecar.is_file():
         return None
@@ -416,6 +425,11 @@ def check_asset(
     """
     image_path = _resolve_image_path(brand_slug, file, asset_type, kind, kits_dir)
     target = f"file:{asset_type}/{file}"
+
+    # An unsafe/escaping path resolves to None: nothing to read, so the asset is
+    # simply not found (a skipped color check), never a cross-tenant read.
+    if image_path is None:
+        return _combine(brand_slug, target, [_skip("file not found")])
 
     checks: list[dict[str, Any]] = [check_image_colors(image_path, rules)]
 

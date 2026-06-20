@@ -94,6 +94,8 @@ def stamp_compliance(
     feed — especially during a bulk backfill of mostly-on-brand assets.
     """
     image_path = _resolve_image_path(brand_slug, file, asset_type, kind, kits_dir)
+    if image_path is None:  # unsafe/escaping path: stamp nothing
+        return {"lifecycle_status": None}
     sidecar = image_path.with_suffix(image_path.suffix + ".json")
     if not sidecar.is_file():
         return {"lifecycle_status": None}
@@ -186,7 +188,10 @@ def transition(
 
     image_path = _resolve_image_path(brand_slug, file, asset_type, kind, kits_dir)
     # Confine the resolved sidecar to the kits root, matching the asset API's
-    # defense in depth: a crafted ``file`` cannot reach outside the tree.
+    # defense in depth: a crafted ``file``/``asset_type`` cannot reach outside the
+    # tree (``_resolve_image_path`` returns None on an escaping segment).
+    if image_path is None:
+        raise FileNotFoundError("asset sidecar not found")
     root = (kits_dir or current_kits_dir()).resolve()
     sidecar = image_path.with_suffix(image_path.suffix + ".json")
     if not sidecar.is_relative_to(root) or not sidecar.is_file():

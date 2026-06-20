@@ -18,6 +18,7 @@ from .brand_loader import (
     get_current_workspace_id,
     load_brand,
     resolve_reference_images,
+    safe_subpath,
 )
 from .config import Settings, get_settings
 from .output import generated_dir, output_name, save_result
@@ -175,19 +176,21 @@ def _resolve_mark(brand_slug, brand, mark, kits_dir):
     no logo yet (the card still renders, just without a mark)."""
     base = (kits_dir or current_kits_dir()) / brand_slug
     if mark:
-        explicit = Path(mark)
-        if explicit.is_file():
-            return explicit
-        for sub in ("generated/logo", "imported/logo"):
-            cand = base / sub / mark
-            if cand.is_file():
+        # ``mark`` is caller-supplied. Resolve it ONLY as a filename under this
+        # brand's own logo dirs, confined to the kits tree: an absolute path or a
+        # traversing name is rejected, so a card can never composite another
+        # tenant's (or an arbitrary host) file. (Was: Path(mark).is_file() honored
+        # any absolute path, and base/sub/mark allowed ".." to escape.)
+        for sub in ("generated", "imported"):
+            cand = safe_subpath(base, sub, "logo", mark)
+            if cand is not None and cand.is_file():
                 return cand
     declared = getattr(brand.brand, "mark", None)
     if declared and getattr(declared, "file", None):
         kind = declared.kind or "imported"
         atype = declared.asset_type or "logo"
-        cand = base / kind / atype / declared.file
-        if cand.is_file():
+        cand = safe_subpath(base, kind, atype, declared.file)
+        if cand is not None and cand.is_file():
             return cand
     for sub in ("generated/logo", "imported/logo"):
         directory = base / sub
