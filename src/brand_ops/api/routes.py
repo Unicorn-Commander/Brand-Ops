@@ -63,7 +63,7 @@ from ..db.tenancy import record_brand, resolve_context
 from ..models import Brand
 from ..templates import list_templates
 from .agents import UnknownAgent, run_agent
-from .auth import Principal, require_principal, require_role
+from .auth import Principal, agent_scopes_satisfied, require_principal, require_role
 from .catalog import _coerce_record, read_assets
 from .guidelines import build_guidelines
 from .schemas import (
@@ -1323,6 +1323,16 @@ async def run_agent_route(
     A genuine exception from the agent's run becomes a 502 carrying the message,
     never a bare 500.
     """
+    # Least-privilege delegation gate: a delegated agent token (Brigade act-token)
+    # must hold the agent's required scopes. A no-op for human callers and the
+    # unscoped CLI, and a no-op entirely until BRAND_OPS_ENFORCE_AGENT_SCOPES is on
+    # (the suite Brigade issuer does not mint brandops:* scopes yet).
+    spec = next((s for s in AGENT_REGISTRY if s.name == name), None)
+    if spec is not None and not agent_scopes_satisfied(principal, spec.scopes_required):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"agent {name!r} requires scope(s): {', '.join(spec.scopes_required)}",
+        )
     try:
         # Thread metering context: when the caller is workspace-scoped, the
         # agent records best-effort spend against specialist/<name>. Many agent

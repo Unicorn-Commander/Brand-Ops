@@ -571,6 +571,32 @@ def require_role(minimum: str):
     return _require_role
 
 
+def agent_scopes_satisfied(
+    principal: Principal, required: tuple[str, ...], *, enforce: bool | None = None
+) -> bool:
+    """True when a delegated agent token carries the scopes a tool requires.
+
+    Least-privilege delegation: only a DELEGATED principal (a Brigade act/agent
+    token, ``agent_id`` set) is scope-gated. Human SSO callers and the
+    unscoped/anonymous CLI are governed by role + membership and are always
+    exempt. A gated agent token must hold EVERY required scope; an absent scope
+    claim is the empty set, so a scope-less agent token is denied a scoped tool.
+    Gated by ``settings.enforce_agent_scopes`` (default off until the suite's
+    Brigade scope-minting contract is in place, so this is a no-op until flipped
+    on); ``enforce`` overrides that for tests.
+    """
+    if enforce is None:
+        from ..config import get_settings
+
+        enforce = get_settings().enforce_agent_scopes
+    if not enforce:
+        return True
+    if principal.anonymous or principal.agent_id is None:
+        return True
+    have = set(principal.scopes or ())
+    return all(s in have for s in required)
+
+
 def _anonymous_principal() -> Principal:
     """The anonymous caller: unscoped, so the CLI / local dev see every brand.
 
@@ -590,6 +616,7 @@ def _anonymous_principal() -> Principal:
 __all__ = (
     "ANONYMOUS",
     "Principal",
+    "agent_scopes_satisfied",
     "authenticate",
     "auth_required",
     "require_principal",

@@ -67,6 +67,14 @@ class Settings(BaseModel):
     keycloak_realm_url: str = "https://auth.unicorncommander.ai/realms/uchub"
     keycloak_client_id: str = "brand-ops"
     keycloak_client_secret: str = ""
+    # Enforce delegated AGENT-token scopes (each agent's scopes_required in the
+    # registry) on the agent-run path. Default OFF: today the suite's Brigade
+    # issuer does not mint brandops:* scopes (it passes through the subject's KC
+    # scopes and Brand-Ops is not yet registered as a federated app), so enforcing
+    # would gate a delegation that does not exist yet. Flip on once the Brigade
+    # app-registration + scope-minting contract is confirmed. Human SSO callers and
+    # the unscoped CLI are always exempt; only delegated act/agent tokens are gated.
+    enforce_agent_scopes: bool = False
 
     # Database, wired in WS1
     database_url: str = ""
@@ -198,6 +206,8 @@ def get_settings() -> Settings:
         keycloak_realm_url=os.getenv("KEYCLOAK_REALM_URL", d.keycloak_realm_url),
         keycloak_client_id=os.getenv("KEYCLOAK_CLIENT_ID", d.keycloak_client_id),
         keycloak_client_secret=os.getenv("KEYCLOAK_CLIENT_SECRET", ""),
+        enforce_agent_scopes=os.getenv("BRAND_OPS_ENFORCE_AGENT_SCOPES", "").strip().lower()
+        in ("1", "true", "yes", "on"),
         database_url=os.getenv("DATABASE_URL", ""),
         llm_base_url=os.getenv("LLM_BASE_URL", d.llm_base_url),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY", ""),

@@ -28,6 +28,8 @@ from ..config import validate_runtime_config
 from ..db.base import shutdown as db_shutdown
 from .admin import admin_router
 from .auth import auth_required
+from .errors import register_error_handlers
+from .http_guards import setup_http_guards
 from .lifecycle import setup_lifecycle
 from .mcp_http import attach_mcp_http, mcp_http_enabled, mcp_lifespan
 from .observability import configure_logging, setup_observability
@@ -96,11 +98,19 @@ def create_app() -> FastAPI:
     remotely. Off by default, so the standalone app and the tests are unchanged.
     """
     mcp_http = mcp_http_enabled()
+    # On a real deploy (the prod profile, keyed on AUTH_REQUIRED via auth_required())
+    # the interactive docs and the raw OpenAPI schema are turned off, so the surface
+    # exposes no self-describing endpoint enumeration to an anonymous probe. Dev and
+    # the tests (auth off) keep /docs, /redoc, and /openapi.json for exploration.
+    docs_disabled = auth_required()
     app = FastAPI(
         title="Brand-Ops API",
         version=__version__,
         summary="Brand identity and AI image-asset generation for the Unicorn Commander suite.",
         lifespan=_lifespan,
+        docs_url=None if docs_disabled else "/docs",
+        redoc_url=None if docs_disabled else "/redoc",
+        openapi_url=None if docs_disabled else "/openapi.json",
     )
 
     origins = _cors_origins()
@@ -127,6 +137,12 @@ def create_app() -> FastAPI:
     if mcp_http:
         attach_mcp_http(app)
 
+    # One problem+json (RFC 7807) error contract for the whole surface. Additive:
+    # the original ``detail`` is preserved and the envelope is wrapped around it,
+    # so an existing client that reads response["detail"] is unchanged. Registered
+    # here (handlers are order-independent) before the middleware stack is built.
+    register_error_handlers(app)
+
     # Operational hardening: request-id + tenant log middleware, /metrics, Sentry
     # (if SENTRY_DSN), and a /readyz probe that checks the DB + a usable backend.
     # /health stays liveness-only. Added last so every route is instrumented.
@@ -141,6 +157,13 @@ def create_app() -> FastAPI:
     # BRAND_OPS_RATELIMIT_ENABLED (see brand_ops.api.ratelimit).
     setup_ratelimit(app)
     setup_observability(app)
+    # Transport hardening: the defensive response headers (nosniff, frame-deny,
+    # CSP, HSTS-on-https) and the request-body size cap. Added last so it is the
+    # outermost layer (Starlette runs the last-added middleware first): the body
+    # cap rejects an oversized POST before any inner layer reads it, and the
+    # security headers are stamped on every response, including a 429 the limiter
+    # or a problem+json an error handler returns from further in.
+    setup_http_guards(app)
     setup_lifecycle(app)
     return app
 

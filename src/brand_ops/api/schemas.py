@@ -86,8 +86,8 @@ class CloneBrandRequest(BaseModel):
     with no logo, so its ``mark_url`` is null until one is imported.
     """
 
-    new_slug: str
-    display_name: str
+    new_slug: str = Field(max_length=128)
+    display_name: str = Field(max_length=512)
     as_child: bool = True
 
 
@@ -105,11 +105,11 @@ class IntakeRequest(BaseModel):
     hints, with a note that deep live-site capture needs Brigade).
     """
 
-    name: str
-    description: str | None = None
-    url: str | None = None
-    parent: str | None = None
-    mode: str = "describe"
+    name: str = Field(max_length=512)
+    description: str | None = Field(default=None, max_length=8000)
+    url: str | None = Field(default=None, max_length=512)
+    parent: str | None = Field(default=None, max_length=128)
+    mode: str = Field(default="describe", max_length=128)
 
 
 class IntakeDraft(BaseModel):
@@ -243,12 +243,12 @@ class TemplateList(BaseModel):
 class GenerateRequest(BaseModel):
     """Body shared by prompt-preview (dry run) and generate (live)."""
 
-    brand: str
-    asset: str
-    variant: str | None = None
-    topic: str | None = None
-    platform: str | None = None
-    backend: str | None = None
+    brand: str = Field(max_length=128)
+    asset: str = Field(max_length=128)
+    variant: str | None = Field(default=None, max_length=128)
+    topic: str | None = Field(default=None, max_length=2000)
+    platform: str | None = Field(default=None, max_length=2000)
+    backend: str | None = Field(default=None, max_length=128)
     count: int = Field(default=1, ge=1, le=8)
 
 
@@ -261,11 +261,11 @@ class GenerateCardRequest(BaseModel):
     the output variant.
     """
 
-    brand: str
-    asset: str
-    message: str | None = None
-    mark: str | None = None
-    variant: str | None = None
+    brand: str = Field(max_length=128)
+    asset: str = Field(max_length=128)
+    message: str | None = Field(default=None, max_length=8000)
+    mark: str | None = Field(default=None, max_length=128)
+    variant: str | None = Field(default=None, max_length=128)
 
 
 class PromptPreview(BaseModel):
@@ -383,10 +383,10 @@ class ApproveRequest(BaseModel):
     imported tree (default ``generated``), matching the rest of the asset API.
     """
 
-    brand: str
-    file: str
-    asset: str
-    kind: str = "generated"
+    brand: str = Field(max_length=128)
+    file: str = Field(max_length=512)
+    asset: str = Field(max_length=128)
+    kind: str = Field(default="generated", max_length=128)
 
 
 class ApproveResult(BaseModel):
@@ -408,13 +408,13 @@ class TransitionRequest(BaseModel):
     ``to="approved"``.
     """
 
-    brand: str
-    file: str
-    asset: str
-    kind: str = "generated"
-    to: str
-    note: str | None = None
-    actor: str = "you"
+    brand: str = Field(max_length=128)
+    file: str = Field(max_length=512)
+    asset: str = Field(max_length=128)
+    kind: str = Field(default="generated", max_length=128)
+    to: str = Field(max_length=128)
+    note: str | None = Field(default=None, max_length=2000)
+    actor: str = Field(default="you", max_length=128)
 
 
 class TransitionResult(BaseModel):
@@ -510,8 +510,8 @@ class DirectorTurn(BaseModel):
     keeps context across a session without the backend holding any state.
     """
 
-    role: str
-    text: str
+    role: str = Field(max_length=128)
+    text: str = Field(max_length=8000)
 
 
 class DirectorChatRequest(BaseModel):
@@ -522,8 +522,8 @@ class DirectorChatRequest(BaseModel):
     conversation tail (oldest first); it is optional and defaults to empty.
     """
 
-    message: str
-    brand: str | None = None
+    message: str = Field(max_length=8000)
+    brand: str | None = Field(default=None, max_length=128)
     history: list[DirectorTurn] = Field(default_factory=list)
 
 
@@ -587,13 +587,13 @@ class PlanGenerationRequest(BaseModel):
     active brand to default to, ``backend`` an explicit override to keep).
     """
 
-    text: str
-    brand: str | None = None
-    asset: str | None = None
-    variant: str | None = None
-    topic: str | None = None
-    platform: str | None = None
-    backend: str | None = None
+    text: str = Field(max_length=8000)
+    brand: str | None = Field(default=None, max_length=128)
+    asset: str | None = Field(default=None, max_length=128)
+    variant: str | None = Field(default=None, max_length=128)
+    topic: str | None = Field(default=None, max_length=2000)
+    platform: str | None = Field(default=None, max_length=2000)
+    backend: str | None = Field(default=None, max_length=128)
 
 
 class PlanGenerationReply(BaseModel):
@@ -674,11 +674,11 @@ class ComplianceCheckRequest(BaseModel):
     always required so the checker knows which rules to apply.
     """
 
-    brand: str
-    file: str | None = None
-    asset: str | None = None
-    kind: str | None = None
-    text: str | None = None
+    brand: str = Field(max_length=128)
+    file: str | None = Field(default=None, max_length=512)
+    asset: str | None = Field(default=None, max_length=128)
+    kind: str | None = Field(default=None, max_length=128)
+    text: str | None = Field(default=None, max_length=8000)
 
 
 class OffendingColor(BaseModel):
@@ -941,9 +941,9 @@ class AgentTeam(BaseModel):
 class CreateAgentIdentityRequest(BaseModel):
     """Body for POST /brands/{slug}/agents: name + role (+ optional bio)."""
 
-    name: str
-    role: str
-    bio: str = ""
+    name: str = Field(max_length=512)
+    role: str = Field(max_length=2000)
+    bio: str = Field(default="", max_length=2000)
 
 
 class UpdateAgentRequest(BaseModel):
@@ -953,8 +953,8 @@ class UpdateAgentRequest(BaseModel):
     bio, or both. An empty bio clears it; an empty role is rejected.
     """
 
-    role: str | None = None
-    bio: str | None = None
+    role: str | None = Field(default=None, max_length=2000)
+    bio: str | None = Field(default=None, max_length=2000)
 
 
 class SetAgentVoiceRequest(BaseModel):
@@ -965,8 +965,8 @@ class SetAgentVoiceRequest(BaseModel):
     multiplier.
     """
 
-    voice_id: str | None = None
-    engine: str | None = None
+    voice_id: str | None = Field(default=None, max_length=128)
+    engine: str | None = Field(default=None, max_length=128)
     speed: float = 1.0
 
 
@@ -994,8 +994,8 @@ class VoicePreviewRequest(BaseModel):
     server-side; ``voice_id`` must be a catalog voice.
     """
 
-    voice_id: str
-    text: str | None = None
+    voice_id: str = Field(max_length=128)
+    text: str | None = Field(default=None, max_length=8000)
     speed: float = 1.0
 
 
@@ -1086,7 +1086,7 @@ class AgentGovernanceUpdate(BaseModel):
     field simply omitted from the body leaves the stored value untouched.
     """
 
-    autonomy: str | None = None
-    standing_orders: str | None = None
+    autonomy: str | None = Field(default=None, max_length=128)
+    standing_orders: str | None = Field(default=None, max_length=2000)
     weekly_budget_cents: int | None = None
-    model: str | None = None
+    model: str | None = Field(default=None, max_length=128)
