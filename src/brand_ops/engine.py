@@ -111,62 +111,71 @@ def generate_asset(
     if note:
         outcome.notes.append(note)
 
-    # Per-tenant cost governance, BEFORE the (paid) backend call: deny when this
-    # workspace's image spend over the rolling window already meets its cap or the
-    # attributed agent's weekly budget. Default-disabled (cap 0, null budgets) and
-    # a no-op when unscoped (CLI / stdio MCP / tests), so nothing changes until an
-    # operator sets a limit. Raises QuotaExceeded (a BackendError) on a breach,
-    # which the existing REST/MCP handlers already map to a clean 4xx.
+    # Per-tenant cost governance around the (paid) backend call. The cap read
+    # (before) and the meter write (after) run on ONE event loop opened by
+    # ``image_governance`` for this generation, so asyncpg reuses its loop-bound
+    # pool across the two DB touches instead of rebuilding it for each. Ordering
+    # is unchanged: ``enforce`` denies an over-budget run before the backend, and
+    # ``meter`` records the spend after the bytes are saved. Default-disabled
+    # (cap 0, null budgets) and a no-op when unscoped (CLI / stdio MCP / tests),
+    # where no loop or DB is touched at all.
     workspace_id = get_current_workspace_id()
-    cost.enforce_image_quota_sync(workspace_id)
+    with cost.image_governance(workspace_id) as governor:
+        # BEFORE the backend: deny when this workspace's image spend over the
+        # rolling window already meets its cap or the attributed agent's weekly
+        # budget. Raises QuotaExceeded (a BackendError) on a breach, which the
+        # existing REST/MCP handlers already map to a clean 4xx.
+        governor.enforce()
 
-    # Recompute vector against the backend that will actually run (only recraft
-    # emits SVG; a fallback off recraft produces raster).
-    vector = _wants_vector(active_backend, asset_type)
-    req = GenRequest(
-        prompt=built.text,
-        width=built.size[0],
-        height=built.size[1],
-        transparent=built.transparent,
-        reference_images=built.reference_images,
-        count=max(1, count),
-        vector=vector,
-        extra={
-            "colors": [brand.visual.colors.primary, brand.visual.colors.accent],
-            # Attribute the gateway spend to this workspace (the litellm backend
-            # forwards it as the OpenAI ``user`` field). Empty when unscoped, in
-            # which case the backend simply omits it. Never a secret: the
-            # workspace id is an opaque uuid.
-            "user": workspace_id or "",
-        },
-    )
-    result = backend_impl.generate(req)
-    # Transparent asset types (logo, app_icon, ...) must end up with a real alpha
-    # channel even when the backend can only return an opaque image on a flat
-    # field. The gateway's gpt-image-1 path cannot honor a transparent-background
-    # request, so cut a uniform background out here. It is a no-op when the image
-    # is already transparent or the background is not a single uniform color.
-    if built.transparent and result.images:
-        from .imaging import knockout_background
+        # Recompute vector against the backend that will actually run (only
+        # recraft emits SVG; a fallback off recraft produces raster).
+        vector = _wants_vector(active_backend, asset_type)
+        req = GenRequest(
+            prompt=built.text,
+            width=built.size[0],
+            height=built.size[1],
+            transparent=built.transparent,
+            reference_images=built.reference_images,
+            count=max(1, count),
+            vector=vector,
+            extra={
+                "colors": [brand.visual.colors.primary, brand.visual.colors.accent],
+                # Attribute the gateway spend to this workspace (the litellm
+                # backend forwards it as the OpenAI ``user`` field). Empty when
+                # unscoped, in which case the backend simply omits it. Never a
+                # secret: the workspace id is an opaque uuid.
+                "user": workspace_id or "",
+            },
+        )
+        result = backend_impl.generate(req)
+        # Transparent asset types (logo, app_icon, ...) must end up with a real
+        # alpha channel even when the backend can only return an opaque image on a
+        # flat field. The gateway's gpt-image-1 path cannot honor a
+        # transparent-background request, so cut a uniform background out here. It
+        # is a no-op when the image is already transparent or the background is
+        # not a single uniform color.
+        if built.transparent and result.images:
+            from .imaging import knockout_background
 
-        result.images = [knockout_background(img) for img in result.images]
-    outcome.result = result
-    outcome.paths = save_result(brand_slug, asset_type, variant, built, result, kits_dir)
+            result.images = [knockout_background(img) for img in result.images]
+        outcome.result = result
+        outcome.paths = save_result(
+            brand_slug, asset_type, variant, built, result, kits_dir
+        )
 
-    # Meter the successful generation per workspace, mirroring the text path's
-    # chat metering: one agent_spend_event (kind=image) carrying the estimated
-    # cost + model/backend, so the next request's cap check, the Crew rollup, and
-    # Lago reconciliation all see this charge. Best-effort and after the bytes are
-    # written: a metering failure never undoes a generation that already
-    # succeeded. No-op when unscoped (no tenant to bill).
-    cost.meter_image_spend_sync(
-        workspace_id,
-        brand_slug=brand_slug,
-        backend=result.backend,
-        model=result.model,
-        cost_cents=result.cost_cents,
-        count=len(result.images) or max(1, count),
-    )
+        # AFTER the bytes are written: meter the successful generation per
+        # workspace, mirroring the text path's chat metering. One
+        # agent_spend_event (kind=image) carrying the estimated cost +
+        # model/backend, so the next request's cap check, the Crew rollup, and
+        # Lago reconciliation all see this charge. Best-effort: a metering failure
+        # never undoes a generation that already succeeded. No-op when unscoped.
+        governor.meter(
+            brand_slug=brand_slug,
+            backend=result.backend,
+            model=result.model,
+            cost_cents=result.cost_cents,
+            count=len(result.images) or max(1, count),
+        )
     return outcome
 
 

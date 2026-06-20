@@ -6,7 +6,9 @@
 # restarts the API.
 
 # Build stage
-FROM node:20-alpine AS builder
+# Pinned to an exact Node patch so the build is reproducible.
+# TODO: digest-pin (@sha256) under renovate
+FROM node:20.18.0-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
@@ -16,7 +18,22 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM nginx:alpine AS production
+# Pinned to an exact nginx patch on alpine so a rebuild is reproducible.
+# TODO: digest-pin (@sha256) under renovate
+#
+# TODO: run nginx as non-root via nginxinc/nginx-unprivileged. That image runs
+# as uid 101 and listens on 8080 (an unprivileged port), not 80. Migrating it is
+# a coordinated change that touches files outside this Dockerfile and so is left
+# for a dedicated pass:
+#   1. base image  -> nginxinc/nginx-unprivileged:<pinned>-alpine
+#   2. web/nginx.conf -> `listen 8080;` (the unprivileged image cannot bind 80)
+#   3. this file    -> EXPOSE 8080 and the HEALTHCHECK URL -> :8080
+#   4. compose      -> brand-ops-frontend `expose: "8080"`, the healthcheck URL,
+#                      and the oauth2-proxy OAUTH2_PROXY_UPSTREAMS frontend entry
+#                      http://brand-ops-frontend:80 -> :8080
+# All four must land together; a half-migration (unprivileged image still told to
+# listen on 80) will not start. Until then nginx runs as root in this image.
+FROM nginx:1.27.3-alpine AS production
 COPY --from=builder /app/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 

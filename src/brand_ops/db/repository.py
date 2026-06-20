@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Row, delete, func, select, update
@@ -796,3 +798,163 @@ async def workspace_counts(
         )
     ).scalar_one()
     return int(brand_count), int(asset_count), float(spend_cents)
+
+
+# --- admin: read-only DB export for the portability archive ------------------
+# The export route dumps a tenant's DB-only rows (the data delete_workspace's
+# CASCADE would erase) so an export is the inverse of an offboard. These helpers
+# are READ-ONLY and run UNDER THE WORKSPACE'S OWN SCOPE: the route wraps each in
+# ``scoped_session(workspace_id=...)``, so every workspace-scoped table is filtered
+# to the tenant by row level security, and each query also filters by
+# ``workspace_id`` explicitly (belt-and-suspenders), the same posture as every
+# read above. asset_version is the one table with no workspace_id column and no
+# RLS policy of its own (it cascades from asset), so it is constrained to the
+# tenant by an explicit join onto the workspace's assets rather than read raw.
+
+
+def _row_to_jsonable(obj: Any) -> dict[str, Any]:
+    """A JSON-safe dict for one ORM row: uuids, datetimes, and Decimals to str.
+
+    Walks the mapped columns (so it does not pull in relationships or unloaded
+    attributes) and coerces the types the JSON encoder cannot take natively:
+    uuid and datetime to their ISO/canonical string, Decimal to float (cost
+    columns are Numeric). Everything else passes through. Used only by the export
+    helpers below to render rows into the archive's db/ JSON.
+    """
+    out: dict[str, Any] = {}
+    for column in obj.__table__.columns:
+        value = getattr(obj, column.name)
+        if isinstance(value, uuid.UUID):
+            out[column.name] = str(value)
+        elif isinstance(value, datetime):
+            out[column.name] = value.isoformat()
+        elif isinstance(value, Decimal):
+            out[column.name] = float(value)
+        else:
+            out[column.name] = value
+    return out
+
+
+async def export_workspace_rows(
+    session: AsyncSession, workspace_id: _UUID
+) -> dict[str, list[dict[str, Any]]]:
+    """Every DB row a workspace owns, by table, as JSON-safe dicts. Read-only.
+
+    Returns ``{table_name: [row, ...]}`` for exactly the tables
+    ``delete_workspace`` would CASCADE-erase: brand, asset, asset_version,
+    generation_job, brand_research_run, agent_governance, agent_spend_event, and
+    workspace_member. The route calls this inside
+    ``scoped_session(workspace_id=...)`` so the workspace-scoped tables are
+    revealed only for this tenant under row level security; asset_version (no
+    workspace_id, not RLS-guarded) is scoped by joining onto this workspace's
+    asset ids, so it can never leak another tenant's versions. Stable ordering
+    (created_at / primary key) so two exports of an unchanged workspace produce
+    the same archive. workspace_member is keyed on workspace_id and is included so
+    the membership graph is part of the portability dump.
+    """
+    ws_id = _as_uuid(workspace_id)
+
+    brands = (
+        (
+            await session.execute(
+                select(Brand)
+                .where(Brand.workspace_id == ws_id)
+                .order_by(Brand.slug)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assets = (
+        (
+            await session.execute(
+                select(Asset)
+                .where(Asset.workspace_id == ws_id)
+                .order_by(Asset.created_at, Asset.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # asset_version has no workspace_id and no RLS policy of its own, so it is
+    # scoped to this tenant via an explicit join onto the workspace's assets
+    # (Asset itself is workspace-filtered and RLS-guarded). Without the join a
+    # raw select would return every tenant's versions.
+    versions = (
+        (
+            await session.execute(
+                select(AssetVersion)
+                .join(Asset, Asset.id == AssetVersion.asset_id)
+                .where(Asset.workspace_id == ws_id)
+                .order_by(AssetVersion.asset_id, AssetVersion.version_no)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    jobs = (
+        (
+            await session.execute(
+                select(GenerationJob)
+                .where(GenerationJob.workspace_id == ws_id)
+                .order_by(GenerationJob.created_at, GenerationJob.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    runs = (
+        (
+            await session.execute(
+                select(BrandResearchRun)
+                .where(BrandResearchRun.workspace_id == ws_id)
+                .order_by(BrandResearchRun.created_at, BrandResearchRun.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    governance = (
+        (
+            await session.execute(
+                select(AgentGovernance)
+                .where(AgentGovernance.workspace_id == ws_id)
+                .order_by(AgentGovernance.agent_kind, AgentGovernance.agent_ref)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    spend = (
+        (
+            await session.execute(
+                select(AgentSpendEvent)
+                .where(AgentSpendEvent.workspace_id == ws_id)
+                .order_by(AgentSpendEvent.created_at, AgentSpendEvent.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    members = (
+        (
+            await session.execute(
+                select(WorkspaceMember)
+                .where(WorkspaceMember.workspace_id == ws_id)
+                .order_by(WorkspaceMember.user_key)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    return {
+        "brand": [_row_to_jsonable(r) for r in brands],
+        "asset": [_row_to_jsonable(r) for r in assets],
+        "asset_version": [_row_to_jsonable(r) for r in versions],
+        "generation_job": [_row_to_jsonable(r) for r in jobs],
+        "brand_research_run": [_row_to_jsonable(r) for r in runs],
+        "agent_governance": [_row_to_jsonable(r) for r in governance],
+        "agent_spend_event": [_row_to_jsonable(r) for r in spend],
+        "workspace_member": [_row_to_jsonable(r) for r in members],
+    }

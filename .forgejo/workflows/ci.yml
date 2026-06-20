@@ -44,11 +44,34 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Python advisories (pip-audit)
-        # Report-only so a freshly disclosed CVE surfaces in the logs without
-        # turning the gate red on every new advisory; review and pin as needed.
-        run: uvx pip-audit || true
+        # Fails the build on any known Python advisory. pip-audit exits non-zero
+        # when it finds one, so there is no `|| true`: a new high/critical CVE
+        # turns the gate red and someone has to act on it.
+        #
+        # Accepted-advisory ignore list. To accept a vuln that cannot be fixed
+        # yet (no patched release, or a false positive for how we use the dep),
+        # add a `--ignore-vuln <ID>` line below WITH a comment that records the
+        # advisory id, the reason, and a re-review date. Keep the list short and
+        # revisit it; an unbounded ignore list defeats the gate.
+        run: >
+          uvx pip-audit
+          --strict
+          --desc
+        # Example of an accepted advisory (remove when adding real ones):
+        #   uvx pip-audit --strict --desc \
+        #     --ignore-vuln GHSA-xxxx-xxxx-xxxx  # <pkg>: no fix yet, not on our path; re-review 2026-09
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
       - name: Node advisories (npm audit)
-        run: npm --prefix web audit --omit=dev || true
+        working-directory: web
+        # Fails on high or critical advisories in the production dependency tree.
+        # --audit-level=high makes npm exit non-zero at high+; --omit=dev keeps
+        # build-only tooling out of the runtime risk picture.
+        #
+        # Accepted-advisory mechanism: npm audit has no per-id ignore flag, so to
+        # accept a specific advisory add an `overrides` entry in web/package.json
+        # that forces a patched (or known-safe) version, WITH a comment recording
+        # the advisory id and reason. Do not blanket-raise --audit-level to mute
+        # findings.
+        run: npm audit --omit=dev --audit-level=high

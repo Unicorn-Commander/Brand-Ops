@@ -19,10 +19,15 @@
 # external mount. Generated/imported outputs written at runtime live in the
 # container's brand-kits tree; mount a volume there to persist them, and mirror
 # to the brand-ops-assets Garage bucket via the GARAGE_S3_* env for durability.
-FROM python:3.12-slim AS base
+# Base image pinned to an exact patch version so a rebuild is reproducible and a
+# new base does not silently change the runtime.
+# TODO: digest-pin (@sha256) under renovate
+FROM python:3.12.7-slim AS base
 
 # uv: a single static binary copied from the official image. No pip bootstrap.
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+# Pinned to an exact uv release rather than the floating latest tag.
+# TODO: digest-pin (@sha256) under renovate
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /uvx /usr/local/bin/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -31,6 +36,15 @@ ENV PYTHONUNBUFFERED=1 \
     UV_PROJECT_ENVIRONMENT=/usr/local
 
 WORKDIR /app
+
+# Non-root runtime user. Created up front so the chown below can assign it the
+# app tree and the venv. The container does not need a login shell.
+RUN groupadd --system --gid 10001 appuser \
+    && useradd --system --uid 10001 --gid appuser --home-dir /app --no-create-home appuser \
+    # The live brand-kits volume mounts here (DEFAULT_KITS_DIR = /app/brand-kits).
+    # Create it now and hand it to appuser so seed_kits can write the seed copy
+    # and the API can read and write generated assets when a volume is mounted.
+    && mkdir -p /app/brand-kits
 
 # Install dependencies first against just the manifest, so the layer caches
 # across source-only changes. --no-install-project installs deps but not the
@@ -50,6 +64,16 @@ COPY alembic.ini ./
 # copy-if-missing on boot so generated assets + agent identities survive rebuilds.
 COPY brand-kits ./brand-kits-seed
 RUN uv sync --frozen --no-dev --extra backends
+
+# Hand the app tree and the venv to the non-root user. The venv is /usr/local
+# (UV_PROJECT_ENVIRONMENT), so appuser must own it to import packages, read the
+# bytecode written under UV_COMPILE_BYTECODE, and exec uvicorn. /app covers the
+# source, alembic, the brand-kits seed, and the brand-kits mount path.
+RUN chown -R appuser:appuser /app /usr/local
+
+# Drop to the non-root user for the runtime. Everything above (package install,
+# bytecode compile, seed copy) ran as root and is now owned by appuser.
+USER appuser
 
 EXPOSE 8000
 

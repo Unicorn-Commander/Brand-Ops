@@ -215,6 +215,41 @@ class _FakeBackend:
         )
 
 
+class _FakeGovernor:
+    """Stand-in for cost._ImageGovernor that records enforce/meter on one object.
+
+    The engine now wraps the cap read and the meter write in the
+    ``cost.image_governance`` context manager (one event loop for the pair); these
+    tests spy on it instead of the per-half ``_sync`` bridges. ``enforce`` and
+    ``meter`` delegate to caller-supplied callbacks so each test asserts ordering,
+    the forwarded workspace id, and the metered kwargs exactly as before.
+    """
+
+    def __init__(self, workspace_id, on_enforce, on_meter):
+        self._ws = workspace_id
+        self._on_enforce = on_enforce
+        self._on_meter = on_meter
+
+    def enforce(self) -> None:
+        self._on_enforce(self._ws)
+
+    def meter(self, **kw) -> None:
+        self._on_meter(self._ws, **kw)
+
+
+def _patch_governor(monkeypatch, on_enforce, on_meter) -> None:
+    """Point engine.cost.image_governance at a _FakeGovernor for one test."""
+    import contextlib
+
+    @contextlib.contextmanager
+    def _fake(workspace_id):
+        yield _FakeGovernor(workspace_id, on_enforce, on_meter)
+
+    from brand_ops import engine
+
+    monkeypatch.setattr(engine.cost, "image_governance", _fake)
+
+
 def _engine_settings():
     from brand_ops.config import Settings
 
@@ -268,8 +303,7 @@ def test_engine_enforces_before_and_meters_after(
         seen["meter_ws"] = ws
         seen["meter_kw"] = kw
 
-    monkeypatch.setattr(engine.cost, "enforce_image_quota_sync", _enforce)
-    monkeypatch.setattr(engine.cost, "meter_image_spend_sync", _meter)
+    _patch_governor(monkeypatch, _enforce, _meter)
 
     token = brand_loader.set_workspace_scope("ws-123", frozenset({"magic-unicorn"}))
     try:
@@ -310,10 +344,7 @@ def test_engine_quota_denial_stops_before_the_backend(
     def _deny(ws: str | None) -> None:
         raise QuotaExceeded("over budget")
 
-    monkeypatch.setattr(engine.cost, "enforce_image_quota_sync", _deny)
-    monkeypatch.setattr(
-        engine.cost, "meter_image_spend_sync", lambda *a, **k: metered.append(1)
-    )
+    _patch_governor(monkeypatch, _deny, lambda *a, **k: metered.append(1))
 
     token = brand_loader.set_workspace_scope("ws-123", frozenset({"magic-unicorn"}))
     try:
@@ -339,11 +370,10 @@ def test_engine_dry_run_neither_enforces_nor_meters(
     from brand_ops import brand_loader, engine
 
     touched: list[str] = []
-    monkeypatch.setattr(
-        engine.cost, "enforce_image_quota_sync", lambda ws: touched.append("enforce")
-    )
-    monkeypatch.setattr(
-        engine.cost, "meter_image_spend_sync", lambda *a, **k: touched.append("meter")
+    _patch_governor(
+        monkeypatch,
+        lambda ws: touched.append("enforce"),
+        lambda *a, **k: touched.append("meter"),
     )
 
     token = brand_loader.set_workspace_scope("ws-123", frozenset({"magic-unicorn"}))

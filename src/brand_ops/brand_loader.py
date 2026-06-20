@@ -204,17 +204,66 @@ def list_brands(kits_dir: Path | None = None) -> list[str]:
     return [s for s in slugs if s in allowed]
 
 
-def _read_yaml(slug: str, kits_dir: Path) -> dict:
+def _brand_yaml_path(slug: str, kits_dir: Path) -> Path:
     # Validate before the path is built: this is the chokepoint both load_brand
     # and the parent-merge recursion call, so confining the slug here confines
     # every brand read in the package against traversal.
     _validate_slug(slug)
-    path = kits_dir / slug / "brand.yaml"
+    return kits_dir / slug / "brand.yaml"
+
+
+def _read_yaml(slug: str, kits_dir: Path) -> dict:
+    path = _brand_yaml_path(slug, kits_dir)
     if not path.exists():
         available = ", ".join(list_brands(kits_dir)) or "(none)"
         raise BrandNotFound(f"brand {slug!r} not found. Available: {available}")
     with path.open() as fh:
         return yaml.safe_load(fh) or {}
+
+
+# ---------------------------------------------------------------------------
+# Parsed-brand cache (mtime-keyed)
+# ---------------------------------------------------------------------------
+#
+# ``load_brand`` is on every list and director turn, and re-parsed brand.yaml
+# from disk each time. The parse (YAML load + Pydantic validation + the
+# parent merge) is pure given the file bytes, so we memoize the validated
+# ``Brand`` keyed on the RESOLVED brand.yaml path string plus its
+# ``st_mtime_ns``. An edit changes the mtime and so misses the cache naturally;
+# two workspaces holding the same slug resolve to different absolute paths and
+# so never collide. A sub-brand's key also folds in its parent file's
+# path+mtime, so editing either the child or the parent invalidates the merged
+# result. The tenant allow-list gate in ``load_brand`` still runs on every call
+# (only the parse is cached), and an unscoped caller is unaffected. The cache is
+# unbounded but a deploy holds a bounded set of brands; ``clear_brand_cache``
+# exists for an explicit reset (tests, or a future in-process writer).
+_brand_cache: dict[tuple, Brand] = {}
+
+
+def clear_brand_cache() -> None:
+    """Drop every memoized parsed Brand.
+
+    ``load_brand`` already invalidates per file via ``st_mtime_ns``, so this is
+    only needed for a hard reset: a test that mutates a brand.yaml in place and
+    wants the parser re-run regardless of timestamp granularity, or a future
+    in-process writer in this module. The on-disk writers (clone, intake, admin)
+    live in other modules and rely on the mtime key, not this hook.
+    """
+    _brand_cache.clear()
+
+
+def _mtime_key(path: Path) -> tuple[str, int] | None:
+    """``(resolved_path_str, st_mtime_ns)`` for a brand.yaml, or None if absent.
+
+    None when the file does not exist (or is unstattable), which makes the
+    caller fall through to the uncached read path that raises ``BrandNotFound``
+    with the available-brands hint, preserving the original error exactly.
+    """
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (str(path), st.st_mtime_ns)
 
 
 def _merge(parent: dict, child: dict) -> dict:
@@ -237,17 +286,44 @@ def load_brand(slug: str, kits_dir: Path | None = None) -> Brand:
     # Tenant guard first: a brand outside the request's workspace allow-list
     # reads as "no such brand" (404, never a 403 leak), and we never even parse
     # another tenant's file. Unscoped (allowed is None: CLI / stdio MCP / tests)
-    # this never fires.
+    # this never fires. The gate runs on every call; only the parse below is
+    # cached.
     allowed = get_allowed_brands()
     if allowed is not None and slug not in allowed:
         raise BrandNotFound(f"brand {slug!r} not found")
     root = kits_dir or current_kits_dir()
+
+    # Cache fast path: when the brand.yaml is unchanged since we last parsed it
+    # (same resolved path + st_mtime_ns), return the memoized Brand. A sub-brand
+    # also stores its parent's path+mtime; a hit re-stats only the parent to
+    # confirm the merge inputs are still current. Any miss (file changed, parent
+    # changed, never seen, or unstattable) falls through to the full parse.
+    child_path = _brand_yaml_path(slug, root)
+    child_key = _mtime_key(child_path)
+    if child_key is not None:
+        cached = _brand_cache.get(child_key)
+        if cached is not None:
+            parent_key, brand_obj = cached
+            if parent_key is None or _mtime_key(Path(parent_key[0])) == parent_key:
+                return brand_obj
+
     raw = _read_yaml(slug, root)
     parent_slug = (raw.get("brand") or {}).get("parent")
+    parent_key = None
     if parent_slug:
         parent_raw = _read_yaml(parent_slug, root)
         raw = _merge(parent_raw, raw)
-    return Brand.model_validate(raw)
+        parent_key = _mtime_key(_brand_yaml_path(parent_slug, root))
+    brand_obj = Brand.model_validate(raw)
+
+    # Store only when we have a stable child key. ``child_key`` is re-read here
+    # rather than reused so the cached mtime matches the bytes we just parsed,
+    # closing the narrow window where the file changed between the stat above
+    # and the read.
+    child_key = _mtime_key(child_path)
+    if child_key is not None:
+        _brand_cache[child_key] = (parent_key, brand_obj)
+    return brand_obj
 
 
 def resolve_reference_images(

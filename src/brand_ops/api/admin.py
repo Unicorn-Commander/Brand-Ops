@@ -6,8 +6,14 @@ needs an env allow-list edit and a redeploy), granting and revoking membership,
 offboarding a tenant (delete its DB rows via the FK CASCADE plus purge its
 on-disk brand-kits subtree), exporting a tenant's data as a zip, and a
 cross-tenant usage view. Every route here is gated by :func:`require_admin`, on
-top of the normal authenticated principal, and every action is audited to a
-dedicated logger.
+top of the normal authenticated principal, and every action is audited twice:
+once to a dedicated stdout logger (ephemeral, for log aggregation) and once to
+the tamper-evident, append-only ``brand_ops.admin_audit`` log (durable, hash
+chained, stored OUTSIDE any tenant subtree so the record of an offboard survives
+the offboard). The refused (DENIED) path is recorded too. The offboarding route
+writes an erasure TOMBSTONE into that durable log before it deletes, so a proof
+the tenant existed and was erased outlives the deletion of all the tenant's own
+data.
 
 Authorization is a closed allow-list. ``BRAND_OPS_ADMIN_SUBS`` is a
 comma-separated list of uc_uid subjects (the same spirit as the membership
@@ -39,7 +45,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 
-from .. import admin_ops
+from .. import activity, admin_audit, admin_ops
+from ..brand_loader import DEFAULT_KITS_DIR
 from ..db import repository as repo
 from ..db.base import get_sessionmaker, scoped_session
 from ..db.tenancy import coerce_uuid
@@ -91,6 +98,17 @@ def require_admin(
             principal.uc_uid,
             principal.issuer,
             principal.anonymous,
+        )
+        # Record the refused attempt durably too: a rejected privileged request is
+        # itself a security event, and the tamper-evident log is where it belongs.
+        # No workspace is known at the gate, so workspace_id is null; the summary
+        # carries only the (non-secret) issuer and anonymous flag.
+        admin_audit.append_admin_event(
+            principal.uc_uid,
+            "admin_access",
+            None,
+            {"issuer": principal.issuer, "anonymous": principal.anonymous},
+            result="denied",
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="admin access required"
@@ -180,6 +198,25 @@ class DeleteWorkspaceResult(BaseModel):
     files_removed: int = 0
 
 
+class ChainVerifyResult(BaseModel):
+    """The tamper-evident chain report for one workspace's activity feed.
+
+    Mirrors ``activity.verify_chain``'s report shape: ``ok`` is the whole-chain
+    verdict, ``chained``/``legacy``/``total`` are line counts, and
+    ``chain_start``/``break_at``/``reason`` locate the first break (all null when
+    intact). ``workspace_id`` echoes the path id the report is for.
+    """
+
+    workspace_id: str
+    ok: bool
+    chained: int
+    legacy: int
+    total: int
+    chain_start: int | None = None
+    break_at: int | None = None
+    reason: str | None = None
+
+
 class UsageRow(BaseModel):
     workspace_id: str
     slug: str
@@ -221,6 +258,9 @@ async def create_workspace(body: CreateWorkspaceRequest, admin: _Admin) -> Works
         _log.error("admin create_workspace failed: %s", exc.__class__.__name__)
         raise HTTPException(status_code=502, detail="database error") from None
     _audit.info("admin %s created/updated workspace %s (slug=%s)", admin.uc_uid, ws_id, slug)
+    admin_audit.append_admin_event(
+        admin.uc_uid, "create_workspace", ws_id, {"slug": slug}
+    )
     return WorkspaceOut(workspace_id=str(ws.id), slug=ws.slug)
 
 
@@ -263,6 +303,12 @@ async def grant_member(
         member_uid,
         member.role,
         ws_id,
+    )
+    admin_audit.append_admin_event(
+        admin.uc_uid,
+        "grant_member",
+        ws_id,
+        {"member": member_uid, "role": member.role, "is_default": member.is_default},
     )
     return MemberOut(
         workspace_id=str(member.workspace_id),
@@ -311,6 +357,12 @@ async def revoke_member(workspace_id: str, uc_uid: str, admin: _Admin) -> Revoke
         ws_id,
         revoked,
     )
+    admin_audit.append_admin_event(
+        admin.uc_uid,
+        "revoke_member",
+        ws_id,
+        {"member": target, "revoked": revoked},
+    )
     return RevokeResult(workspace_id=ws_id, uc_uid=target, revoked=revoked)
 
 
@@ -339,6 +391,12 @@ async def delete_workspace(
     returns a 200 with both removed flags false rather than a 404, so a retried or
     duplicated offboard is safe. The on-disk purge runs even when the DB row was
     already absent, so a half-finished prior offboard is completed.
+
+    An erasure TOMBSTONE is written to the durable, tamper-evident admin-audit log
+    (which lives OUTSIDE this tenant's subtree) BEFORE the destructive steps, so a
+    record that this workspace existed and was deleted survives even if a later
+    step fails partway, and survives the purge of all the tenant's own data. The
+    completed action is then recorded as an ordinary audit event.
     """
     _require_db()
     ws_id = _valid_ws_id(workspace_id)
@@ -347,6 +405,32 @@ async def delete_workspace(
             status_code=422,
             detail="confirm_workspace_id must equal the workspace id in the path",
         )
+
+    # Read the pre-delete footprint (on-disk brands/files) and the slug while the
+    # tenant still exists, so the tombstone records what was there before erasure.
+    # Both are best effort: a missing subtree is a zero summary, a DB hiccup just
+    # leaves the slug null. Neither read changes anything.
+    pre_summary = admin_ops.workspace_disk_summary(ws_id)
+    slug: str | None = None
+    try:
+        sm = get_sessionmaker()
+        async with sm() as session, session.begin():
+            ws = await repo.get_workspace(session, ws_id)
+            slug = ws.slug if ws is not None else None
+    except SQLAlchemyError as exc:
+        _log.info("delete_workspace slug lookup skipped: %s", exc.__class__.__name__)
+
+    # The TOMBSTONE goes down FIRST, before anything destructive, so the durable
+    # proof of this offboard is recorded even if the delete or purge fails midway.
+    admin_audit.write_tombstone(
+        ws_id,
+        slug,
+        admin.uc_uid,
+        {
+            "disk_brands": pre_summary["brands"],
+            "disk_file_count": pre_summary["file_count"],
+        },
+    )
 
     try:
         sm = get_sessionmaker()
@@ -373,6 +457,17 @@ async def delete_workspace(
         purge["brands"],
         purge["file_count"],
     )
+    admin_audit.append_admin_event(
+        admin.uc_uid,
+        "delete_workspace",
+        ws_id,
+        {
+            "slug": slug,
+            "db_row_deleted": db_deleted,
+            "disk_removed": purge["removed"],
+            "files_removed": int(purge["file_count"]),
+        },
+    )
     return DeleteWorkspaceResult(
         workspace_id=ws_id,
         db_row_deleted=db_deleted,
@@ -389,39 +484,62 @@ async def delete_workspace(
 
 @admin_router.get("/workspaces/{workspace_id}/export")
 async def export_workspace(workspace_id: str, admin: _Admin) -> StreamingResponse:
-    """Stream a zip of a workspace's on-disk data plus a manifest.
+    """Stream a zip of a workspace's full data (on-disk + DB) plus a manifest.
 
     The archive holds ``manifest.json`` (workspace id, slug, brand list, brand and
-    file counts, an ``exported_at`` stamp) at its top, then every file under
-    ``brand-kits/<workspace_id>/`` (brand.yaml, asset sidecars, and the
-    generated/ and imported/ trees) under its workspace-relative path. The slug is
-    looked up from the DB when available (best effort: a DB hiccup just leaves the
-    manifest slug null). A workspace with no files still produces a valid zip with
-    just the manifest, so an export never 500s. The temp zip is removed after the
-    response is fully streamed.
+    file counts, per-table DB row counts, an ``exported_at`` stamp) at its top,
+    then every file under ``brand-kits/<workspace_id>/`` (brand.yaml, asset
+    sidecars, and the generated/ and imported/ trees) under its workspace-relative
+    path, then one ``db/<table>.json`` per table holding the tenant's DB-only rows.
+    Those DB rows are exactly the data ``delete_workspace`` would CASCADE-erase, so
+    the export is the inverse of an offboard rather than an on-disk-only snapshot.
+
+    The slug and the DB rows are read best effort: the slug from the (non-RLS)
+    workspace anchor, the rows UNDER THE WORKSPACE'S OWN SCOPE
+    (``scoped_session(workspace_id=...)``) so row level security reveals only this
+    tenant's data. A DB hiccup, or no ``DATABASE_URL`` at all, leaves the slug null
+    and the DB dump empty and the export degrades to the on-disk subtree alone, so
+    it never 500s. A workspace with no files and no rows still produces a valid zip
+    with just the manifest. The temp zip is removed after the response is fully
+    streamed.
     """
     ws_id = _valid_ws_id(workspace_id)
 
-    # Best-effort slug lookup for the manifest. The workspace anchor is not
-    # RLS-guarded, so no GUC is needed; a DB problem is non-fatal (slug stays
-    # null) because the export is fundamentally an on-disk operation.
+    # Best-effort slug + DB-row read. The workspace anchor slug needs no GUC (the
+    # anchor table is not RLS-guarded); the per-table row dump DOES, so it runs in
+    # its own transaction scoped to this workspace, where row level security
+    # reveals exactly this tenant's rows. A DB problem is non-fatal: the export is
+    # still produced from the on-disk subtree (slug null, db_rows None).
     slug: str | None = None
+    db_rows: dict[str, list[dict]] | None = None
     if os.getenv("DATABASE_URL", "").strip():
         try:
             sm = get_sessionmaker()
-            async with sm() as session, session.begin():
-                ws = await repo.get_workspace(session, ws_id)
-                slug = ws.slug if ws is not None else None
+            async with sm() as session:
+                async with session.begin():
+                    ws = await repo.get_workspace(session, ws_id)
+                    slug = ws.slug if ws is not None else None
+                # Read the DB-only rows under this tenant's RLS scope so the dump
+                # cannot include another workspace's rows.
+                async with scoped_session(session, workspace_id=ws_id):
+                    db_rows = await repo.export_workspace_rows(session, ws_id)
         except SQLAlchemyError as exc:
-            _log.info("export slug lookup skipped: %s", exc.__class__.__name__)
+            _log.info("export DB read skipped: %s", exc.__class__.__name__)
 
     try:
-        zip_path = admin_ops.build_export_zip(ws_id, slug=slug)
+        zip_path = admin_ops.build_export_zip(ws_id, slug=slug, db_rows=db_rows)
     except OSError as exc:
         _log.error("admin export build failed: %s", exc.__class__.__name__)
         raise HTTPException(status_code=500, detail="export build failed") from None
 
+    db_row_total = sum(len(v) for v in (db_rows or {}).values())
     _audit.info("admin %s exported workspace %s (slug=%s)", admin.uc_uid, ws_id, slug)
+    admin_audit.append_admin_event(
+        admin.uc_uid,
+        "export_workspace",
+        ws_id,
+        {"slug": slug, "db_row_total": db_row_total},
+    )
     filename = f"brand-ops-{slug or ws_id}.zip"
     # iter_and_cleanup unlinks the temp file in its finally, so the zip is gone
     # once the body is sent (or the client disconnects mid-stream).
@@ -430,6 +548,50 @@ async def export_workspace(workspace_id: str, admin: _Admin) -> StreamingRespons
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Audit chain verification (gives activity.verify_chain its first caller)
+# ---------------------------------------------------------------------------
+
+
+@admin_router.get(
+    "/workspaces/{workspace_id}/audit/verify", response_model=ChainVerifyResult
+)
+async def verify_workspace_audit(workspace_id: str, admin: _Admin) -> ChainVerifyResult:
+    """Verify the tamper-evident hash chain over one workspace's activity feed.
+
+    Runs ``activity.verify_chain`` against the target workspace's per-tenant
+    feed and returns its report, so an operator can confirm the provenance log of
+    a specific tenant has not been edited, truncated, or reordered. The admin
+    router carries the ADMIN's own request scope, not the target tenant's, so this
+    points ``verify_chain`` directly at the target's feed by passing
+    ``kits_dir = DEFAULT_KITS_DIR / <workspace_id>`` (the same per-workspace root
+    ``brand_loader.current_kits_dir`` resolves for a scoped request), rather than
+    reading whatever feed the admin's own scope happens to select. The workspace
+    id is validated to a canonical uuid first (422 on a malformed id), which also
+    keeps it a single safe path segment. A workspace with no feed yet verifies as
+    a vacuously intact chain. This is purely a read; the verification attempt is
+    recorded to the durable admin-audit log.
+    """
+    ws_id = _valid_ws_id(workspace_id)
+    # Point the verifier at THIS workspace's feed explicitly. ws_id is a canonical
+    # uuid (validated above), so it is one safe path segment under the kits root.
+    report = activity.verify_chain(kits_dir=DEFAULT_KITS_DIR / ws_id)
+    _audit.info(
+        "admin %s verified activity chain for workspace %s (ok=%s, break_at=%s)",
+        admin.uc_uid,
+        ws_id,
+        report["ok"],
+        report["break_at"],
+    )
+    admin_audit.append_admin_event(
+        admin.uc_uid,
+        "verify_audit_chain",
+        ws_id,
+        {"ok": report["ok"], "break_at": report["break_at"]},
+    )
+    return ChainVerifyResult(workspace_id=ws_id, **report)
 
 
 # ---------------------------------------------------------------------------

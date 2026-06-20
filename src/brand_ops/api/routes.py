@@ -9,6 +9,7 @@ becomes a clean 422, never a 500.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -698,15 +699,37 @@ def compliance_check(body: ComplianceCheckRequest, _: _Auth) -> ComplianceResult
     return ComplianceResult.model_validate(result)
 
 
+def _asset_verdict(slug: str, record, rules: dict) -> tuple[str, int, list[str]]:
+    """The (status, score, violations) for one catalog asset.
+
+    Prefers the verdict already stamped into the asset's sidecar (the
+    ``{status, score, violations}`` summary ``stamp_compliance`` wrote at
+    creation time, surfaced by ``read_assets`` as ``record.compliance``), so the
+    brand rollup does not re-decode an image whose verdict is already on disk.
+    Only an asset with no stamp (a kit made before the lifecycle gate, or one
+    that degraded to a null stamp) is re-checked the original way with
+    ``check_asset``. The deterministic engine makes the stamp and a fresh check
+    identical for unchanged bytes, so this is a pure cache, not a behavior
+    change.
+    """
+    stamp = record.compliance
+    if stamp is not None and isinstance(stamp.status, str) and stamp.status:
+        return stamp.status, int(stamp.score), list(stamp.violations)
+    result = check_asset(slug, record.file, record.asset_type, record.kind, rules)
+    return result["status"], int(result["score"]), list(result["violations"])
+
+
 def compute_brand_compliance(slug: str) -> BrandComplianceRollup:
     """Score every catalog asset of a brand and roll the verdicts into a summary.
 
     The shared core of GET /brands/{slug}/compliance, callable from the MCP server
     so the agent path and the HTTP path run the exact same deterministic engine
     (``build_rules`` + ``check_asset`` over the same ``read_assets`` catalog) with
-    the same workspace scoping, and can never drift. Raises ``BrandNotFound`` /
-    ``ValueError`` for an unknown or malformed brand, which each caller maps to
-    its own error shape.
+    the same workspace scoping, and can never drift. Reads each asset's
+    already-stamped verdict from its sidecar and only re-checks an asset whose
+    stamp is missing, so a brand-wide rollup does not re-decode every image on
+    every request. Raises ``BrandNotFound`` / ``ValueError`` for an unknown or
+    malformed brand, which each caller maps to its own error shape.
     """
     brand = load_brand(slug)
     rules = build_rules(brand)
@@ -716,23 +739,22 @@ def compute_brand_compliance(slug: str) -> BrandComplianceRollup:
     scores: list[int] = []
 
     for record in read_assets(brand=slug):
-        result = check_asset(
-            slug, record.file, record.asset_type, record.kind, rules
+        result_status, result_score, result_violations = _asset_verdict(
+            slug, record, rules
         )
-        result_status = result["status"]
         counts[result_status] = counts.get(result_status, 0) + 1
         # A skipped asset (e.g. an SVG) carries no meaningful score; leave it out
         # of the average so vectors don't drag the brand's number down.
         if result_status != "skipped":
-            scores.append(int(result["score"]))
+            scores.append(result_score)
         rows.append(
             ComplianceAssetRow(
                 file=record.file,
                 asset_type=record.asset_type,
                 kind=record.kind,
                 status=result_status,
-                score=int(result["score"]),
-                violations=list(result["violations"]),
+                score=result_score,
+                violations=result_violations,
             )
         )
 
@@ -1504,9 +1526,11 @@ async def run_director_chat(
         result = _fulfill_agent_intent(result)
     # When Iris classified the turn as a compliance CHECK, run the deterministic
     # gate here and rewrite the reply with the verdict. Degrades to chat inside
-    # the helper.
+    # the helper. The catalog rollup is blocking (file reads, and an image decode
+    # for any asset whose verdict is not already stamped), so it runs in a worker
+    # thread to keep the request loop free for concurrent turns in this worker.
     elif result.get("intent") == "compliance":
-        result = _fulfill_compliance_intent(result)
+        result = await asyncio.to_thread(_fulfill_compliance_intent, result)
 
     # Record what Iris did on the provenance feed. Best-effort: a feed failure
     # never changes the reply.
@@ -1679,12 +1703,12 @@ def _fulfill_compliance_intent(result: dict[str, Any]) -> dict[str, Any]:
             counts = {"pass": 0, "warn": 0, "fail": 0, "skipped": 0}
             scores: list[int] = []
             for record in read_assets(brand=brand):
-                checked = check_asset(
-                    brand, record.file, record.asset_type, record.kind, rules
+                checked_status, checked_score, _ = _asset_verdict(
+                    brand, record, rules
                 )
-                counts[checked["status"]] = counts.get(checked["status"], 0) + 1
-                if checked["status"] != "skipped":
-                    scores.append(int(checked["score"]))
+                counts[checked_status] = counts.get(checked_status, 0) + 1
+                if checked_status != "skipped":
+                    scores.append(checked_score)
             avg = round(sum(scores) / len(scores)) if scores else 0
             status = "fail" if counts["fail"] else ("warn" if counts["warn"] else "pass")
             verdict = {

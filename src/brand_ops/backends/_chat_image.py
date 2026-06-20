@@ -20,7 +20,11 @@ in as a callable so the gate stays in the backend.
 from __future__ import annotations
 
 import base64
+import random
+import time
 from pathlib import Path
+
+import httpx
 
 from .base import BackendError, GenRequest
 
@@ -185,3 +189,102 @@ def usage_cost_cents(data: dict) -> float | None:
     if isinstance(cost, (int, float)):
         return round(float(cost) * 100, 4)
     return None
+
+
+# --- bounded retry around upstream POSTs --------------------------------------
+#
+# A single transient upstream blip (a 429 burst or a brief 5xx / connect timeout)
+# should not hard-fail a user-facing generation. post_with_retry adds a small,
+# bounded retry with exponential backoff and jitter around one POST. Permanent
+# failures (other 4xx, or a still-failing response after the last attempt) are
+# returned to the caller unchanged, so each backend keeps raising BackendError
+# exactly as before.
+
+# At most three POSTs total per generation call.
+_MAX_ATTEMPTS = 3
+# Statuses worth retrying: rate limit and the transient gateway/server 5xx set.
+# Other 4xx (400, 401, 403, ...) are permanent and never retried.
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+# Base backoff in seconds; attempt N waits roughly _BASE_DELAY_S * 2**(N-1) plus
+# jitter. Small by default so production recovers fast; tests set it to 0 (and/or
+# patch _SLEEP) so the retry path runs without real waiting.
+_BASE_DELAY_S = 0.5
+# Never honor a Retry-After larger than this; a hostile or buggy upstream could
+# otherwise pin us near the request timeout.
+_MAX_RETRY_AFTER_S = 30.0
+# Indirection so a test can patch the sleep to a no-op and stay fast.
+_SLEEP = time.sleep
+
+
+def _retry_after_seconds(response: httpx.Response) -> float | None:
+    """Parse a Retry-After header (delta-seconds only), capped, else None.
+
+    Only the integer delta-seconds form is honored; the HTTP-date form is rare
+    here and is treated as absent so a malformed value never blocks the backoff.
+    """
+    raw = response.headers.get("retry-after")
+    if not raw:
+        return None
+    try:
+        secs = float(raw.strip())
+    except ValueError:
+        return None
+    if secs < 0:
+        return None
+    return min(secs, _MAX_RETRY_AFTER_S)
+
+
+def _backoff_delay(attempt: int, response: httpx.Response | None) -> float:
+    """Seconds to wait before the next attempt (1-indexed current attempt).
+
+    Honors a server Retry-After when present, else exponential backoff with a
+    half-window of deterministic jitter (seeded by attempt) to spread retries.
+    """
+    if response is not None:
+        hinted = _retry_after_seconds(response)
+        if hinted is not None:
+            return hinted
+    base = _BASE_DELAY_S * (2 ** (attempt - 1))
+    # Deterministic, attempt-seeded jitter keeps tests stable while still
+    # de-synchronizing concurrent callers in production.
+    jitter = random.Random(attempt).uniform(0.0, base * 0.5)
+    return base + jitter
+
+
+def post_with_retry(client: httpx.Client, url: str, *, json: dict, deadline: float):
+    """POST with a bounded retry on transient failures; return the response.
+
+    Retries up to ``_MAX_ATTEMPTS`` total on httpx connect/timeout errors and on
+    the ``_RETRY_STATUSES`` set, with exponential backoff, jitter, and Retry-After
+    support. ``deadline`` is a ``time.monotonic`` instant past which no further
+    sleep or attempt is started, so the whole loop stays under the caller's
+    timeout. A non-retryable response (e.g. 400) is returned on the first try, and
+    a still-failing response after the last attempt is returned as-is so the
+    caller raises BackendError exactly as today. The transient connect/timeout
+    error from the final attempt is re-raised for the caller's existing handler.
+    """
+    last_exc: httpx.TransportError | None = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        response: httpx.Response | None = None
+        try:
+            response = client.post(url, json=json)
+        except httpx.TransportError as exc:
+            # Connect errors and timeouts are transient; remember and maybe retry.
+            last_exc = exc
+        else:
+            if response.status_code not in _RETRY_STATUSES:
+                return response
+
+        if attempt == _MAX_ATTEMPTS:
+            break
+        delay = _backoff_delay(attempt, response)
+        # Do not sleep (or start another attempt) past the caller's deadline.
+        if time.monotonic() + delay >= deadline:
+            break
+        _SLEEP(delay)
+
+    if response is not None:
+        # A retryable status that never cleared; let the caller raise as today.
+        return response
+    # Only transient transport errors were seen; re-raise the last one.
+    raise last_exc

@@ -19,6 +19,13 @@ services:
     image: brand-ops:latest
     container_name: brand-ops
     restart: unless-stopped
+    # Runtime hardening. The image runs as a non-root user (see Dockerfile); these
+    # stop a process from regaining privilege and strip every Linux capability the
+    # API does not use. Not read_only: the backend writes the brand-kits volume.
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
     env_file:
       - .env
     environment:

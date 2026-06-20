@@ -8,6 +8,15 @@ outside the kits root, so neither can ever touch another tenant's files (defense
 in depth beneath the route's admin gate). The path-guard and the rmtree/copy
 shape follow ``migrate_storage`` and the ``brand_loader`` read boundary.
 
+The export is the inverse of an offboard, so it covers BOTH halves of what
+``delete_workspace`` erases: the on-disk subtree AND the DB-only rows. This
+module owns only the filesystem half; the route (which holds the DB session)
+reads the tenant's rows under its own row level security and hands them in as a
+plain ``db_rows`` mapping, which the archive writes under a ``db/`` subtree (one
+JSON file per table) with the per-table row counts recorded in the manifest. That
+keeps this module free of any DB session coupling: it never opens a connection,
+it just serializes a mapping the caller already produced.
+
 These never read or set the request-scoped brand_loader scope: they take an
 explicit workspace id and resolve the on-disk root from it, so they are safe to
 call from the admin path regardless of which workspace (if any) the request is
@@ -29,6 +38,12 @@ from .brand_loader import DEFAULT_KITS_DIR
 # The zip member prefix and the manifest filename. The manifest is written at the
 # top of the archive so a consumer can read it first without scanning the tree.
 _MANIFEST_NAME = "manifest.json"
+
+# The archive subtree for the DB-only export: one ``db/<table>.json`` member per
+# table, holding the tenant's rows for the tables delete_workspace would CASCADE.
+# Kept under its own prefix so it never collides with a brand named "db" on disk
+# (a brand subtree is stored at the archive root, this is one level in under db/).
+_DB_PREFIX = "db"
 
 
 def _kits_root() -> Path:
@@ -135,7 +150,11 @@ def purge_workspace_tree(
 
 
 def build_manifest(
-    workspace_id: str, *, slug: str | None = None, root: Path | None = None
+    workspace_id: str,
+    *,
+    slug: str | None = None,
+    root: Path | None = None,
+    db_rows: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """The export manifest for a workspace: id, slug, brands, counts, placeholder.
 
@@ -143,15 +162,22 @@ def build_manifest(
     same inputs always yield the same manifest; the route may stamp the real wall
     time onto the response. ``slug`` is the workspace slug when the caller knows
     it (from the DB), else null. Brand and file counts come from the on-disk
-    subtree.
+    subtree. ``db_rows`` (the route's per-table dump, table name to list of rows)
+    contributes a ``db_row_counts`` map of table name to row count and a
+    ``db_row_total``, so the manifest records exactly how much DB-only data the
+    archive carries; omitted (no DB configured) leaves both at their empty
+    defaults rather than inventing counts.
     """
     summary = workspace_disk_summary(workspace_id, root=root)
+    db_counts = {table: len(rows) for table, rows in (db_rows or {}).items()}
     return {
         "workspace_id": str(uuid.UUID(str(workspace_id))),
         "slug": slug,
         "brands": summary["brands"],
         "brand_count": len(summary["brands"]),
         "file_count": summary["file_count"],
+        "db_row_counts": db_counts,
+        "db_row_total": sum(db_counts.values()),
         "exported_at": None,
     }
 
@@ -161,20 +187,26 @@ def build_export_zip(
     *,
     slug: str | None = None,
     root: Path | None = None,
+    db_rows: dict[str, list[dict[str, Any]]] | None = None,
 ) -> Path:
-    """Write a zip of a workspace's subtree (+ manifest) to a temp file; return it.
+    """Write a zip of a workspace's subtree (+ manifest + DB dump); return it.
 
-    The archive contains ``manifest.json`` at its top plus every file under
+    The archive contains ``manifest.json`` at its top, then every file under
     ``brand-kits/<workspace_id>/`` (brand.yaml, asset sidecars, generated/ and
-    imported/ trees), each stored under its path relative to the workspace dir so
-    the archive root mirrors a single workspace. An empty or absent subtree still
-    yields a valid zip carrying just the manifest, so an export never 500s on a
-    workspace with no files yet. The caller owns the returned temp file and is
-    responsible for cleaning it up after streaming (the route does, in a
-    background task). Read-only with respect to the kits tree.
+    imported/ trees) stored under its workspace-relative path, then (when
+    ``db_rows`` is supplied) one ``db/<table>.json`` member per table holding that
+    table's rows. ``db_rows`` is the route's per-table dump, read from the DB
+    under the tenant's own row level security and passed in here so this module
+    never touches a DB session; it makes the export the inverse of
+    ``delete_workspace`` (which erases those same DB rows on offboard). An empty or
+    absent subtree, and an omitted or empty ``db_rows``, still yields a valid zip:
+    the manifest is always present and each ``db/<table>.json`` is written even
+    when its row list is empty (an empty array), so a consumer sees every table.
+    The caller owns the returned temp file and cleans it up after streaming. Read
+    only with respect to the kits tree and the database.
     """
     ws_dir = _workspace_dir(workspace_id, root=root)
-    manifest = build_manifest(workspace_id, slug=slug, root=root)
+    manifest = build_manifest(workspace_id, slug=slug, root=root, db_rows=db_rows)
 
     # delete=False: the file must outlive this function so the route can stream
     # it; the route deletes it once the response is sent.
@@ -191,6 +223,13 @@ def build_export_zip(
             for file_path in sorted(ws_dir.rglob("*")):
                 if file_path.is_file():
                     zf.write(file_path, arcname=file_path.relative_to(ws_dir).as_posix())
+        # The DB-only half: one JSON file per table under db/. Written in sorted
+        # table order so an unchanged workspace produces a byte-stable archive.
+        for table in sorted(db_rows or {}):
+            zf.writestr(
+                f"{_DB_PREFIX}/{table}.json",
+                json.dumps(db_rows[table], indent=2, sort_keys=True),
+            )
     return out
 
 

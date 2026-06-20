@@ -24,6 +24,7 @@ httpx is a hard dependency; nothing here needs the optional `backends` extra.
 from __future__ import annotations
 
 import base64
+import time
 
 import httpx
 
@@ -121,9 +122,14 @@ class Backend:
             quality = self._quality(req)
             body["quality"] = quality
 
+        # Bounded retry on transient upstream blips (429 / 5xx / connect-timeout);
+        # the deadline keeps the whole retry loop under _TIMEOUT_S.
+        deadline = time.monotonic() + _TIMEOUT_S
         try:
             with self._client() as client:
-                resp = client.post("/v1/images/generations", json=body)
+                resp = _chat_image.post_with_retry(
+                    client, "/v1/images/generations", json=body, deadline=deadline
+                )
         except httpx.HTTPError as exc:
             raise BackendError(f"litellm gateway request error: {exc}") from exc
 
@@ -162,10 +168,15 @@ class Backend:
         images: list[bytes] = []
         mime = "image/png"
         cost_cents: float | None = None
+        # One deadline for the whole call so the per-image retries together stay
+        # under _TIMEOUT_S.
+        deadline = time.monotonic() + _TIMEOUT_S
         try:
             with self._client() as client:
                 for _ in range(max(1, req.count)):
-                    resp = client.post("/v1/chat/completions", json=body)
+                    resp = _chat_image.post_with_retry(
+                        client, "/v1/chat/completions", json=body, deadline=deadline
+                    )
                     if resp.status_code != 200:
                         raise BackendError(
                             "litellm gateway chat-image request failed "

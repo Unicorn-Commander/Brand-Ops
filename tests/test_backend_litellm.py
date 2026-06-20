@@ -15,6 +15,7 @@ import pytest
 from PIL import Image
 
 from brand_ops import engine
+from brand_ops.backends import _chat_image
 from brand_ops.backends import litellm as litellm_backend
 from brand_ops.backends.base import (
     BackendError,
@@ -23,6 +24,17 @@ from brand_ops.backends.base import (
     GenResult,
 )
 from brand_ops.config import Settings
+
+
+@pytest.fixture(autouse=True)
+def _fast_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the bounded retry's backoff a no-op so the suite stays fast.
+
+    The retry path is still exercised (attempts, status checks, deadline); only
+    the real sleep is removed.
+    """
+    monkeypatch.setattr(_chat_image, "_SLEEP", lambda _seconds: None)
+    monkeypatch.setattr(_chat_image, "_BASE_DELAY_S", 0.0)
 
 
 def _settings(**kw) -> Settings:
@@ -324,3 +336,107 @@ def test_chat_image_non_200_raises(monkeypatch) -> None:
     backend = _mock_backend(monkeypatch, handler, settings=_gemini_settings())
     with pytest.raises(BackendError):
         backend.generate(GenRequest(prompt="x", width=512, height=512))
+
+
+# ───────────────────────── bounded retry on transient blips ─────────────────
+
+
+def test_images_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 503 twice then 200: the images-generations path recovers after retries.
+    png = _png_bytes()
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return httpx.Response(503, text="unavailable")
+        return httpx.Response(200, json=_image_response(png))
+
+    backend = _mock_backend(monkeypatch, handler)
+    result = backend.generate(GenRequest(prompt="x", width=512, height=512))
+    assert calls["n"] == 3
+    assert result.images == [png]
+
+
+def test_images_retries_exhausted_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Always 500: retries are capped at 3 attempts, then BackendError.
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(500, text="boom")
+
+    backend = _mock_backend(monkeypatch, handler)
+    with pytest.raises(BackendError):
+        backend.generate(GenRequest(prompt="x", width=512, height=512))
+    assert calls["n"] == 3
+
+
+def test_images_400_no_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A 400 is permanent: it raises immediately with no retry.
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(400, text="bad request")
+
+    backend = _mock_backend(monkeypatch, handler)
+    with pytest.raises(BackendError):
+        backend.generate(GenRequest(prompt="x", width=512, height=512))
+    assert calls["n"] == 1
+
+
+def test_images_connect_error_retries_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A connect timeout is transient: it retries and then succeeds.
+    png = _png_bytes()
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectTimeout("connect timed out", request=request)
+        return httpx.Response(200, json=_image_response(png))
+
+    backend = _mock_backend(monkeypatch, handler)
+    result = backend.generate(GenRequest(prompt="x", width=512, height=512))
+    assert calls["n"] == 2
+    assert result.images == [png]
+
+
+def test_images_honors_retry_after_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A 429 with Retry-After is retried; the header value drives the (no-op) wait.
+    png = _png_bytes()
+    waited: list[float] = []
+    monkeypatch.setattr(_chat_image, "_SLEEP", lambda s: waited.append(s))
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"Retry-After": "2"}, text="slow")
+        return httpx.Response(200, json=_image_response(png))
+
+    backend = _mock_backend(monkeypatch, handler)
+    result = backend.generate(GenRequest(prompt="x", width=512, height=512))
+    assert calls["n"] == 2
+    assert result.images == [png]
+    assert waited == [2.0]  # the Retry-After delta was honored verbatim
+
+
+def test_chat_image_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The chat-image path retries the same transient set as the images path.
+    png = _png_bytes()
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            return httpx.Response(503, text="unavailable")
+        return httpx.Response(200, json=_chat_response(png))
+
+    backend = _mock_backend(monkeypatch, handler, settings=_gemini_settings())
+    result = backend.generate(GenRequest(prompt="x", width=512, height=512))
+    assert calls["n"] == 3
+    assert result.images == [png]

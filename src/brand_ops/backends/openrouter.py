@@ -19,6 +19,8 @@ this backend is always available once an OpenRouter key (or gateway) is set.
 """
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from ..agents.web_fetch import is_url_fetchable
@@ -82,11 +84,16 @@ class Backend:
 
         images: list[bytes] = []
         mime = "image/png"
+        # One deadline for the whole call so the per-image bounded retries (on
+        # transient 429 / 5xx / connect-timeout) together stay under _TIMEOUT_S.
+        deadline = time.monotonic() + _TIMEOUT_S
         # The image models return one image per call, so loop to reach req.count.
         try:
             with self._client() as client:
                 for _ in range(max(1, req.count)):
-                    resp = client.post("/chat/completions", json=body)
+                    resp = _chat_image.post_with_retry(
+                        client, "/chat/completions", json=body, deadline=deadline
+                    )
                     if resp.status_code != 200:
                         raise BackendError(
                             f"openrouter image request failed ({resp.status_code}): "

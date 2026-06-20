@@ -31,7 +31,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from brand_ops import admin_ops
+from brand_ops import admin_audit, admin_ops
 from brand_ops.api import admin as admin_mod
 from brand_ops.api.admin import admin_router, admin_subs, require_admin
 from brand_ops.api.auth import Principal, require_principal
@@ -46,6 +46,21 @@ _WS2 = "019e5222-0000-7000-a000-000000000002"
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _isolate_admin_audit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep every admin-audit write inside the test's tmp tree by default.
+
+    The admin gate and the mutating routes now append to the durable, root-level
+    admin-audit log (``brand_ops.admin_audit``), which resolves its own
+    DEFAULT_KITS_DIR at call time. Without this, a deny-path test or a route test
+    that does not use the ``kits`` fixture would write into the repo's real
+    brand-kits tree. Autouse so no admin test can leak an audit line; the ``kits``
+    and ``stub_db`` fixtures re-point it at their own roots when a test needs to
+    read the audit log back.
+    """
+    monkeypatch.setattr(admin_audit, "DEFAULT_KITS_DIR", tmp_path / "default-audit-root")
+
+
 @pytest.fixture
 def kits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     """A temp brand-kits root the admin on-disk helpers resolve against.
@@ -57,6 +72,11 @@ def kits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     root = tmp_path / "brand-kits"
     root.mkdir()
     monkeypatch.setattr(admin_ops, "DEFAULT_KITS_DIR", root)
+    # The admin-audit log resolves its own DEFAULT_KITS_DIR reference at call time
+    # (it lives at the kits root, beside the per-workspace subtrees), so redirect
+    # it to the same throwaway root: the mutating routes now write a durable audit
+    # line / tombstone, which must land in the temp tree, never the repo's.
+    monkeypatch.setattr(admin_audit, "DEFAULT_KITS_DIR", root)
     return root
 
 
@@ -285,7 +305,7 @@ class _FakeMember:
 
 
 @pytest.fixture
-def stub_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict]:
+def stub_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict]:
     """Stub the DB layer so admin routes run with no Postgres.
 
     Replaces the sessionmaker + scope helpers with no-op async context managers
@@ -295,6 +315,10 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict]:
     guard passes.
     """
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://x/y")
+    # The mutating routes now write a durable admin-audit line; redirect that log
+    # to a throwaway root so a route-wiring test (which does not use the kits
+    # fixture) never writes into the repo's brand-kits tree.
+    monkeypatch.setattr(admin_audit, "DEFAULT_KITS_DIR", tmp_path / "audit-root")
     calls: dict = {"upsert_ws": [], "upsert_member": [], "delete_member": [], "delete_ws": []}
 
     class _FakeSession:
@@ -306,6 +330,11 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict]:
 
         def begin(self):
             return _FakeSession()
+
+        async def get(self, *a, **kw):
+            # repo.get_workspace calls session.get; the routes' slug lookup is
+            # best-effort, so a fake anchor row keeps the contract exercised.
+            return None
 
     def _fake_sessionmaker():
         return _FakeSession
