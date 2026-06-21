@@ -38,6 +38,7 @@ _CO_SRC = str(DEFAULT_KITS_DIR / "contact-ops" / "source")
 # generated/ are), so the marks travel with the repo.
 _REPO = str(Path(__file__).resolve().parents[2])
 _POS = f"{_REPO}/brand-kits/project-ops/source"
+_LOS = f"{_REPO}/brand-kits/listing-ops/source"
 
 # Per brand: (path or glob, asset_type). Missing paths are skipped quietly.
 IMPORT_SOURCES: dict[str, list[tuple[str, str]]] = {
@@ -49,6 +50,14 @@ IMPORT_SOURCES: dict[str, list[tuple[str, str]]] = {
         (f"{_POS}/the-colonel.png", "logo"),
         (f"{_POS}/projectops-crew-light.png", "logo"),
         (f"{_POS}/projectops-crew-dark.png", "logo"),
+    ],
+    # Listing-Ops is native to the suite: its marks live tracked in-repo under
+    # source/ (see _LOS). The brand mark reuses the suite badge with an orbital
+    # ring carrying a coin; mascot is the Sutler.
+    "listing-ops": [
+        (f"{_LOS}/listing-ops-mark.svg", "logo"),
+        (f"{_LOS}/listing-ops-mark.png", "logo"),
+        (f"{_LOS}/listing-ops-app-icon.png", "app_icon"),
     ],
     "magic-unicorn": [
         (f"{_HOME}/Pictures/magic_unicorn_logo.png", "logo"),
