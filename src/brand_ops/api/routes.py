@@ -10,7 +10,9 @@ becomes a clean 422, never a 500.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
@@ -24,6 +26,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -155,7 +158,45 @@ _Owner = Annotated[Principal, Depends(require_role("owner"))]
 _INLINE_RASTER_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 
 
-def _safe_file_response(path: Path) -> FileResponse:
+# A served asset is private to its workspace; cache it in the browser but make it
+# revalidate (so an overwrite at the same path is picked up) -- the ETag turns that
+# revalidation into a cheap 304 instead of a full re-download.
+_ASSET_CACHE_CONTROL = "private, max-age=300"
+
+
+def _file_etag(stat: os.stat_result) -> str:
+    """A stat-derived ETag for one file, matching Starlette's FileResponse scheme.
+
+    The same ``"md5(mtime-size)"`` Starlette would set, derived from a stat the
+    caller takes once and also hands to the FileResponse, so the validator and the
+    served representation's metadata come from the SAME stat (no skew if the file is
+    overwritten between two separate stats). Strong validator (no ``W/`` prefix).
+    """
+    base = f"{stat.st_mtime}-{stat.st_size}"
+    return '"' + hashlib.md5(base.encode(), usedforsecurity=False).hexdigest() + '"'
+
+
+def _etag_matches(if_none_match: str, etag: str) -> bool:
+    """True when an ``If-None-Match`` header matches our ETag (so we may 304).
+
+    Honors ``*`` (matches anything) and a comma-separated list, and ignores a weak
+    ``W/`` prefix on either side per RFC 9110's weak comparison, which is the right
+    comparison for a conditional GET.
+    """
+    if if_none_match.strip() == "*":
+        return True
+
+    def _norm(tag: str) -> str:
+        tag = tag.strip()
+        return tag[2:] if tag.startswith("W/") else tag
+
+    target = _norm(etag)
+    return any(_norm(c) == target for c in if_none_match.split(","))
+
+
+def _safe_file_response(
+    path: Path, etag: str | None = None, stat_result: os.stat_result | None = None
+) -> FileResponse:
     """Serve a file from disk with sniff-proof, XSS-safe headers.
 
     ``X-Content-Type-Options: nosniff`` is always set so a browser honors the
@@ -166,11 +207,20 @@ def _safe_file_response(path: Path) -> FileResponse:
     rendering (and executing) it inline. The decision is on the stored
     extension, which the upload path derives from the validated content type,
     not from the untrusted uploaded name.
+
+    When an ``etag`` is given it is set explicitly along with a revalidating
+    ``Cache-Control`` so the 200 response carries the identical validator the 304
+    path compares against.
     """
     headers = {"X-Content-Type-Options": "nosniff"}
     if path.suffix.lower() not in _INLINE_RASTER_EXTS:
         headers["Content-Disposition"] = "attachment"
-    return FileResponse(path, headers=headers)
+    if etag is not None:
+        headers["ETag"] = etag
+        headers["Cache-Control"] = _ASSET_CACHE_CONTROL
+    # Passing the caller's stat through means the content-length/last-modified
+    # FileResponse emits come from the same stat the ETag did, not a fresh one.
+    return FileResponse(path, headers=headers, stat_result=stat_result)
 
 
 def _ensure_brand_visible(brand: str) -> None:
@@ -1015,43 +1065,71 @@ def generate_card_route(body: GenerateCardRequest, _: _Auth) -> GenerateResult:
 # ---------------------------------------------------------------------------
 
 
+# The catalog list is bounded: one request can never pull more than this many
+# records, so GET /api/assets cannot return an unbounded payload. ``limit`` defaults
+# to the ceiling, so a client that sends no paging params still gets every asset a
+# tenant has today (well under the cap) in a single call.
+_ASSETS_MAX_PAGE = 1000
+
+
 @router.get("/assets", response_model=AssetList)
 def get_assets(
     _: _Auth,
     brand: Annotated[str | None, Query()] = None,
     asset: Annotated[str | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=_ASSETS_MAX_PAGE)] = _ASSETS_MAX_PAGE,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AssetList:
-    """List generated assets from the on-disk catalog sidecars.
+    """List catalog assets, newest first, in bounded pages.
 
     Optional ``brand`` and ``asset`` filters narrow the scan. The optional
     ``status`` filter ("approved" or "needs_review") returns only assets whose
     lifecycle status matches; a never-stamped asset (null status) is excluded by
-    any status filter. The records mirror the sidecar fields the output manager
-    writes, so this is the same data WS1 will later serve from Postgres.
+    any status filter. The records mirror the catalog fields the output manager
+    writes, served from Postgres when the source-of-truth flag is on and from the
+    on-disk sidecars otherwise.
+
+    ``limit`` (1..1000, default 1000) and ``offset`` (>=0) page the result so the
+    response is always bounded; ``total`` and ``has_more`` in the envelope let a
+    client walk further pages.
     """
     if status is not None and status not in ("approved", "needs_review"):
         raise HTTPException(
             status_code=_HTTP_422,
             detail="status must be approved or needs_review",
         )
-    return AssetList(assets=read_assets(brand=brand, asset=asset, status=status))
+    records = read_assets(brand=brand, asset=asset, status=status)
+    total = len(records)
+    page = records[offset : offset + limit]
+    return AssetList(
+        assets=page,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(page) < total,
+    )
 
 
 @router.get("/assets/file")
 def get_asset_file(
+    request: Request,
     _: _Auth,
     brand: Annotated[str, Query()],
     asset: Annotated[str, Query()],
     file: Annotated[str, Query()],
     kind: Annotated[str, Query()] = "generated",
-) -> FileResponse:
+) -> Response:
     """Serve one asset's bytes, confined to the brand-kits tree.
 
     Resolves ``brand-kits/<brand>/<kind>/<asset>/<file>`` and refuses anything
     that escapes the kits root, so a crafted path cannot read outside it. Auth is
     the same anonymous-or-required dependency as the rest of the API; serving
     tenant-scoped assets behind real auth will want signed URLs at deploy.
+
+    Conditional GET: the response carries an ``ETag``, and a matching
+    ``If-None-Match`` is answered with ``304 Not Modified`` (no body), so a browser
+    re-rendering the same thumbnail revalidates cheaply instead of re-downloading.
     """
     if kind not in ("generated", "imported"):
         raise HTTPException(status_code=_HTTP_422, detail="kind must be generated or imported")
@@ -1062,7 +1140,15 @@ def get_asset_file(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="asset not found"
         )
-    return _safe_file_response(target)
+    st = target.stat()
+    etag = _file_etag(st)
+    if_none_match = request.headers.get("if-none-match")
+    if if_none_match and _etag_matches(if_none_match, etag):
+        return Response(
+            status_code=status.HTTP_304_NOT_MODIFIED,
+            headers={"ETag": etag, "Cache-Control": _ASSET_CACHE_CONTROL},
+        )
+    return _safe_file_response(target, etag=etag, stat_result=st)
 
 
 @router.post("/assets/upload", response_model=UploadResult)

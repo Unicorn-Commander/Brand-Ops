@@ -17,6 +17,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from .atomic_write import atomic_write_text
 from .brand_loader import DEFAULT_KITS_DIR, current_kits_dir
 
 _HOME = str(Path.home())
@@ -131,7 +132,7 @@ def _write_sidecar(
         "prompt": None,
         "reference_images": [],
     }
-    dest.with_suffix(dest.suffix + ".json").write_text(json.dumps(record, indent=2))
+    atomic_write_text(dest.with_suffix(dest.suffix + ".json"), json.dumps(record, indent=2))
 
 
 def ingest_brand(slug: str, kits_dir: Path | None = None) -> list[Path]:

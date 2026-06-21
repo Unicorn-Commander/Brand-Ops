@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import cost, governance
+from .atomic_write import atomic_write_bytes, atomic_write_text
 from .backends.base import GenRequest
 from .brand_loader import current_kits_dir, get_current_workspace_id, load_brand
 from .compliance.evaluator import check_image_colors
@@ -257,7 +258,7 @@ def create_agent(
         "compliance": None,
         "created_at": datetime.now(UTC).isoformat(),
     }
-    (d / "agent.json").write_text(json.dumps(data, indent=2))
+    atomic_write_text(d / "agent.json", json.dumps(data, indent=2))
     return _identity_dict(brand_slug, agent_slug, data, kits_dir)
 
 
@@ -303,7 +304,7 @@ def set_agent_voice(
     if voice_id is not None and not voices.is_known(voice_id):
         raise AgentIdentityError(f"unknown voice {voice_id!r}")
     data["voice"] = _voice_binding(voice_id, engine, speed)
-    meta.write_text(json.dumps(data, indent=2))
+    atomic_write_text(meta, json.dumps(data, indent=2))
     return _identity_dict(brand_slug, agent_slug, data, kits_dir)
 
 
@@ -328,7 +329,7 @@ def update_agent(
         data["role"] = role
     if bio is not None:
         data["bio"] = bio.strip()
-    meta.write_text(json.dumps(data, indent=2))
+    atomic_write_text(meta, json.dumps(data, indent=2))
     return _identity_dict(brand_slug, agent_slug, data, kits_dir)
 
 
@@ -392,7 +393,7 @@ def generate_avatar(
         raise AgentIdentityError("avatar backend returned no image")
 
     avatar_path = meta_path.parent / "avatar.png"
-    avatar_path.write_bytes(result.images[0])
+    atomic_write_bytes(avatar_path, result.images[0])
     cost.meter_image_spend_sync(
         _ws,
         brand_slug=brand_slug,
@@ -408,7 +409,7 @@ def generate_avatar(
 
     data["avatar_file"] = "avatar.png"
     data["compliance"] = compliance
-    meta_path.write_text(json.dumps(data, indent=2))
+    atomic_write_text(meta_path, json.dumps(data, indent=2))
     return _identity_dict(brand_slug, agent_slug, data, kits_dir)
 
 
@@ -462,7 +463,7 @@ def generate_variants(
 
         filename = _variant_filename(state)
         out_path = meta_path.parent / filename
-        out_path.write_bytes(result.images[0])
+        atomic_write_bytes(out_path, result.images[0])
         cost.meter_image_spend_sync(
             _ws,
             brand_slug=brand_slug,
@@ -483,7 +484,7 @@ def generate_variants(
     data["avatar_file"] = _variant_filename("primary")
     data["compliance"] = primary_compliance
     data["variants"] = variants
-    meta_path.write_text(json.dumps(data, indent=2))
+    atomic_write_text(meta_path, json.dumps(data, indent=2))
     return _identity_dict(brand_slug, agent_slug, data, kits_dir)
 
 

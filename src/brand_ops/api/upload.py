@@ -21,6 +21,7 @@ from pathlib import Path
 
 from ..activity import append_event
 from ..asset_types import ASSET_TYPES
+from ..atomic_write import atomic_write_bytes, atomic_write_text
 from ..brand_loader import current_kits_dir, get_current_workspace_id
 from ..catalog_index import index_sidecar_sync
 from ..compliance.lifecycle import stamp_compliance
@@ -311,7 +312,7 @@ def save_upload(
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     dest = _unique_destination(dest_dir, stored_name)
-    dest.write_bytes(data)
+    atomic_write_bytes(dest, data)
     # Reuse the ingest sidecar writer so an upload looks identical to an import in
     # the catalog. source="upload" distinguishes it from a disk-sourced import.
     _write_sidecar(dest, brand, asset_type, source="upload")
@@ -374,7 +375,7 @@ def _set_sidecar_variant(dest: Path, variant: str) -> None:
     except (OSError, ValueError):  # pragma: no cover - sidecar was just written
         return
     data["variant"] = variant
-    sidecar.write_text(json.dumps(data, indent=2))
+    atomic_write_text(sidecar, json.dumps(data, indent=2))
 
 
 def _build_record(

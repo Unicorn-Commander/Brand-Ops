@@ -356,7 +356,20 @@ class AssetRecord(BaseModel):
 
 
 class AssetList(BaseModel):
+    """A bounded page of catalog records plus its paging envelope.
+
+    ``assets`` is the page (newest first). ``total`` is how many records match the
+    filters before paging, ``limit``/``offset`` echo the applied window, and
+    ``has_more`` is True when records remain past this page. A client that reads
+    only ``assets`` (the current web UI) keeps working: the default window is wide
+    enough that today's tenants return in one page.
+    """
+
     assets: list[AssetRecord]
+    total: int | None = None
+    limit: int | None = None
+    offset: int = 0
+    has_more: bool = False
 
 
 # ---------------------------------------------------------------------------

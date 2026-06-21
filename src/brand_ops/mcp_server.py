@@ -40,6 +40,7 @@ from .api.catalog import read_assets
 from .api.guidelines import build_guidelines
 from .api.schemas import BrandGuidelines
 from .asset_types import ASSET_TYPES
+from .atomic_write import atomic_write_text
 from .backends.base import BackendError, BackendNotConfigured
 from .brand_clone import clone_brand as _clone_brand
 from .brand_clone import create_brand_from_draft as _create_brand_from_draft
@@ -967,7 +968,7 @@ def new_brand(
             text = text.replace(token, value)
         if parent:
             text = text.replace("parent: null", f"parent: {parent}")
-        brand_yaml.write_text(text)
+        atomic_write_text(brand_yaml, text)
 
         return {
             "slug": slug,

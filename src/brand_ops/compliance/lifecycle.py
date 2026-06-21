@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..activity import append_event
+from ..atomic_write import atomic_write_text
 from ..brand_loader import BrandNotFound, current_kits_dir, load_brand
 from .evaluator import _resolve_image_path, check_asset
 from .rules import build_rules
@@ -124,7 +125,7 @@ def stamp_compliance(
     data["lifecycle_status"] = lifecycle_status
     data["compliance"] = compliance
     try:
-        sidecar.write_text(json.dumps(data, indent=2))
+        atomic_write_text(sidecar, json.dumps(data, indent=2))
     except OSError:  # pragma: no cover - defensive; sidecar was just read
         return {"lifecycle_status": None}
 
@@ -205,7 +206,7 @@ def transition(
         raise ValueError("sidecar is not an asset record")
 
     data["lifecycle_status"] = to
-    sidecar.write_text(json.dumps(data, indent=2))
+    atomic_write_text(sidecar, json.dumps(data, indent=2))
 
     # One feed event per transition. The action reads like a verb in the feed:
     # "approved", "requested changes", "archived", "reopened".

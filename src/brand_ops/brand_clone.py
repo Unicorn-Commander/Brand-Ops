@@ -28,6 +28,7 @@ from pathlib import Path
 
 import yaml
 
+from .atomic_write import atomic_write_text
 from .brand_loader import (
     BrandNotFound,
     allow_brand,
@@ -211,8 +212,9 @@ def clone_brand(
 
     dest_dir.mkdir(parents=True)
     brand_yaml = dest_dir / "brand.yaml"
-    brand_yaml.write_text(
-        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    atomic_write_text(
+        brand_yaml,
+        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False),
     )
 
     # Make the just-created brand visible for the rest of this (scoped) request,
@@ -334,8 +336,9 @@ def create_brand_from_draft(
 
     dest_dir.mkdir(parents=True)
     brand_yaml = dest_dir / "brand.yaml"
-    brand_yaml.write_text(
-        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    atomic_write_text(
+        brand_yaml,
+        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False),
     )
 
     # Make the just-created brand visible for the rest of this (scoped) request

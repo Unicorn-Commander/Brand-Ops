@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .activity import append_event
+from .atomic_write import atomic_write_bytes, atomic_write_text
 from .backends.base import GenResult
 from .brand_loader import current_kits_dir, get_current_workspace_id
 from .catalog_index import index_sidecar_sync
@@ -61,7 +62,7 @@ def save_result(
             stem = Path(name)
             name = f"{stem.stem}-{i + 1}{stem.suffix}"
         path = out_dir / name
-        path.write_bytes(image)
+        atomic_write_bytes(path, image)
 
         record = {
             "brand": brand_slug,
@@ -79,7 +80,7 @@ def save_result(
             "meta": result.meta,
         }
         sidecar_path = path.with_suffix(path.suffix + ".json")
-        sidecar_path.write_text(json.dumps(record, indent=2))
+        atomic_write_text(sidecar_path, json.dumps(record, indent=2))
         # Gate the asset at creation time: stamp its lifecycle status into the
         # sidecar from the deterministic compliance verdict. Best-effort -- a
         # stamping failure must never fail the generation that just succeeded.
