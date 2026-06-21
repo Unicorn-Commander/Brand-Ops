@@ -311,6 +311,46 @@ class AgentSpendEvent(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class IdempotencyKey(Base):
+    """A claimed ``Idempotency-Key`` for a mutating, cost-incurring request.
+
+    A client that retries a POST with the same ``Idempotency-Key`` header gets the
+    original result back instead of a second generation (and a second charge). The
+    claim is workspace-scoped (RLS on workspace_id, policy created in migration
+    0006). The flow: a request INSERTs the key ``in_progress`` (ON CONFLICT DO
+    NOTHING) to claim it, does the work, then marks it ``completed`` with the stored
+    response; a concurrent or repeat request that loses the claim reads this row to
+    replay the response, 409 while it is still in progress, or 422 if the same key
+    arrives with a different request fingerprint. Unique on (workspace_id, idem_key)
+    so the claim is atomic.
+    """
+
+    __tablename__ = "idempotency_key"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    idem_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default=text("'in_progress'")
+    )
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "idem_key", name="uq_idempotency_ws_key"),
+    )
+
+
 # Tables that carry a workspace_id and are guarded by row level security. The
 # migration enables RLS and creates a policy on each of these.
 WORKSPACE_SCOPED_TABLES = (
@@ -321,4 +361,5 @@ WORKSPACE_SCOPED_TABLES = (
     "brand_research_run",
     "agent_governance",
     "agent_spend_event",
+    "idempotency_key",
 )

@@ -24,6 +24,7 @@ EXPECTED_TABLES = {
     "brand_research_run",
     "agent_governance",
     "agent_spend_event",
+    "idempotency_key",
 }
 
 

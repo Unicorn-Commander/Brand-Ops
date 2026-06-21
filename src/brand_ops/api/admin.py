@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -78,6 +79,97 @@ def admin_subs() -> frozenset[str]:
     return frozenset(s.strip() for s in raw.split(",") if s.strip())
 
 
+# ---------------------------------------------------------------------------
+# Admin capability tiers (READ < WRITE < DESTROY)
+# ---------------------------------------------------------------------------
+#
+# An admin's allow-list membership (above) says WHETHER they may use the admin
+# API. The tier below says HOW MUCH: a least-privilege grant so an operator can
+# hand a given admin only the level a job needs. The three tiers are totally
+# ordered; ``_TIER_RANK`` makes the order comparable for the gate.
+#
+# ``read`` is the floor: it can run the cross-tenant read views (usage, audit
+# verify). ``write`` adds the provisioning and extraction writes (create a
+# workspace, grant a member, export a tenant). ``destroy`` adds the irreversible
+# operations (revoke a member, delete a workspace and CASCADE all its data).
+
+_TIER_READ = "read"
+_TIER_WRITE = "write"
+_TIER_DESTROY = "destroy"
+
+# Ordered least-privilege first, so a higher rank strictly subsumes a lower one.
+_TIER_RANK: dict[str, int] = {_TIER_READ: 0, _TIER_WRITE: 1, _TIER_DESTROY: 2}
+
+# Admins who are in ``BRAND_OPS_ADMIN_SUBS`` but not named in
+# ``BRAND_OPS_ADMIN_TIERS`` default to this tier. It is ``destroy`` deliberately:
+# before tiering existed every admin could do every operation, so an UNTIERED
+# admin must keep that full power. Tiering is opt-in -- nothing an existing admin
+# could do breaks until an operator assigns them a lower tier explicitly.
+_DEFAULT_TIER = _TIER_DESTROY
+
+# Remember invalid tier strings we have already complained about, so a misspelled
+# ``BRAND_OPS_ADMIN_TIERS`` entry is logged once per process rather than on every
+# request. (Read at call time, so the set just suppresses repeat noise; it is not
+# an authorization cache and never changes the decision.)
+_warned_bad_tiers: set[str] = set()
+
+
+def _parse_admin_tiers() -> dict[str, str]:
+    """Parse ``BRAND_OPS_ADMIN_TIERS`` into a ``{sub: tier}`` map at call time.
+
+    The value is a comma-separated list of ``sub:tier`` pairs, e.g.
+    ``alice:read,bob:write``. Read fresh on every call (never cached at import),
+    so a deploy can re-tier without a code change and a test can monkeypatch the
+    env. Blank entries and pairs without a colon are skipped; a duplicated sub
+    takes its last listed tier. The tier string itself is validated by
+    :func:`admin_tier`, not here, so this stays a pure parser.
+    """
+    raw = os.getenv("BRAND_OPS_ADMIN_TIERS", "")
+    out: dict[str, str] = {}
+    for chunk in raw.split(","):
+        chunk = chunk.strip()
+        if not chunk or ":" not in chunk:
+            continue
+        sub, _, tier = chunk.partition(":")
+        sub = sub.strip()
+        if sub:
+            out[sub] = tier.strip().lower()
+    return out
+
+
+def admin_tier(sub: str) -> str:
+    """Resolve the capability tier (``read``/``write``/``destroy``) for an admin.
+
+    Rules, evaluated at call time:
+
+      * a sub named in ``BRAND_OPS_ADMIN_TIERS`` gets that tier, after validation:
+        an unknown/misspelled tier string falls back to ``read`` (the least
+        privilege, fail-safe) and is logged once;
+      * a sub that is an admin (:func:`admin_subs`) but is NOT named in
+        ``BRAND_OPS_ADMIN_TIERS`` defaults to ``destroy``, preserving the
+        pre-tiering behavior exactly so existing admins keep full power until an
+        operator lowers them;
+      * any other sub (not an admin at all) also resolves to ``destroy`` by the
+        same default -- harmless because the tier gate only runs AFTER
+        :func:`require_admin` has already confirmed the caller is an admin, so a
+        non-admin never reaches a tier comparison.
+    """
+    explicit = _parse_admin_tiers().get(sub)
+    if explicit is not None:
+        if explicit in _TIER_RANK:
+            return explicit
+        if explicit not in _warned_bad_tiers:
+            _warned_bad_tiers.add(explicit)
+            _log.warning(
+                "BRAND_OPS_ADMIN_TIERS has unknown tier %r for an admin; "
+                "treating as %r (least privilege)",
+                explicit,
+                _TIER_READ,
+            )
+        return _TIER_READ
+    return _DEFAULT_TIER
+
+
 def require_admin(
     principal: Annotated[Principal, Depends(require_principal)],
 ) -> Principal:
@@ -117,6 +209,49 @@ def require_admin(
 
 
 _Admin = Annotated[Principal, Depends(require_admin)]
+
+
+def require_admin_tier(min_tier: str) -> Callable[[Principal], Principal]:
+    """Build a dependency that requires an admin of at least ``min_tier``.
+
+    The returned dependency itself depends on :func:`require_admin`, so by the
+    time it runs the caller is already a validated, non-anonymous, allow-listed
+    admin (the base gate, with its own deny-by-default and anonymous rejection,
+    is untouched and runs first). This only adds a second check: the admin's
+    resolved :func:`admin_tier` must rank at or above ``min_tier`` in the
+    ``read < write < destroy`` order, else a 403. Because the default tier for an
+    untiered admin is ``destroy``, this is a no-op for existing admins until an
+    operator assigns them a lower tier; tiering is purely additive.
+
+    The anonymous/AUTH-off posture is inherited, not re-implemented: if a caller
+    is let through ``require_admin`` they are by definition a real admin sub, so
+    the tier lookup runs against that sub; an anonymous caller is already a 403
+    from ``require_admin`` and never reaches here.
+    """
+    needed = _TIER_RANK[min_tier]
+
+    def _dep(admin: Annotated[Principal, Depends(require_admin)]) -> Principal:
+        tier = admin_tier(admin.uc_uid)
+        if _TIER_RANK[tier] < needed:
+            _audit.warning(
+                "admin tier DENIED for uc_uid=%s (tier=%s, required=%s)",
+                admin.uc_uid,
+                tier,
+                min_tier,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"admin tier '{min_tier}' or higher required",
+            )
+        return admin
+
+    return _dep
+
+
+# Per-tier dependencies, applied to routes by their minimum required capability.
+_AdminRead = Annotated[Principal, Depends(require_admin_tier(_TIER_READ))]
+_AdminWrite = Annotated[Principal, Depends(require_admin_tier(_TIER_WRITE))]
+_AdminDestroy = Annotated[Principal, Depends(require_admin_tier(_TIER_DESTROY))]
 
 
 def _require_db() -> None:
@@ -236,7 +371,7 @@ class UsageOut(BaseModel):
 
 
 @admin_router.post("/workspaces", response_model=WorkspaceOut)
-async def create_workspace(body: CreateWorkspaceRequest, admin: _Admin) -> WorkspaceOut:
+async def create_workspace(body: CreateWorkspaceRequest, admin: _AdminWrite) -> WorkspaceOut:
     """Create (or re-slug) a workspace anchor row at runtime. Idempotent.
 
     Mirrors the registry-minted id into the tenancy DB via ``upsert_workspace``,
@@ -266,7 +401,7 @@ async def create_workspace(body: CreateWorkspaceRequest, admin: _Admin) -> Works
 
 @admin_router.post("/workspaces/{workspace_id}/members", response_model=MemberOut)
 async def grant_member(
-    workspace_id: str, body: GrantMemberRequest, admin: _Admin
+    workspace_id: str, body: GrantMemberRequest, admin: _AdminWrite
 ) -> MemberOut:
     """Grant (or update) a membership in a workspace. Idempotent.
 
@@ -320,7 +455,7 @@ async def grant_member(
 
 
 @admin_router.delete("/workspaces/{workspace_id}/members/{uc_uid}", response_model=RevokeResult)
-async def revoke_member(workspace_id: str, uc_uid: str, admin: _Admin) -> RevokeResult:
+async def revoke_member(workspace_id: str, uc_uid: str, admin: _AdminDestroy) -> RevokeResult:
     """Revoke a membership. Idempotent: revoking a non-member is a 200 with
     ``revoked=false``.
 
@@ -373,7 +508,7 @@ async def revoke_member(workspace_id: str, uc_uid: str, admin: _Admin) -> Revoke
 
 @admin_router.delete("/workspaces/{workspace_id}", response_model=DeleteWorkspaceResult)
 async def delete_workspace(
-    workspace_id: str, body: DeleteWorkspaceRequest, admin: _Admin
+    workspace_id: str, body: DeleteWorkspaceRequest, admin: _AdminDestroy
 ) -> DeleteWorkspaceResult:
     """Offboard a tenant: remove all its data, DB and disk. Confirm-gated.
 
@@ -483,7 +618,7 @@ async def delete_workspace(
 
 
 @admin_router.get("/workspaces/{workspace_id}/export")
-async def export_workspace(workspace_id: str, admin: _Admin) -> StreamingResponse:
+async def export_workspace(workspace_id: str, admin: _AdminWrite) -> StreamingResponse:
     """Stream a zip of a workspace's full data (on-disk + DB) plus a manifest.
 
     The archive holds ``manifest.json`` (workspace id, slug, brand list, brand and
@@ -558,7 +693,7 @@ async def export_workspace(workspace_id: str, admin: _Admin) -> StreamingRespons
 @admin_router.get(
     "/workspaces/{workspace_id}/audit/verify", response_model=ChainVerifyResult
 )
-async def verify_workspace_audit(workspace_id: str, admin: _Admin) -> ChainVerifyResult:
+async def verify_workspace_audit(workspace_id: str, admin: _AdminRead) -> ChainVerifyResult:
     """Verify the tamper-evident hash chain over one workspace's activity feed.
 
     Runs ``activity.verify_chain`` against the target workspace's per-tenant
@@ -600,7 +735,7 @@ async def verify_workspace_audit(workspace_id: str, admin: _Admin) -> ChainVerif
 
 
 @admin_router.get("/usage", response_model=UsageOut)
-async def usage(admin: _Admin) -> UsageOut:
+async def usage(admin: _AdminRead) -> UsageOut:
     """Per-workspace brand/asset counts and spend totals, across ALL tenants.
 
     The one admin view that reads past the per-workspace boundary. It cannot be a
@@ -647,4 +782,10 @@ async def usage(admin: _Admin) -> UsageOut:
     return UsageOut(generated_at=datetime.now(UTC).isoformat(), workspaces=rows)
 
 
-__all__ = ("admin_router", "require_admin", "admin_subs")
+__all__ = (
+    "admin_router",
+    "require_admin",
+    "require_admin_tier",
+    "admin_subs",
+    "admin_tier",
+)

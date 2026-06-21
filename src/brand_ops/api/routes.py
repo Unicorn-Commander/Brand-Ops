@@ -24,6 +24,7 @@ from fastapi import (
     Depends,
     File,
     Form,
+    Header,
     HTTPException,
     Query,
     Request,
@@ -47,6 +48,7 @@ from ..brand_loader import (
     BrandNotFound,
     current_kits_dir,
     get_allowed_brands,
+    get_current_workspace_id,
     list_brands,
     load_brand,
     safe_subpath,
@@ -63,6 +65,10 @@ from ..config import get_settings
 from ..db import repository as repo
 from ..db.base import get_sessionmaker, workspace_session
 from ..db.tenancy import record_brand, resolve_context
+from ..idempotency import begin_sync as idem_begin
+from ..idempotency import complete_sync as idem_complete
+from ..idempotency import fingerprint as idem_fingerprint
+from ..idempotency import release_sync as idem_release
 from ..models import Brand
 from ..templates import list_templates
 from .agents import UnknownAgent, run_agent
@@ -939,75 +945,117 @@ def prompt_preview(body: GenerateRequest, _: _Auth) -> PromptPreview:
 
 
 @router.post("/generate", response_model=GenerateResult)
-def generate(body: GenerateRequest, _: _Auth) -> GenerateResult:
+def generate(
+    body: GenerateRequest,
+    _: _Auth,
+    idempotency_key: Annotated[str | None, Header()] = None,
+) -> GenerateResult:
     """Generate the asset live, persisting the files and the catalog sidecars.
 
     When the chosen backend has no credentials, the engine raises
     ``BackendNotConfigured``; that becomes an HTTP 422 with a clear needs-key
     body rather than a 500, so a caller knows exactly which key to supply.
+
+    Supply an ``Idempotency-Key`` header to make a retry safe: a repeat with the
+    same key returns the original result instead of generating (and charging)
+    again; a concurrent repeat gets 409; the same key with different parameters
+    gets 422. Without the header the behavior is unchanged.
     """
     _validate_asset(body.asset)
-    try:
-        outcome = engine.generate_asset(
-            body.brand,
-            body.asset,
-            variant=body.variant,
-            topic=body.topic,
-            platform=body.platform,
-            backend=body.backend,
-            count=body.count,
-            dry_run=False,
-        )
-    except BrandNotFound as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from None
-    except (KeyError, ValueError) as exc:
-        raise HTTPException(
-            status_code=_HTTP_422, detail=str(exc)
-        ) from None
-    except BackendNotConfigured as exc:
-        backend_name = body.backend or get_asset_spec(body.asset).default_backend
-        raise HTTPException(
-            status_code=_HTTP_422,
-            detail={
-                "error": "backend_not_configured",
-                "backend": backend_name,
-                "detail": str(exc),
-            },
-        ) from None
-    except QuotaExceeded as exc:
-        # Over the workspace image spend cap (or an agent weekly budget). The
-        # request was valid; the tenant is rate/spend limited, so 429.
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
-        ) from None
-    except BackendError as exc:
-        # A real provider failure (network, quota, bad response). Surface it as a
-        # 502: the request was valid, the upstream backend could not fulfill it.
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"backend error: {exc}"
-        ) from None
 
-    result = outcome.result
-    files = [
-        GeneratedFile(
-            path=str(p),
-            catalog_path=str(p) + ".json",
-            url=_generated_file_url(body.brand, body.asset, str(p)),
+    ws = get_current_workspace_id()
+    idem_claimed = False
+    if idempotency_key:
+        outcome = idem_begin(
+            ws, idempotency_key, idem_fingerprint("/api/generate", body.model_dump())
         )
-        for p in outcome.paths
-    ]
-    return GenerateResult(
-        brand=body.brand,
-        asset=body.asset,
-        variant=outcome.built.variant,
-        backend=result.backend if result else outcome.built.backend,
-        model=result.model if result else None,
-        mime=result.mime if result else None,
-        cost_cents=result.cost_cents if result else None,
-        files=files,
-        missing_refs=outcome.missing_refs,
-        warnings=outcome.built.warnings,
-    )
+        if outcome.replay is not None:
+            return GenerateResult(**outcome.replay)
+        if outcome.conflict:
+            raise HTTPException(
+                status_code=_HTTP_422,
+                detail="Idempotency-Key was already used with different parameters",
+            )
+        if outcome.in_progress:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="a request with this Idempotency-Key is already in progress",
+            )
+        idem_claimed = outcome.claimed
+
+    try:
+        try:
+            outcome_gen = engine.generate_asset(
+                body.brand,
+                body.asset,
+                variant=body.variant,
+                topic=body.topic,
+                platform=body.platform,
+                backend=body.backend,
+                count=body.count,
+                dry_run=False,
+            )
+        except BrandNotFound as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from None
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
+        except BackendNotConfigured as exc:
+            backend_name = body.backend or get_asset_spec(body.asset).default_backend
+            raise HTTPException(
+                status_code=_HTTP_422,
+                detail={
+                    "error": "backend_not_configured",
+                    "backend": backend_name,
+                    "detail": str(exc),
+                },
+            ) from None
+        except QuotaExceeded as exc:
+            # Over the workspace image spend cap (or an agent weekly budget). The
+            # request was valid; the tenant is rate/spend limited, so 429.
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+            ) from None
+        except BackendError as exc:
+            # A real provider failure (network, quota, bad response). Surface it as a
+            # 502: the request was valid, the upstream backend could not fulfill it.
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail=f"backend error: {exc}"
+            ) from None
+
+        result = outcome_gen.result
+        files = [
+            GeneratedFile(
+                path=str(p),
+                catalog_path=str(p) + ".json",
+                url=_generated_file_url(body.brand, body.asset, str(p)),
+            )
+            for p in outcome_gen.paths
+        ]
+        response = GenerateResult(
+            brand=body.brand,
+            asset=body.asset,
+            variant=outcome_gen.built.variant,
+            backend=result.backend if result else outcome_gen.built.backend,
+            model=result.model if result else None,
+            mime=result.mime if result else None,
+            cost_cents=result.cost_cents if result else None,
+            files=files,
+            missing_refs=outcome_gen.missing_refs,
+            warnings=outcome_gen.built.warnings,
+        )
+    except BaseException:
+        # Any failure (incl. the mapped HTTP errors above) releases the claim so a
+        # retry with the same key can re-attempt rather than being stuck replaying
+        # a generation that never happened.
+        if idem_claimed:
+            idem_release(ws, idempotency_key)
+        raise
+
+    if idem_claimed:
+        idem_complete(ws, idempotency_key, status=200, body=response.model_dump())
+    return response
 
 
 @router.post("/generate-card", response_model=GenerateResult)
