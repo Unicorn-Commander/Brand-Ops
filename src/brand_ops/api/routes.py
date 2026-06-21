@@ -34,7 +34,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 
-from .. import agent_identity, engine, governance, voices
+from .. import agent_identity, engine, governance, retention, voices
 from ..activity import append_event, read_events
 from ..agents.brand_intake import BrandIntakeAgent
 from ..agents.brand_research import _slugify
@@ -110,6 +110,7 @@ from .schemas import (
     ComplianceResult,
     ComplianceRollupSummary,
     CreateAgentIdentityRequest,
+    DeleteResult,
     DirectorChatRequest,
     DirectorReply,
     GenerateCardRequest,
@@ -1197,6 +1198,71 @@ def get_asset_file(
             headers={"ETag": etag, "Cache-Control": _ASSET_CACHE_CONTROL},
         )
     return _safe_file_response(target, etag=etag, stat_result=st)
+
+
+@router.delete("/assets/file", response_model=DeleteResult)
+def delete_asset_file(
+    _: _Owner,
+    brand: Annotated[str, Query()],
+    asset: Annotated[str, Query()],
+    file: Annotated[str, Query()],
+    kind: Annotated[str, Query()] = "generated",
+) -> DeleteResult:
+    """Soft-delete one catalog asset: a recoverable delete that hides it.
+
+    Identifies ``brand-kits/<brand>/<kind>/<asset>/<file>`` exactly as GET
+    /api/assets/file does -- the same kind validation, brand-visibility check, and
+    path confinement under the kits root -- and refuses anything that escapes the
+    tree or does not exist with the same scoped 404. Owner-gated (RLS isolates the
+    tenant; this adds the in-workspace authorization for a destructive action).
+
+    The delete is RECOVERABLE: it stamps ``deleted_at`` into the asset's sidecar
+    (the durable hide, so the file read path drops it) and best-effort into the
+    catalog row (so the DB read path drops it too), but the bytes stay on disk.
+    The retention sweeper (``brand_ops.retention_sweep``) hard-purges them only
+    after ``BRAND_OPS_RETENTION_DAYS``, so the asset can be recovered until then.
+    The act is recorded on the activity feed.
+    """
+    if kind not in ("generated", "imported"):
+        raise HTTPException(status_code=_HTTP_422, detail="kind must be generated or imported")
+    _ensure_brand_visible(brand)
+    root = current_kits_dir().resolve()
+    target = (root / brand / kind / asset / file).resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="asset not found"
+        )
+
+    # The catalog key the asset row is unique on, and the sidecar beside the file.
+    storage_key = f"{brand}/{kind}/{asset}/{file}"
+    sidecar = target.with_suffix(target.suffix + ".json")
+    # Stamp the delete instant here, at the HTTP boundary, so the retention helper
+    # (like the activity feed and the lifecycle transition) reads no clock.
+    ts = datetime.now(UTC).isoformat()
+    retention.soft_delete_sync(
+        get_current_workspace_id(),
+        storage_key=storage_key,
+        sidecar_path=sidecar,
+        deleted_at=ts,
+    )
+
+    append_event(
+        "you",
+        "human",
+        "deleted asset",
+        brand=brand,
+        target=f"{asset}/{file}",
+        note=None,
+        ts=ts,
+    )
+    return DeleteResult(
+        brand=brand,
+        asset_type=asset,
+        file=file,
+        kind=kind,
+        deleted=True,
+        deleted_at=ts,
+    )
 
 
 @router.post("/assets/upload", response_model=UploadResult)

@@ -157,6 +157,14 @@ class Asset(Base):
     created_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = _created_at()
+    # Soft-delete tombstone: set to the delete instant when an asset is removed,
+    # null while live. A soft-deleted row is hidden from every catalog read
+    # (list_assets filters deleted_at IS NULL) but its bytes stay on disk until the
+    # retention sweeper hard-purges it past BRAND_OPS_RETENTION_DAYS (migration
+    # 0007). Recoverable until then, and the data-retention audit gap closes.
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     versions: Mapped[list[AssetVersion]] = relationship(
         back_populates="asset",

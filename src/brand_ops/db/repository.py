@@ -195,7 +195,14 @@ async def list_assets(
     limit: int | None = None,
     offset: int | None = None,
 ) -> Sequence[Asset]:
-    stmt = select(Asset).where(Asset.workspace_id == _as_uuid(workspace_id))
+    # Soft-deleted assets never appear in the catalog: a recoverable delete stamps
+    # deleted_at, and this base filter hides every such row from every list read
+    # until the retention sweeper hard-purges it (see soft_delete_asset / migration
+    # 0007). A live asset has deleted_at IS NULL.
+    stmt = select(Asset).where(
+        Asset.workspace_id == _as_uuid(workspace_id),
+        Asset.deleted_at.is_(None),
+    )
     if brand is not None:
         stmt = stmt.where(Asset.brand_slug == brand)
     if asset_type is not None:
@@ -251,6 +258,84 @@ async def add_asset_version(
     session.add(version)
     await session.flush()
     return version
+
+
+# --- soft-delete + retention ------------------------------------------------
+# The recoverable delete (soft_delete_asset) and the retention sweep
+# (list_soft_deleted_before -> purge_asset). A soft-delete stamps deleted_at so
+# list_assets stops returning the row; the sweep finds rows whose tombstone has
+# aged past the retention window and hard-deletes them. All three are
+# workspace-scoped (filter on workspace_id over RLS, belt-and-suspenders) and do
+# not commit; the caller owns the transaction.
+
+
+async def soft_delete_asset(
+    session: AsyncSession, workspace_id: _UUID, *, storage_key: str
+) -> bool:
+    """Hide the catalog row for one stored file by stamping ``deleted_at`` now.
+
+    Sets ``deleted_at = now()`` on the live (not-already-deleted) ``asset`` row
+    keyed by ``(workspace_id, storage_key)``, so every catalog list read stops
+    returning it (``list_assets`` filters ``deleted_at IS NULL``). The row and the
+    file survive until the retention sweeper purges them, so the delete is
+    recoverable. The ``deleted_at IS NULL`` predicate makes a repeat delete a
+    no-op: returns True only when THIS call tombstoned a live row (rowcount == 1),
+    False when there was no matching live row (already deleted, or no such key).
+    Workspace-scoped (the update also satisfies the asset RLS WITH CHECK because
+    workspace_id is the scoped tenant); does not commit.
+    """
+    result = await session.execute(
+        update(Asset)
+        .where(
+            Asset.workspace_id == _as_uuid(workspace_id),
+            Asset.storage_key == storage_key,
+            Asset.deleted_at.is_(None),
+        )
+        .values(deleted_at=func.now())
+    )
+    return result.rowcount == 1
+
+
+async def list_soft_deleted_before(
+    session: AsyncSession, workspace_id: _UUID, cutoff: Any
+) -> Sequence[Asset]:
+    """The workspace's soft-deleted assets whose tombstone predates ``cutoff``.
+
+    The retention sweep candidates: rows with a non-null ``deleted_at`` strictly
+    older than ``cutoff`` (now minus the retention window). A just-deleted row
+    inside the window is excluded, so it stays recoverable until it ages out.
+    ``cutoff`` is a timezone-aware datetime. Filters by ``workspace_id`` explicitly
+    over RLS; the caller owns the transaction.
+    """
+    stmt = (
+        select(Asset)
+        .where(
+            Asset.workspace_id == _as_uuid(workspace_id),
+            Asset.deleted_at.is_not(None),
+            Asset.deleted_at < cutoff,
+        )
+        .order_by(Asset.deleted_at)
+    )
+    result = await session.execute(stmt)
+    return result.scalars().all()
+
+
+async def purge_asset(
+    session: AsyncSession, workspace_id: _UUID, asset_id: _UUID
+) -> None:
+    """Hard-delete one asset row by id, scoped to its workspace (the sweep's write).
+
+    The irreversible counterpart to ``soft_delete_asset``: removes the catalog
+    row entirely (its ``asset_version`` rows cascade) once the sweeper has aged it
+    out and deleted its on-disk bytes. Filters by ``workspace_id`` + ``id`` so it
+    can only purge a row in the scoped tenant; does not commit.
+    """
+    await session.execute(
+        delete(Asset).where(
+            Asset.workspace_id == _as_uuid(workspace_id),
+            Asset.id == _as_uuid(asset_id),
+        )
+    )
 
 
 # --- generation jobs --------------------------------------------------------

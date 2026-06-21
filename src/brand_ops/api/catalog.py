@@ -59,6 +59,11 @@ def _coerce_record(
     """
     if not isinstance(data, dict) or "asset_type" not in data:
         return None
+    # Soft-deleted: a recoverable delete (and the retention sweeper) stamp
+    # ``deleted_at`` into the sidecar, so the file fallback hides the asset
+    # identically to the DB read's deleted_at IS NULL filter.
+    if data.get("deleted_at"):
+        return None
     size = data.get("size")
     size_list = [int(x) for x in size] if isinstance(size, list) else []
     refs = data.get("reference_images")

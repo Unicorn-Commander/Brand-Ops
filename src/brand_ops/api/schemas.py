@@ -388,6 +388,24 @@ class UploadResult(BaseModel):
     asset: AssetRecord
 
 
+class DeleteResult(BaseModel):
+    """The response from DELETE /api/assets/file: one asset soft-deleted.
+
+    Confirms the recoverable delete: ``brand``/``asset_type``/``file``/``kind``
+    echo the asset that was hidden, ``deleted`` is True, and ``deleted_at`` is the
+    ISO-8601 UTC instant it was tombstoned. The asset disappears from the catalog
+    immediately, but its bytes stay on disk until the retention sweeper purges
+    them after the configured window, so it can be recovered until then.
+    """
+
+    brand: str
+    asset_type: str
+    file: str
+    kind: str
+    deleted: bool
+    deleted_at: str
+
+
 class ApproveRequest(BaseModel):
     """Body for POST /api/assets/approve: identify one asset to approve.
 

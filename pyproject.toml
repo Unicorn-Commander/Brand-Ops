@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brand-ops"
-version = "0.20.0"
+version = "0.21.0"
 description = "Brand identity and AI image-asset generation for the Unicorn Commander suite. MCP and agent first."
 readme = "README.md"
 requires-python = ">=3.12"
