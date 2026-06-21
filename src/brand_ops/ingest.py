@@ -57,7 +57,12 @@ IMPORT_SOURCES: dict[str, list[tuple[str, str]]] = {
     "listing-ops": [
         (f"{_LOS}/listing-ops-mark.svg", "logo"),
         (f"{_LOS}/listing-ops-mark.png", "logo"),
+        (f"{_LOS}/listing-ops-logo.png", "logo"),
+        (f"{_LOS}/listing-ops-logo-wordmark.jpg", "logo"),
+        (f"{_LOS}/listing-ops-emblem.png", "logo"),
         (f"{_LOS}/listing-ops-app-icon.png", "app_icon"),
+        (f"{_LOS}/listing-ops-icon-illustrated.jpg", "app_icon"),
+        (f"{_LOS}/listing-ops-og.jpg", "og_image"),
     ],
     "magic-unicorn": [
         (f"{_HOME}/Pictures/magic_unicorn_logo.png", "logo"),
