@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from ..config import get_settings
 
@@ -49,6 +50,8 @@ class Base(DeclarativeBase):
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
+_bridge_engine: AsyncEngine | None = None
+_bridge_sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
 def get_engine() -> AsyncEngine:
@@ -102,6 +105,58 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
     return _sessionmaker
 
 
+def get_bridge_engine() -> AsyncEngine:
+    """A second, NON-POOLING async engine for sync-thread ``asyncio.run`` callers.
+
+    The pooled :func:`get_engine` is bound to one event loop: asyncpg connections
+    belong to the loop that opened them, so the pooled engine must not be shared
+    across loops. But several synchronous chokepoints -- the catalog dual-write and
+    the catalog DB read, the cost cap/meter -- run in a FastAPI threadpool worker
+    and bridge to async with their own short-lived ``asyncio.run`` loop. Handing
+    them a connection the main (lifespan/bootstrap) loop opened raises asyncpg's
+    "unknown protocol state". This engine uses ``NullPool`` -- it retains no
+    connection between checkouts (each ``asyncio.run`` opens a fresh connection on
+    its own loop and closes it on teardown) -- so it is safe to share the engine
+    OBJECT across loops while never reusing a loop-bound connection. The same
+    pattern alembic's env uses. Statement timeout and the URL are identical to the
+    pooled engine; only the pooling differs.
+    """
+    global _bridge_engine
+    if _bridge_engine is None:
+        url = get_settings().database_url
+        if not url:
+            raise RuntimeError(
+                "DATABASE_URL is not set. The database layer needs an "
+                "asyncpg URL like postgresql+asyncpg://user:pass@host/db."
+            )
+        _bridge_engine = create_async_engine(
+            url,
+            poolclass=NullPool,
+            future=True,
+            connect_args=_connect_args(url),
+        )
+    return _bridge_engine
+
+
+def get_bridge_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    """Return the NullPool sessionmaker for sync-thread bridges; build on first use.
+
+    Use this -- not :func:`get_sessionmaker` -- from any synchronous code that
+    reaches the database via its own ``asyncio.run`` loop (the catalog index, the
+    catalog DB read, the cost bridges), so a loop-bound pooled connection is never
+    reused across loops. Async request handlers and the single-loop CLIs keep the
+    pooled :func:`get_sessionmaker`.
+    """
+    global _bridge_sessionmaker
+    if _bridge_sessionmaker is None:
+        _bridge_sessionmaker = async_sessionmaker(
+            bind=get_bridge_engine(),
+            expire_on_commit=False,
+            class_=AsyncSession,
+        )
+    return _bridge_sessionmaker
+
+
 async def dispose_engine() -> None:
     """Dispose the engine and drop the cached sessionmaker. Robust + idempotent.
 
@@ -112,14 +167,17 @@ async def dispose_engine() -> None:
     dispose is logged, not raised, so a shutdown path can call this without a
     try/except and a half-open pool can never block the process from exiting.
     """
-    global _engine, _sessionmaker
+    global _engine, _sessionmaker, _bridge_engine, _bridge_sessionmaker
     engine, _engine = _engine, None
+    bridge, _bridge_engine = _bridge_engine, None
     _sessionmaker = None
-    if engine is not None:
-        try:
-            await engine.dispose()
-        except Exception:  # noqa: BLE001 - best-effort drain; never block shutdown
-            _log.exception("engine dispose raised during shutdown; continuing")
+    _bridge_sessionmaker = None
+    for eng in (engine, bridge):
+        if eng is not None:
+            try:
+                await eng.dispose()
+            except Exception:  # noqa: BLE001 - best-effort drain; never block shutdown
+                _log.exception("engine dispose raised during shutdown; continuing")
 
 
 async def shutdown() -> None:

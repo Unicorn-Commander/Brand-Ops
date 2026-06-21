@@ -21,7 +21,8 @@ from pathlib import Path
 
 from ..activity import append_event
 from ..asset_types import ASSET_TYPES
-from ..brand_loader import current_kits_dir
+from ..brand_loader import current_kits_dir, get_current_workspace_id
+from ..catalog_index import index_sidecar_sync
 from ..compliance.lifecycle import stamp_compliance
 from ..ingest import _write_sidecar
 from .catalog import _coerce_record
@@ -330,7 +331,17 @@ def save_upload(
         pass
 
     sidecar = dest.with_suffix(dest.suffix + ".json")
-    record = _build_record(sidecar, dest)
+    # Dual-write the catalog row into Postgres from the now-stamped sidecar, the
+    # same SoR transition the generation path does. Best-effort and a no-op when
+    # unscoped or without a DATABASE_URL; reads stay on the sidecars until the SoR
+    # flag flips. After the stamp so the row carries the lifecycle verdict.
+    index_sidecar_sync(
+        get_current_workspace_id(),
+        sidecar_path=sidecar,
+        workspace_root=root,
+        kind="imported",
+    )
+    record = _build_record(sidecar, dest, brand)
     if record is None:  # pragma: no cover - sidecar was just written
         raise UploadError("write_failed", "the upload was saved but could not be read back")
 
@@ -366,12 +377,19 @@ def _set_sidecar_variant(dest: Path, variant: str) -> None:
     sidecar.write_text(json.dumps(data, indent=2))
 
 
-def _build_record(sidecar: Path, image_path: Path) -> AssetRecord | None:
-    """Read the sidecar back into the same AssetRecord the catalog serves."""
+def _build_record(
+    sidecar: Path, image_path: Path, brand: str | None = None
+) -> AssetRecord | None:
+    """Read the sidecar back into the same AssetRecord the catalog serves.
+
+    ``brand`` is the owning brand (the destination kit directory), passed so the
+    record + its file URL key on where the bytes physically are -- the same
+    directory-authoritative rule the catalog walk uses.
+    """
     import json
 
     try:
         data = json.loads(sidecar.read_text())
     except (OSError, ValueError):  # pragma: no cover - sidecar was just written
         return None
-    return _coerce_record(data, sidecar, image_path, kind="imported")
+    return _coerce_record(data, sidecar, image_path, kind="imported", brand=brand)

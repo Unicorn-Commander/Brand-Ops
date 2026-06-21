@@ -15,7 +15,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Row, delete, func, select, update
+from sqlalchemy import Row, delete, func, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import (
@@ -85,6 +86,104 @@ async def create_asset(
     session.add(asset)
     await session.flush()
     return asset
+
+
+# The asset columns a re-index of the same file may legitimately refresh (a
+# compliance re-stamp, a backfill re-run, a regenerated file reusing a path). The
+# row's identity (id, workspace_id, storage_key) and its creation facts
+# (created_at, created_by) are insert-only and never overwritten.
+_ASSET_UPSERT_COLUMNS: tuple[str, ...] = (
+    "brand_slug",
+    "asset_type",
+    "kind",
+    "variant",
+    "topic",
+    "platform",
+    "backend",
+    "model",
+    "mime",
+    "width",
+    "height",
+    "transparent",
+    "cost_cents",
+    "prompt",
+    "reference_images",
+    "lifecycle_status",
+    "compliance",
+    "created_label",
+)
+
+
+async def upsert_asset(
+    session: AsyncSession,
+    workspace_id: _UUID,
+    *,
+    storage_key: str,
+    brand_slug: str,
+    asset_type: str,
+    kind: str | None = None,
+    variant: str | None = None,
+    topic: str | None = None,
+    platform: str | None = None,
+    backend: str | None = None,
+    model: str | None = None,
+    mime: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    transparent: bool | None = None,
+    cost_cents: float | None = None,
+    prompt: str | None = None,
+    reference_images: list | None = None,
+    lifecycle_status: str | None = None,
+    compliance: dict | None = None,
+    created_label: str | None = None,
+    created_by: str | None = None,
+) -> None:
+    """Insert or refresh the catalog row for one stored file, keyed on its path.
+
+    The natural key is ``(workspace_id, storage_key)`` -- one row per file in a
+    workspace -- so this is the idempotent write behind both the dual-write (a new
+    generation/upload) and the one-time backfill (re-runnable). On a conflict it
+    refreshes the descriptive + lifecycle columns (so a compliance re-stamp or a
+    backfill re-run reflects the latest sidecar) but never the row's identity or
+    creation facts. Runs under the caller's workspace scope: the INSERT and the
+    UPDATE branch both satisfy the asset RLS ``WITH CHECK`` because
+    ``workspace_id`` is the scoped workspace, and the conflict can only match a row
+    in that same workspace (the unique index leads with ``workspace_id`` and RLS
+    hides the rest). ``storage_key`` is required -- a keyless row could not upsert.
+    Does not commit; the caller owns the transaction.
+    """
+    values = {
+        "workspace_id": _as_uuid(workspace_id),
+        "storage_key": storage_key,
+        "brand_slug": brand_slug,
+        "asset_type": asset_type,
+        "kind": kind,
+        "variant": variant,
+        "topic": topic,
+        "platform": platform,
+        "backend": backend,
+        "model": model,
+        "mime": mime,
+        "width": width,
+        "height": height,
+        "transparent": transparent,
+        "cost_cents": cost_cents,
+        "prompt": prompt,
+        "reference_images": reference_images,
+        "lifecycle_status": lifecycle_status,
+        "compliance": compliance,
+        "created_label": created_label,
+        "created_by": created_by,
+    }
+    stmt = pg_insert(Asset).values(**values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["workspace_id", "storage_key"],
+        index_where=text("storage_key IS NOT NULL"),
+        set_={col: getattr(stmt.excluded, col) for col in _ASSET_UPSERT_COLUMNS},
+    )
+    await session.execute(stmt)
+    await session.flush()
 
 
 async def list_assets(
@@ -935,6 +1034,15 @@ async def export_workspace_rows(
         )
         .scalars()
         .all()
+    )
+    # workspace_member is USER-scoped under RLS (0002), so a workspace-only scope
+    # reads none of it. Opt into the SELECT-only export policy (0005) for THIS
+    # transaction by setting the membership-export GUC LOCAL; with the workspace
+    # already scoped, the policy then reveals exactly this tenant's members. The
+    # flag is local, so it reverts at commit and never leaks to the next request,
+    # and a normal request (which never sets it) still cannot enumerate co-members.
+    await session.execute(
+        text("SELECT set_config('app.membership_export', 'on', true)")
     )
     members = (
         (

@@ -13,7 +13,8 @@ from pathlib import Path
 
 from .activity import append_event
 from .backends.base import GenResult
-from .brand_loader import current_kits_dir
+from .brand_loader import current_kits_dir, get_current_workspace_id
+from .catalog_index import index_sidecar_sync
 from .compliance.lifecycle import stamp_compliance
 from .prompt_builder import BuiltPrompt
 
@@ -77,7 +78,8 @@ def save_result(
             "created_at": timestamp,
             "meta": result.meta,
         }
-        path.with_suffix(path.suffix + ".json").write_text(json.dumps(record, indent=2))
+        sidecar_path = path.with_suffix(path.suffix + ".json")
+        sidecar_path.write_text(json.dumps(record, indent=2))
         # Gate the asset at creation time: stamp its lifecycle status into the
         # sidecar from the deterministic compliance verdict. Best-effort -- a
         # stamping failure must never fail the generation that just succeeded.
@@ -85,6 +87,17 @@ def save_result(
             stamp_compliance(brand_slug, asset_type, path.name, "generated", kits_dir)
         except Exception:  # noqa: BLE001 - stamping is advisory, never fatal
             pass
+        # Dual-write the catalog row into Postgres from the now-stamped sidecar, so
+        # the DB tracks this asset going forward (the SoR transition). Best-effort
+        # and a complete no-op when unscoped (CLI / stdio MCP / tests) or without a
+        # DATABASE_URL; reads stay on the sidecars until the SoR flag flips. Placed
+        # after the stamp so the row carries the lifecycle verdict.
+        index_sidecar_sync(
+            get_current_workspace_id(),
+            sidecar_path=sidecar_path,
+            workspace_root=kits_dir or current_kits_dir(),
+            kind="generated",
+        )
         # Land the generation on the provenance feed: who generated what asset for
         # which brand. The single generation chokepoint, so one append here covers
         # the REST, MCP, and CLI paths. uc_uid is the request-scoped caller (the

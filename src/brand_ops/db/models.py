@@ -18,8 +18,10 @@ from datetime import datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -101,6 +103,22 @@ class Brand(Base):
 
 class Asset(Base):
     __tablename__ = "asset"
+    # The catalog source-of-truth key: one asset row per stored file, keyed by its
+    # workspace-relative ``storage_key`` (``<slug>/<kind>/<asset_type>/<file>``).
+    # Partial-unique (only when storage_key is set) so the dual-write and the
+    # backfill can upsert idempotently on it, while pre-SoR rows that never carried
+    # a key (or a future keyless row) are unconstrained. A null storage_key is
+    # already distinct under Postgres unique semantics; the partial predicate makes
+    # that explicit and keeps the index small.
+    __table_args__ = (
+        Index(
+            "uq_asset_ws_storage_key",
+            "workspace_id",
+            "storage_key",
+            unique=True,
+            postgresql_where=text("storage_key IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     workspace_id: Mapped[uuid.UUID] = mapped_column(
@@ -111,6 +129,9 @@ class Asset(Base):
     )
     brand_slug: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    # generated | imported -- the catalog "kind", mirrors the on-disk subtree and
+    # the AssetRecord.kind the read path returns. Nullable for pre-SoR rows.
+    kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     variant: Mapped[str | None] = mapped_column(String(120), nullable=True)
     topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
     platform: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -119,9 +140,21 @@ class Asset(Base):
     mime: Mapped[str | None] = mapped_column(String(64), nullable=True)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    transparent: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     cost_cents: Mapped[float | None] = mapped_column(Numeric(12, 4), nullable=True)
     storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     prompt: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The sidecar's reference_images list (relative paths) and the lifecycle +
+    # compliance stamp, so a DB-served record reconstructs the same AssetRecord the
+    # sidecar read path returns. JSON to match the request/result/profile blobs.
+    reference_images: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    lifecycle_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    compliance: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # The sidecar's ``created_at`` string label (``YYYY-MM-DD-HH-MM-SS``), the value
+    # the read path sorts on and returns verbatim; distinct from the row's own
+    # server-set ``created_at`` timestamp. Kept so DB reads sort identically to
+    # sidecar reads.
+    created_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = _created_at()
 

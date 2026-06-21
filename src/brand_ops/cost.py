@@ -142,13 +142,16 @@ async def enforce_image_quota(workspace_id: str | None) -> None:
     cap = image_cap_cents()
 
     try:
-        from .db.base import get_sessionmaker, workspace_session
+        # NullPool bridge sessionmaker: the gate runs on a throwaway asyncio.run /
+        # governor loop in a threadpool worker, so it must not reuse the pooled
+        # engine's loop-bound connections (see db.base.get_bridge_sessionmaker).
+        from .db.base import get_bridge_sessionmaker, workspace_session
         from .db.repository import (
             agent_spend_total_since,
             workspace_image_spend_since,
         )
 
-        sessionmaker = get_sessionmaker()  # raises if DATABASE_URL is unset
+        sessionmaker = get_bridge_sessionmaker()  # raises if DATABASE_URL is unset
         now = datetime.now(UTC)
         async with sessionmaker() as session:
             async with workspace_session(session, workspace_id) as scoped:
@@ -215,10 +218,13 @@ async def meter_image_spend(
     if not workspace_id:
         return
     try:
-        from .db.base import get_sessionmaker, workspace_session
+        # NullPool bridge sessionmaker (see db.base.get_bridge_sessionmaker): this
+        # best-effort meter runs on a throwaway asyncio.run / governor loop in a
+        # threadpool worker, so it must not reuse a pooled, loop-bound connection.
+        from .db.base import get_bridge_sessionmaker, workspace_session
         from .db.repository import record_spend_event
 
-        sessionmaker = get_sessionmaker()  # raises if DATABASE_URL is unset
+        sessionmaker = get_bridge_sessionmaker()  # raises if DATABASE_URL is unset
         async with sessionmaker() as session:
             async with workspace_session(session, workspace_id) as scoped:
                 await record_spend_event(
