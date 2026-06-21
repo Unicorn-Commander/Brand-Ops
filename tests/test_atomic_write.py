@@ -11,7 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from brand_ops.atomic_write import atomic_write_bytes, atomic_write_text
+from brand_ops.atomic_write import (
+    atomic_write_bytes,
+    atomic_write_text,
+    reserve_unique_path,
+)
 
 
 def test_write_bytes_produces_exact_content(tmp_path: Path) -> None:
@@ -129,3 +133,60 @@ def test_overwrite_preserves_existing_mode(tmp_path: Path) -> None:
     atomic_write_bytes(target, b"second")
     assert target.read_bytes() == b"second"
     assert target.stat().st_mode & 0o777 == 0o640
+
+
+# ─────────────────────────── reserve_unique_path ────────────────────────────
+
+
+def test_reserve_returns_plain_name_when_free(tmp_path: Path) -> None:
+    p = reserve_unique_path(tmp_path, "logo.png")
+    assert p == tmp_path / "logo.png"
+    # The name is claimed as a zero-byte placeholder the caller then fills.
+    assert p.exists()
+    assert p.stat().st_size == 0
+
+
+def test_reserve_bumps_suffix_on_collision(tmp_path: Path) -> None:
+    first = reserve_unique_path(tmp_path, "logo.png")
+    second = reserve_unique_path(tmp_path, "logo.png")
+    third = reserve_unique_path(tmp_path, "logo.png")
+    assert first.name == "logo.png"
+    assert second.name == "logo-1.png"
+    assert third.name == "logo-2.png"
+    # Every reservation is a distinct, real placeholder (nothing was overwritten).
+    assert len({first, second, third}) == 3
+    assert all(p.exists() for p in (first, second, third))
+
+
+def test_reserve_keeps_extension_on_dotted_stem(tmp_path: Path) -> None:
+    reserve_unique_path(tmp_path, "og-image.dark.png")
+    second = reserve_unique_path(tmp_path, "og-image.dark.png")
+    # Only the final suffix is the extension; the bump goes on the stem.
+    assert second.name == "og-image.dark-1.png"
+
+
+def test_reserve_then_atomic_write_fills_placeholder(tmp_path: Path) -> None:
+    p = reserve_unique_path(tmp_path, "icon.png")
+    atomic_write_bytes(p, b"the real bytes")
+    assert p.read_bytes() == b"the real bytes"
+    # The reserved placeholder lands 0644 like any served asset, not mkstemp 0600.
+    assert p.stat().st_mode & 0o777 == 0o644
+
+
+def test_reserve_protects_against_lost_update(tmp_path: Path) -> None:
+    # Two assets that resolve to the same name must both survive, not clobber.
+    a = reserve_unique_path(tmp_path, "card.png")
+    atomic_write_bytes(a, b"asset A")
+    b = reserve_unique_path(tmp_path, "card.png")
+    atomic_write_bytes(b, b"asset B")
+    assert a != b
+    assert a.read_bytes() == b"asset A"
+    assert b.read_bytes() == b"asset B"
+
+
+def test_reserve_creates_missing_dest_dir(tmp_path: Path) -> None:
+    nested = tmp_path / "brand" / "generated" / "logo"
+    assert not nested.exists()
+    p = reserve_unique_path(nested, "x.png")
+    assert p.exists()
+    assert p.parent == nested

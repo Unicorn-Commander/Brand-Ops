@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .activity import append_event
-from .atomic_write import atomic_write_bytes, atomic_write_text
+from .atomic_write import atomic_write_bytes, atomic_write_text, reserve_unique_path
 from .backends.base import GenResult
 from .brand_loader import current_kits_dir, get_current_workspace_id
 from .catalog_index import index_sidecar_sync
@@ -61,7 +61,12 @@ def save_result(
         if multi:
             stem = Path(name)
             name = f"{stem.stem}-{i + 1}{stem.suffix}"
-        path = out_dir / name
+        # Reserve a non-colliding path before writing. The timestamp is only
+        # one-second granular, so two generations of the same brand/asset/variant
+        # in the same second resolve to the same name and atomic_write_bytes would
+        # overwrite the first (its bytes AND sidecar lost). reserve_unique_path
+        # claims the name atomically (O_EXCL), bumping a -N suffix on a clash.
+        path = reserve_unique_path(out_dir, name)
         atomic_write_bytes(path, image)
 
         record = {

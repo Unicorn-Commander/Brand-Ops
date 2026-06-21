@@ -74,3 +74,43 @@ def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
     same temp-file + fsync + os.replace crash-safety guarantees.
     """
     atomic_write_bytes(path, text.encode(encoding))
+
+
+def reserve_unique_path(dest_dir: Path, file_name: str) -> Path:
+    """Atomically claim a non-colliding path in ``dest_dir`` for ``file_name``.
+
+    Returns a path this call has exclusively reserved by creating a zero-byte
+    placeholder with ``O_CREAT | O_EXCL``. Because that create is atomic, two
+    concurrent callers can never reserve the same path: the loser gets
+    ``FileExistsError`` and the stem is bumped with a ``-1``, ``-2`` ... suffix
+    until a free name is claimed.
+
+    This is the write-side guard against a lost update. ``atomic_write_bytes``
+    keeps a single write crash-safe, but its ``os.replace`` still OVERWRITES the
+    target, so two writes that resolve to the same name (e.g. two generations of
+    the same brand/asset/variant within the same one-second timestamp) would
+    silently clobber each other -- the first asset's bytes and sidecar gone. A
+    plain ``exists()`` test before writing narrows that window but leaves a
+    check-then-write race; the ``O_EXCL`` create closes it.
+
+    The caller fills the reserved path via ``atomic_write_bytes`` / ``_text``: its
+    ``os.replace`` overwrites the placeholder in one atomic step, and its
+    mode-preserving chmod gives the final file the placeholder's 0644 rather than
+    mkstemp's owner-only 0600. ``dest_dir`` is created if missing. A non-
+    ``FileExistsError`` OS error (an unwritable directory, say) propagates rather
+    than spinning the loop.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(file_name).stem
+    suffix = Path(file_name).suffix
+    candidate = dest_dir / file_name
+    counter = 0
+    while True:
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            counter += 1
+            candidate = dest_dir / f"{stem}-{counter}{suffix}"
+            continue
+        os.close(fd)
+        return candidate

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from ..activity import append_event
 from ..asset_types import ASSET_TYPES
-from ..atomic_write import atomic_write_bytes, atomic_write_text
+from ..atomic_write import atomic_write_bytes, atomic_write_text, reserve_unique_path
 from ..brand_loader import current_kits_dir, get_current_workspace_id
 from ..catalog_index import index_sidecar_sync
 from ..compliance.lifecycle import stamp_compliance
@@ -226,26 +226,6 @@ def _ensure_extension(safe_name: str, ext: str) -> str:
     return f"{stem}{ext}"
 
 
-def _unique_destination(dest_dir: Path, file_name: str) -> Path:
-    """A non-colliding path in ``dest_dir`` for ``file_name``.
-
-    Imports are managed copies, so we never overwrite an existing file; a clash
-    gets a ``-1``, ``-2`` suffix on the stem. Keeps the catalog from silently
-    replacing one asset's bytes (and sidecar) with another's.
-    """
-    candidate = dest_dir / file_name
-    if not candidate.exists():
-        return candidate
-    stem = Path(file_name).stem
-    suffix = Path(file_name).suffix
-    counter = 1
-    while True:
-        candidate = dest_dir / f"{stem}-{counter}{suffix}"
-        if not candidate.exists():
-            return candidate
-        counter += 1
-
-
 def save_upload(
     *,
     brand: str,
@@ -311,7 +291,10 @@ def save_upload(
         raise UploadError("invalid_path", "resolved upload path escapes the brand kit")
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    dest = _unique_destination(dest_dir, stored_name)
+    # Reserve a non-colliding destination atomically (O_EXCL), so a second upload
+    # whose sanitized name matches an existing asset lands on a -N name instead of
+    # overwriting it -- and two concurrent uploads can't both claim the same name.
+    dest = reserve_unique_path(dest_dir, stored_name)
     atomic_write_bytes(dest, data)
     # Reuse the ingest sidecar writer so an upload looks identical to an import in
     # the catalog. source="upload" distinguishes it from a disk-sourced import.
