@@ -210,6 +210,33 @@ def _resolve_mark(brand_slug, brand, mark, kits_dir):
     return None
 
 
+def render_card(
+    brand_slug: str,
+    asset_type: str,
+    *,
+    message: str | None = None,
+    mark: str | None = None,
+    kits_dir: Path | None = None,
+) -> tuple[bytes, Path | None]:
+    """Compose an og_image / social_card deterministically; return (PNG bytes, mark path).
+
+    The pure render with no catalog write: the brand's real fonts and exact colors
+    are drawn over a brand background with the mark composited in, so the copy is
+    always correct and on brand. Use this to produce a build-time file at an
+    arbitrary path (e.g. the web app's default link-preview image at
+    ``web/public/og.png``). :func:`generate_card` wraps this to also save the
+    result into the brand's managed catalog.
+    """
+    brand = load_brand(brand_slug, kits_dir)
+    if not cards.supported(asset_type):
+        raise ValueError(
+            f"{asset_type!r} has no card layout; composable: og_image, social_card"
+        )
+    mark_path = _resolve_mark(brand_slug, brand, mark, kits_dir)
+    png = cards.compose_card(brand, asset_type, message=message, mark_path=mark_path)
+    return png, mark_path
+
+
 def generate_card(
     brand_slug: str,
     asset_type: str,
@@ -254,8 +281,9 @@ def generate_card(
     if dry_run:
         return outcome
 
-    mark_path = _resolve_mark(brand_slug, brand, mark, kits_dir)
-    png = cards.compose_card(brand, asset_type, message=message, mark_path=mark_path)
+    png, mark_path = render_card(
+        brand_slug, asset_type, message=message, mark=mark, kits_dir=kits_dir
+    )
     result = GenResult(
         images=[png],
         mime="image/png",

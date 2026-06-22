@@ -67,3 +67,25 @@ def test_generate_card_dry_run_does_not_write():
 def test_generate_card_rejects_non_card_asset():
     with pytest.raises(ValueError):
         engine.generate_card("magic-unicorn", "logo", message="x", dry_run=True)
+
+
+def test_render_card_returns_png_size_and_mark():
+    # The pure render used to build the web app's link-preview image: PNG bytes
+    # at the OG size, with the brand mark resolved and composited.
+    png, mark_path = engine.render_card(
+        "brand-ops", "og_image", message="Every brand, under command."
+    )
+    im = _open(png)
+    assert im.size == (1200, 630)
+    assert im.format == "PNG"
+    assert mark_path is not None and Path(mark_path).is_file()
+
+
+def test_render_card_social_size():
+    png, _ = engine.render_card("brand-ops", "social_card", message="x")
+    assert _open(png).size == (1080, 1080)
+
+
+def test_render_card_rejects_non_composable():
+    with pytest.raises(ValueError):
+        engine.render_card("brand-ops", "logo")

@@ -6,6 +6,8 @@ entry the MCP server and REST API use.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -97,6 +99,55 @@ def generate(
         )
     for warn in built.warnings:
         console.print(f"[yellow]copy check:[/yellow] {warn}")
+
+
+@app.command()
+def card(
+    brand: str = typer.Option(..., "--brand", help="Brand slug, e.g. brand-ops."),
+    asset: str = typer.Option(
+        "og_image", "--asset", help="Card type: og_image (1200x630 link preview) or social_card (1080x1080)."
+    ),
+    message: str = typer.Option(
+        None, "--message", help="Headline (og_image) / tagline (social_card). Defaults to the brand tagline."
+    ),
+    mark: str = typer.Option(
+        None, "--mark", help="Mark filename under the brand's logo assets; defaults to the brand's declared mark."
+    ),
+    variant: str = typer.Option(None, "--variant"),
+    out: str = typer.Option(
+        None, "--out", help="Write the PNG to this path instead of the brand catalog, e.g. web/public/og.png."
+    ),
+) -> None:
+    """Compose a deterministic on-brand share card (og_image / social_card).
+
+    The text is rendered with the brand's real fonts and exact colors over a brand
+    background with the mark composited in, so the copy is always correct and on
+    brand (no model text rendering, no spend). With --out the PNG is written to
+    that path (the web app's default link-preview image is built this way);
+    otherwise it is saved into the brand's managed catalog like any other asset.
+    """
+    try:
+        if out:
+            png, mark_path = engine.render_card(brand, asset, message=message, mark=mark)
+            dest = Path(out)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(png)
+            via = f"mark {mark_path.name}" if mark_path else "no mark"
+            console.print(f"[green]Wrote[/green] {asset} ({len(png)} bytes, {via}) -> {dest}")
+            return
+        outcome = engine.generate_card(brand, asset, message=message, mark=mark, variant=variant)
+    except BrandNotFound as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+
+    console.print(f"[green]Composed[/green] {asset} for {brand}:")
+    for path in outcome.paths:
+        console.print(f"  {path}")
+    for note in outcome.notes:
+        console.print(f"[dim]{note}[/dim]")
 
 
 @app.command()
