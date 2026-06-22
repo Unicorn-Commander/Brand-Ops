@@ -35,6 +35,15 @@ DEFAULT_PROMPTS: dict[str, AssetPrompt] = {
         ),
         variants=["color", "monochrome", "dark", "light"],
     ),
+    "launcher_tile": AssetPrompt(
+        base=(
+            "Generate a square app launcher tile for {brand_context}. {style_keywords}. "
+            "A filled, brand-colored tile with the brand mark centered, reading clearly "
+            "at small sizes like 64x64 in an app grid. Simple and uncluttered, no text. "
+            "{ref_block}"
+        ),
+        variants=["color", "dark", "light"],
+    ),
     "og_image": AssetPrompt(
         base=(
             "Generate a 1200x630 share image for {brand_context}. Put the headline area "

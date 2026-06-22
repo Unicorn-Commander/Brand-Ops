@@ -105,7 +105,7 @@ def generate(
 def card(
     brand: str = typer.Option(..., "--brand", help="Brand slug, e.g. brand-ops."),
     asset: str = typer.Option(
-        "og_image", "--asset", help="Card type: og_image (1200x630) or social_card (1080x1080)."
+        "og_image", "--asset", help="Card type: og_image, social_card, or launcher_tile."
     ),
     message: str = typer.Option(
         None, "--message", help="Headline (og) / tagline (social). Defaults to the brand tagline."

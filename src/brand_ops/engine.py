@@ -230,7 +230,7 @@ def render_card(
     brand = load_brand(brand_slug, kits_dir)
     if not cards.supported(asset_type):
         raise ValueError(
-            f"{asset_type!r} has no card layout; composable: og_image, social_card"
+            f"{asset_type!r} has no card layout; composable: og_image, social_card, launcher_tile"
         )
     mark_path = _resolve_mark(brand_slug, brand, mark, kits_dir)
     png = cards.compose_card(brand, asset_type, message=message, mark_path=mark_path)
@@ -259,7 +259,7 @@ def generate_card(
     brand = load_brand(brand_slug, kits_dir)
     if not cards.supported(asset_type):
         raise ValueError(
-            f"{asset_type!r} has no card layout; composable: og_image, social_card"
+            f"{asset_type!r} has no card layout; composable: og_image, social_card, launcher_tile"
         )
 
     spec = get_asset_spec(asset_type)

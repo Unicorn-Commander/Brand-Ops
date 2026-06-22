@@ -40,6 +40,19 @@ ASSET_TYPES: dict[str, AssetSpec] = {
         transparent=True,
         notes="Must read at 32px. OpenAI gives native transparency.",
     ),
+    "launcher_tile": AssetSpec(
+        key="launcher_tile",
+        label="Launcher tile",
+        size=(512, 512),
+        default_backend="gemini",
+        transparent=False,
+        notes=(
+            "Square app tile for the Ops-Center launcher (and similar app grids). "
+            "A filled, brand-colored tile with the mark centered, legible at ~64px. "
+            "Composed deterministically from the brand mark + palette (cards.py), so "
+            "it is on brand and pixel-identical without spending on a backend."
+        ),
+    ),
     "og_image": AssetSpec(
         key="og_image",
         label="OG share image",

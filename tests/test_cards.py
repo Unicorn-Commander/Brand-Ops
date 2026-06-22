@@ -18,6 +18,7 @@ def _open(data: bytes) -> Image.Image:
 def test_supported():
     assert cards.supported("og_image")
     assert cards.supported("social_card")
+    assert cards.supported("launcher_tile")
     assert not cards.supported("logo")
 
 
@@ -89,3 +90,26 @@ def test_render_card_social_size():
 def test_render_card_rejects_non_composable():
     with pytest.raises(ValueError):
         engine.render_card("brand-ops", "logo")
+
+
+def test_compose_launcher_tile_size():
+    # The Ops-Center launcher tile: a 512x512 branded square with the mark, no text.
+    brand = load_brand("brand-ops")
+    data = cards.compose_card(brand, "launcher_tile")
+    im = _open(data)
+    assert im.size == (512, 512)
+    assert im.format == "PNG"
+
+
+def test_render_launcher_tile_resolves_mark():
+    png, mark_path = engine.render_card("brand-ops", "launcher_tile")
+    assert _open(png).size == (512, 512)
+    assert mark_path is not None and Path(mark_path).is_file()
+
+
+def test_launcher_tile_is_a_registered_asset_type():
+    from brand_ops.asset_types import get_asset_spec
+
+    spec = get_asset_spec("launcher_tile")
+    assert spec.size == (512, 512)
+    assert spec.transparent is False

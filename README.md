@@ -6,6 +6,49 @@ Magic Unicorn brand, generated on brand and on demand. MCP and agent first.
 
 Anchor: your brands, generated on brand, on your machine.
 
+![The Brand-Ops portfolio: every brand under command, with coverage and the agents on watch](docs/images/portfolio.png)
+
+## What it is
+
+Brand-Ops is the system of record for a brand and the studio that produces its
+assets. It holds each brand's palette, type, voice, and rules as machine-readable
+truth, then lets you or an agent generate on-brand assets against that truth and
+check any asset or copy for compliance. One engine sits behind a CLI, an MCP
+server, a REST API, and an agent-first GUI; it is multi-tenant and self-hostable.
+
+### The brand is the interface
+
+Open a brand and the whole surface recolors to it: its palette, its fonts, its
+mark. The brand book, the asset kit, the voice, and the agents on watch are one
+screen, themed to the brand you are working in.
+
+![A brand HQ themed to the brand's own palette, with the mark, the brand grade, and the color tokens](docs/images/brand-hq.png)
+
+### Agents that generate on brand
+
+Each brand has a Steward that knows its identity, plus a Director (Iris) for
+cross-brand work and intake. Ask in plain language; the agent composes the
+prompt, generates, and the result lands in the catalog with a compliance stamp.
+
+![The Studio: a brand Steward ready to build the kit, make an OG image, or check assets against the rules](docs/images/studio.png)
+
+### A living brand book
+
+Every brand carries a guidelines document rendered straight from its record:
+identity, color tokens, typography, voice, asset coverage, and a paste-able
+link-preview kit.
+
+![The brand book: brand guidelines rendered from the machine-readable brand record](docs/images/brand-book.png)
+
+### Ships in the suite
+
+Brand-Ops registers in the Ops-Center launcher as a tile. The tile artwork is
+itself a Brand-Ops asset (the `launcher_tile` type), composed deterministically
+from the brand mark and palette, so the launcher icon is on brand like every
+other asset.
+
+<img src="docs/images/launcher-tile.png" alt="The Brand-Ops Ops-Center launcher tile" width="128" />
+
 ## Status
 
 See STATUS.md for the workstream tracker. Brand-Ops is **live on two nodes**:

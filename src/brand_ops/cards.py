@@ -9,11 +9,14 @@ the copy is always correct, on brand, and pixel-identical run to run. That is
 the same "auditable brand truth" the compliance engine embodies, applied to
 production.
 
-The two layouts cover the suite's needs today:
+The layouts cover the suite's needs today:
 
 * ``og_image`` (1200x630): a left text column (eyebrow + headline) with the mark
   on the right. The link-preview / share card.
 * ``social_card`` (1080x1080): the mark centered over the wordmark and a tagline.
+* ``launcher_tile`` (512x512): just the brand mark on a branded square, sized to
+  read at ~64px. The Ops-Center launcher tile (and any app-grid icon). No text,
+  since copy would not read at tile size.
 
 Fonts are bundled under ``assets/fonts`` (Inter + Space Grotesk, both OFL). An
 unknown brand font falls back to Inter, and a missing font file falls back to
@@ -37,7 +40,7 @@ _FONT_FILES = {
 }
 
 # Supported card sizes.
-_SIZES = {"og_image": (1200, 630), "social_card": (1080, 1080)}
+_SIZES = {"og_image": (1200, 630), "social_card": (1080, 1080), "launcher_tile": (512, 512)}
 
 
 def supported(asset_type: str) -> bool:
@@ -204,8 +207,10 @@ def compose_card(
     draw = ImageDraw.Draw(card)
     if asset_type == "og_image":
         _compose_og(draw, card, size, style, text, mark_path)
-    else:
+    elif asset_type == "social_card":
         _compose_social(draw, card, size, style, text, mark_path)
+    else:  # launcher_tile: the mark on a branded square, no text
+        _compose_tile(card, size, mark_path)
 
     buffer = io.BytesIO()
     card.save(buffer, "PNG")
@@ -236,6 +241,21 @@ def _compose_og(draw, card, size, style, text, mark_path):
     for line in lines:
         draw.text((margin, y), line, font=headline_font, fill=style["fg"])
         y += hl_h
+
+
+def _compose_tile(card, size, mark_path):
+    """A launcher tile: the brand mark centered on the branded square, no text.
+
+    The mark fills the tile inside a ~16% margin on every side, so it stays
+    centered and legible when the launcher renders it small (~64px). The branded
+    background (the aurora wash over the brand background color) is already on the
+    card, so a transparent mark reads on brand; the tile itself is a full square
+    (the launcher applies its own corner rounding).
+    """
+    width, height = size
+    inset_x = round(width * 0.16)
+    inset_y = round(height * 0.16)
+    _paste_mark(card, mark_path, (inset_x, inset_y, width - inset_x, height - inset_y))
 
 
 def _compose_social(draw, card, size, style, text, mark_path):
