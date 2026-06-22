@@ -14,6 +14,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import InvalidRequestError
 
 from brand_ops.api import onboarding as ob
 from brand_ops.api.auth import Principal, require_principal
@@ -103,7 +104,24 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict]:
         "taken": set(),
     }
 
+    class _Txn:
+        def __init__(self, session):
+            self._session = session
+
+        async def __aenter__(self):
+            return self._session
+
+        async def __aexit__(self, *a):
+            # Commit resets the per-transaction query flag: a fresh begin() is fine.
+            self._session._queried = False
+            self._session._in_txn = False
+            return False
+
     class _FakeSession:
+        def __init__(self):
+            self._queried = False
+            self._in_txn = False
+
         async def __aenter__(self):
             return self
 
@@ -111,7 +129,13 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict]:
             return False
 
         def begin(self):
-            return _FakeSession()
+            # Model SQLAlchemy autobegin: a query issued before an explicit begin()
+            # autobegins a transaction, so a later begin() must raise. This is the
+            # exact failure the live synthetic E2E caught (a SELECT before begin()).
+            if self._queried and not self._in_txn:
+                raise InvalidRequestError("A transaction is already begun on this Session.")
+            self._in_txn = True
+            return _Txn(self)
 
     def _fake_sessionmaker():
         return _FakeSession
@@ -135,9 +159,11 @@ def stub_db(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict]:
         return WorkspaceContext(workspace_id=e[0], workspace_slug=e[1], role=e[2])
 
     async def _fake_slug_exists(session, slug):
+        session._queried = True  # a SELECT autobegins a transaction
         return slug in calls["taken"]
 
     async def _fake_upsert_workspace(session, *, workspace_id, slug):
+        session._queried = True
         calls["upsert_ws"].append((workspace_id, slug))
         return None
 

@@ -219,18 +219,20 @@ async def provision_personal_workspace(
     sm = get_sessionmaker()
 
     # Create the workspace anchor row. The slug is disambiguated against existing
-    # workspaces first; the IntegrityError catch covers the rare check-then-insert
-    # race (a concurrent signup taking the slug in between) by retrying once with a
-    # uuid-fragment suffix that cannot collide.
-    async with sm() as session:
-        slug = await _unique_slug(session, base)
-        try:
-            async with session.begin():
-                await repo.upsert_workspace(session, workspace_id=ws_id, slug=slug)
-        except IntegrityError:
-            slug = f"{base}-{uuid.uuid4().hex[:8]}"
-            async with session.begin():
-                await repo.upsert_workspace(session, workspace_id=ws_id, slug=slug)
+    # workspaces in the SAME transaction as the insert: the transaction is begun
+    # first (begin() before any query), because the first SELECT would otherwise
+    # autobegin one and make the explicit begin() raise. The IntegrityError catch
+    # covers the rare check-then-insert race (a concurrent signup taking the slug
+    # in between) by retrying once, in a fresh transaction, with a uuid-fragment
+    # suffix that cannot collide.
+    try:
+        async with sm() as session, session.begin():
+            slug = await _unique_slug(session, base)
+            await repo.upsert_workspace(session, workspace_id=ws_id, slug=slug)
+    except IntegrityError:
+        slug = f"{base}-{uuid.uuid4().hex[:8]}"
+        async with sm() as session, session.begin():
+            await repo.upsert_workspace(session, workspace_id=ws_id, slug=slug)
 
     # Grant the caller an owner, default membership. User-scoped RLS: the
     # workspace_member policy keys on the member's own user_key, so this runs under
