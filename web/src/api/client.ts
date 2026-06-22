@@ -12,6 +12,8 @@
 import type {
   Me,
   MeWorkspaces,
+  OnboardingStatus,
+  ProvisionedWorkspace,
   ActivityEvent,
   ActivityList,
   AgentGovernance,
@@ -775,6 +777,34 @@ export async function meWorkspaces(signal?: AbortSignal): Promise<MeWorkspaces> 
   return request<MeWorkspaces>("/me/workspaces", { signal });
 }
 
+/**
+ * GET /api/onboarding -> whether self-serve signup is on and whether this caller
+ * needs it (authenticated, no workspace yet). Drives the first-run gate.
+ */
+export async function getOnboardingStatus(
+  signal?: AbortSignal,
+): Promise<OnboardingStatus> {
+  return request<OnboardingStatus>("/onboarding", { signal });
+}
+
+/**
+ * POST /api/onboarding/provision -> mint (or return) the caller's own workspace.
+ * `displayName` is the optional label the user picked; the backend derives one
+ * from their identity when it is blank. Idempotent: a caller who already has a
+ * workspace gets it back with `created=false`.
+ */
+export async function provisionWorkspace(
+  displayName?: string,
+  signal?: AbortSignal,
+): Promise<ProvisionedWorkspace> {
+  const body = displayName?.trim() ? { display_name: displayName.trim() } : {};
+  return request<ProvisionedWorkspace>("/onboarding/provision", {
+    method: "POST",
+    body,
+    signal,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Agent governance + spend (the Crew page's real controls)
 // ---------------------------------------------------------------------------
@@ -816,6 +846,8 @@ export async function putAgentGovernance(
 export const api = {
   me,
   meWorkspaces,
+  getOnboardingStatus,
+  provisionWorkspace,
   listBrands,
   getBrand,
   cloneBrand,

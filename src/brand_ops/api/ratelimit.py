@@ -70,6 +70,10 @@ _LIMITED_SPECS: tuple[tuple[str, str], ...] = (
     ("POST", r"/api/director/chat"),
     ("POST", rf"/api/brands/{_SEG}/agents/{_SEG}/avatar"),
     ("POST", rf"/api/brands/{_SEG}/agents/{_SEG}/variants"),
+    # Self-serve signup: cheap and idempotent (a repeat returns the existing
+    # workspace), but capped anyway so a flood of provision attempts from one
+    # caller cannot churn workspace rows.
+    ("POST", r"/api/onboarding/provision"),
 )
 
 # Compiled (method, pattern) pairs. The pattern is fullmatch-anchored so

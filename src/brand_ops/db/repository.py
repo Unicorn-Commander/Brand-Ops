@@ -569,6 +569,19 @@ async def upsert_workspace(
     return ws
 
 
+async def workspace_slug_exists(session: AsyncSession, slug: str) -> bool:
+    """True when any workspace already uses ``slug``. Needs no workspace GUC.
+
+    The ``workspace`` table is the tenant anchor and is NOT row-level-secured, so
+    this global existence check (used by self-serve signup to pick a free slug)
+    runs without a scope. The slug column is unique, so a hit means exactly one
+    row; the unique constraint remains the final backstop against a concurrent
+    check-then-insert race.
+    """
+    stmt = select(Workspace.id).where(Workspace.slug == slug).limit(1)
+    return (await session.execute(stmt)).first() is not None
+
+
 async def list_user_memberships(
     session: AsyncSession, user_key: str
 ) -> Sequence[Row[Any]]:

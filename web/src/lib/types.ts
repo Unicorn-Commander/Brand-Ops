@@ -1088,6 +1088,29 @@ export interface MeWorkspaces {
   workspaces: Workspace[];
 }
 
+/**
+ * GET /api/onboarding: whether the caller should be offered self-serve signup.
+ * `needs_onboarding` is the single signal the app gate reads (self-serve on AND
+ * the authenticated caller has no workspace yet). `suggested_name` pre-fills the
+ * create-workspace field.
+ */
+export interface OnboardingStatus {
+  enabled: boolean;
+  needs_onboarding: boolean;
+  has_workspace: boolean;
+  suggested_name: string | null;
+}
+
+/** POST /api/onboarding/provision: the workspace the caller now belongs to. */
+export interface ProvisionedWorkspace {
+  workspace_id: string;
+  slug: string;
+  role: string;
+  is_default: boolean;
+  /** False when the caller already had a workspace (idempotent no-op). */
+  created: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Agent governance + spend (the Crew page's real controls)
 // ---------------------------------------------------------------------------

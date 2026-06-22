@@ -33,6 +33,7 @@ from .http_guards import setup_http_guards
 from .lifecycle import setup_lifecycle
 from .mcp_http import attach_mcp_http, mcp_http_enabled, mcp_lifespan
 from .observability import configure_logging, setup_observability
+from .onboarding import onboarding_router
 from .ratelimit import setup_ratelimit
 from .routes import router
 from .schemas import HealthOut
@@ -134,6 +135,7 @@ def create_app() -> FastAPI:
 
     app.include_router(router)
     app.include_router(admin_router)
+    app.include_router(onboarding_router)
     if mcp_http:
         attach_mcp_http(app)
 

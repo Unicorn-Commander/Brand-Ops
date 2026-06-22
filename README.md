@@ -117,6 +117,18 @@ deploy files are `Dockerfile`, `deploy/docker-compose.yml` (generic), and
 `deploy/docker-compose.bigboy.yml` (host-pinned, Traefik on
 `brand-ops.magicunicorn.dev`).
 
+### Self-serve signup (optional)
+
+By default a new tenant is onboarded by an operator (the boot allow-list or the
+admin grant route). Setting `BRAND_OPS_SELF_SERVE_SIGNUP=true` turns on first-run
+self-provisioning: an authenticated suite user with no workspace is offered a
+"Set up your workspace" screen and `POST /api/onboarding/provision` mints them an
+`owner`, default workspace (self-only, idempotent, audited). It is off by default
+and needs no Keycloak change for existing suite users; to let brand-new people
+register a `uchub` account, an operator also enables registration on the shared
+realm. Provisioning is free: Brand-Ops has no native billing (plan and spend caps
+live upstream). See `docs/DEPLOY-TENANCY.md`.
+
 ## Layout
 
 On a deployed (multi-tenant) server, brand files live under a per-workspace

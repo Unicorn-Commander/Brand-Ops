@@ -1,11 +1,14 @@
 import { useEffect } from "react";
 import { NavLink, Outlet, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "./CommandPalette";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { EnvProvider, useBrandEnv } from "../v2/EnvProvider";
+import SignupWelcome from "../v2/SignupWelcome";
 import { UserMenu } from "../v2/UserMenu";
 import { WorkspaceSwitcher } from "../v2/WorkspaceSwitcher";
 import { ViewModeToggle } from "../v2/ViewModeToggle";
+import { getOnboardingStatus } from "../api/client";
 import { applyAmbient } from "../lib/ambient";
 import { useActiveBrand } from "../brand-context";
 import { useViewMode } from "../view-mode";
@@ -115,6 +118,23 @@ export function Layout() {
   useEffect(() => {
     applyAmbient();
   }, []);
+  // First-run gate: an authenticated suite user with no workspace yet (and only
+  // when self-serve signup is enabled on this deploy) is sent to the create-your-
+  // workspace screen instead of the deny-by-default empty app. The check only
+  // flips the gate when we KNOW (needs_onboarding); while it loads the normal
+  // chrome renders, so a user who already has a workspace is never delayed.
+  const onboarding = useQuery({
+    queryKey: ["onboarding"],
+    queryFn: ({ signal }) => getOnboardingStatus(signal),
+    retry: 1,
+  });
+  if (onboarding.data?.needs_onboarding) {
+    return (
+      <EnvProvider>
+        <SignupWelcome suggestedName={onboarding.data.suggested_name} />
+      </EnvProvider>
+    );
+  }
   return (
     <EnvProvider>
       <LightboxProvider>
