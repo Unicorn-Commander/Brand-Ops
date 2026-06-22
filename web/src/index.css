@@ -673,8 +673,13 @@
   .mark-cell .mat img { height: 140px; width: auto; max-width: 82%; object-fit: contain; border-radius: 14px; }
   .kit { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
   .kit-cell { border: 1px solid var(--b-hairline); border-radius: var(--radius-sm); padding: 12px; background: rgba(255,255,255,0.025); display: flex; flex-direction: column; gap: 9px; }
-  .kit-cell .thumb { height: 86px; border-radius: 7px; background: var(--mat-dark); display: grid; place-items: center; overflow: hidden; }
-  .kit-cell .thumb img { max-width: 82%; max-height: 80%; object-fit: contain; }
+  .kit-cell .thumb { height: 86px; border-radius: 7px; background: var(--mat-dark); display: grid; place-items: center; overflow: hidden; padding: 10px; }
+  /* Fill the (padded) box and contain. A percentage max-height does not reliably
+     constrain a replaced grid item, so a square/tall asset (logo, app icon)
+     overflowed the 86px thumb and was clipped at the bottom, while wide ones (og
+     image, social card) -- constrained by width -- looked fine. width/height 100%
+     + object-fit contain fits every aspect ratio inside the box, nothing cut off. */
+  .kit-cell .thumb img { width: 100%; height: 100%; object-fit: contain; }
   .kit-cell.missing .thumb { background: transparent; border: 1.5px dashed var(--b-hairline); color: var(--b-ink-3); font-size: 22px; }
   .voice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
   .voice-card, .agent-card, .act { border: 1px solid var(--b-hairline); border-radius: var(--radius); padding: 22px 26px; background: rgba(255,255,255,0.025); }
