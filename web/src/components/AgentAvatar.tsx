@@ -40,9 +40,13 @@ export function AgentAvatar({
   const ringClass = ring ? "accent-ring" : "ring-1 ring-white/10";
 
   if (src) {
-    // The chip keeps the round object-cover crop; clicking it opens the full
-    // square mark in the lightbox. stopPropagation so it does not also trigger a
-    // parent row/card click (this avatar sits inside clickable cards).
+    // The avatar art is a brand MARK (a logo), not a photo, so it is contained
+    // with a small inset rather than cropped: object-cover crops a square mark to
+    // the circle and clips the mark at the edges (the steward unicorn lost its
+    // chin). object-contain inside the centered circle, sized to ~84%, shows the
+    // whole mark with breathing room at every avatar size. Clicking still opens
+    // the full square mark in the lightbox. stopPropagation so it does not also
+    // trigger a parent row/card click (this avatar sits inside clickable cards).
     const enlarge = (e: { stopPropagation: () => void }) => {
       e.stopPropagation();
       open(src, name);
@@ -65,7 +69,7 @@ export function AgentAvatar({
         <img
           src={src}
           alt={name}
-          className="h-full w-full rounded-full object-cover"
+          className="max-h-[84%] max-w-[84%] object-contain"
         />
       </span>
     );
