@@ -83,6 +83,21 @@ the Open Graph / Twitter tags in `web/index.html`, so a shared Brand-Ops link
 renders that preview (the absolute origin in those tags is injected at build time
 from `BRAND_OPS_SITE_URL`, defaulting to the prod host).
 
+Each brand also gets the matching **link-preview kit**: the Open Graph + Twitter
+tags to paste into that brand's OWN site, so a link to the brand unfurls into the
+brand's share image. The preview lives on the brand's site, so pass the brand's
+canonical URL (or set a `website` on the brand) and where it hosts the image;
+anything left unset uses a clearly-marked example domain.
+
+```bash
+# print the <meta> tags for a brand's own site
+uv run brand-ops share-meta --brand magic-unicorn --url https://magicunicorn.tech
+```
+
+The same kit is served at `GET /api/brands/{slug}/share-preview` (and the MCP
+tool `get_share_preview`), and the brand book's **Link preview** section renders
+it with a copy button and a field for the brand's site URL.
+
 ## Web GUI
 
 The `web/` directory is a Vite + React single-page app: Studio (compose and

@@ -777,6 +777,32 @@ export interface AssetGroup {
  * disagrees with the rest of the suite. `generated_at` is left null by the
  * route. Mirrors BrandGuidelines in schemas.py.
  */
+export interface ShareMetaTag {
+  attr: string; // "property" (Open Graph) or "name" (Twitter Card)
+  key: string; // e.g. "og:image", "twitter:card"
+  content: string;
+}
+
+export interface SharePreviewImage {
+  asset_url: string;
+  file: string;
+  width: number;
+  height: number;
+}
+
+/** A brand's social-share / link-preview kit (GET /brands/{slug}/share-preview). */
+export interface SharePreview {
+  brand: string;
+  title: string;
+  description: string;
+  url: string;
+  image_url: string;
+  tags: ShareMetaTag[];
+  html: string;
+  placeholders: string[];
+  image: SharePreviewImage | null;
+}
+
 export interface BrandGuidelines {
   brand: GuidelineBrand;
   /** Semantic color tokens (role name + hex + rgb). */

@@ -79,6 +79,12 @@ class BrandMeta(BaseModel):
     tagline: str | None = None
     parent: str | None = None
     description: str | None = None
+    # The brand's own canonical site, if any (e.g. https://magicunicorn.tech).
+    # Fills og:url and defaults the og:image when building the brand's
+    # social-share / link-preview tags -- those links unfurl on the brand's own
+    # site, not in Brand-Ops. Optional and file-loaded (no DB column), so
+    # existing brand.yamls keep loading unchanged.
+    website: str | None = None
     mark: BrandMark | None = None
     # Canonical owning tenant: the uc-registry workspace_id (uuid). A brand
     # created by the scoped write path is stamped with the active workspace_id,

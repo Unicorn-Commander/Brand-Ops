@@ -697,6 +697,46 @@ class BrandRules(BaseModel):
     manual_rules: list[ManualRule] = Field(default_factory=list)
 
 
+class ShareMetaTag(BaseModel):
+    """One ``<meta>`` tag of a brand's link preview."""
+
+    attr: str  # "property" (Open Graph) or "name" (Twitter Card)
+    key: str  # e.g. "og:image", "twitter:card"
+    content: str
+
+
+class SharePreviewImage(BaseModel):
+    """The brand's existing og_image in the Brand-Ops catalog, if one exists."""
+
+    asset_url: str
+    file: str
+    width: int = 1200
+    height: int = 630
+
+
+class SharePreview(BaseModel):
+    """A brand's social-share / link-preview kit (GET /brands/{slug}/share-preview).
+
+    The Open Graph + Twitter Card tags a brand pastes into its OWN site's
+    ``<head>`` so a shared link unfurls into the brand's 1200x630 share image.
+    ``html`` is the ready-to-paste snippet. ``placeholders`` names the tags still
+    using an example domain because the brand's canonical URL / hosted image URL
+    were not supplied (pass ``canonical_url`` / ``image_url``, or set the brand's
+    ``website``). ``image`` is the brand's og_image in the catalog -- to preview
+    here and download to host -- or null if none has been generated yet.
+    """
+
+    brand: str
+    title: str
+    description: str
+    url: str
+    image_url: str
+    tags: list[ShareMetaTag] = Field(default_factory=list)
+    html: str = ""
+    placeholders: list[str] = Field(default_factory=list)
+    image: SharePreviewImage | None = None
+
+
 class ComplianceCheckRequest(BaseModel):
     """Body for POST /compliance/check.
 

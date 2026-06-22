@@ -51,6 +51,7 @@ import type {
   PlanGenerationReply,
   PlanGenerationRequest,
   PromptPreview,
+  SharePreview,
   TemplateList,
   TemplateDef,
   TransitionRequest,
@@ -508,6 +509,21 @@ export async function getBrandGuidelines(
 ): Promise<BrandGuidelines> {
   return request<BrandGuidelines>(
     `/brands/${encodeURIComponent(slug)}/guidelines`,
+    { signal },
+  );
+}
+
+export async function getSharePreview(
+  slug: string,
+  opts?: { canonicalUrl?: string; imageUrl?: string },
+  signal?: AbortSignal,
+): Promise<SharePreview> {
+  const params = new URLSearchParams();
+  if (opts?.canonicalUrl) params.set("canonical_url", opts.canonicalUrl);
+  if (opts?.imageUrl) params.set("image_url", opts.imageUrl);
+  const qs = params.toString();
+  return request<SharePreview>(
+    `/brands/${encodeURIComponent(slug)}/share-preview${qs ? `?${qs}` : ""}`,
     { signal },
   );
 }

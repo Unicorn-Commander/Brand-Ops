@@ -34,7 +34,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 
-from .. import agent_identity, engine, governance, retention, voices
+from .. import agent_identity, engine, governance, retention, share_meta, voices
 from ..activity import append_event, read_events
 from ..agents.brand_intake import BrandIntakeAgent
 from ..agents.brand_research import _slugify
@@ -126,6 +126,8 @@ from .schemas import (
     PlanGenerationRequest,
     PromptPreview,
     SetAgentVoiceRequest,
+    SharePreview,
+    SharePreviewImage,
     TemplateList,
     TransitionRequest,
     TransitionResult,
@@ -718,6 +720,53 @@ def get_brand_guidelines(slug: str, _: _Auth) -> BrandGuidelines:
     except ValueError as exc:
         raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
     return BrandGuidelines.model_validate(doc)
+
+
+def _latest_og_image(slug: str) -> SharePreviewImage | None:
+    """The brand's newest og_image catalog record (to preview + download), or None.
+
+    Reads the same scoped catalog the Library reads, filtered to og_image; best
+    effort, so a read failure or a brand with no share image yet simply yields
+    None (the kit is still returned, just without a hosted-image reference).
+    """
+    try:
+        records = [r for r in read_assets(brand=slug, asset="og_image") if r.url]
+    except Exception:  # noqa: BLE001 - a catalog hiccup must not break the kit
+        return None
+    if not records:
+        return None
+    records.sort(key=lambda r: r.created_at or "", reverse=True)
+    newest = records[0]
+    width, height = (list(newest.size) + [1200, 630])[:2]
+    return SharePreviewImage(
+        asset_url=newest.url, file=newest.file, width=width, height=height
+    )
+
+
+@router.get("/brands/{slug}/share-preview", response_model=SharePreview)
+def get_brand_share_preview(
+    slug: str,
+    _: _Auth,
+    canonical_url: str | None = None,
+    image_url: str | None = None,
+) -> SharePreview:
+    """Return the brand's social-share / link-preview kit.
+
+    The Open Graph + Twitter Card tags (and a ready-to-paste HTML snippet) a
+    brand drops into its OWN site's ``<head>`` so a shared link unfurls into the
+    brand's 1200x630 share image. The preview lives on the brand's site, not in
+    Brand-Ops, so the canonical URL and the hosted image URL are the brand's to
+    supply: pass ``canonical_url`` / ``image_url``, or set the brand's
+    ``website`` to fill og:url automatically. Any tag left on an example domain
+    is named in ``placeholders``. ``image`` references the brand's og_image in
+    the catalog (to preview and download), or is null if none exists yet. A
+    missing brand is a 404.
+    """
+    brand = _load_brand_or_404(slug)
+    meta = share_meta.build_share_meta(
+        brand, canonical_url=canonical_url, image_url=image_url
+    )
+    return SharePreview(brand=slug, image=_latest_og_image(slug), **meta)
 
 
 @router.post("/compliance/check", response_model=ComplianceResult)

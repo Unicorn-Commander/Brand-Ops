@@ -105,17 +105,17 @@ def generate(
 def card(
     brand: str = typer.Option(..., "--brand", help="Brand slug, e.g. brand-ops."),
     asset: str = typer.Option(
-        "og_image", "--asset", help="Card type: og_image (1200x630 link preview) or social_card (1080x1080)."
+        "og_image", "--asset", help="Card type: og_image (1200x630) or social_card (1080x1080)."
     ),
     message: str = typer.Option(
-        None, "--message", help="Headline (og_image) / tagline (social_card). Defaults to the brand tagline."
+        None, "--message", help="Headline (og) / tagline (social). Defaults to the brand tagline."
     ),
     mark: str = typer.Option(
-        None, "--mark", help="Mark filename under the brand's logo assets; defaults to the brand's declared mark."
+        None, "--mark", help="Mark filename under the brand's logos; defaults to the brand's mark."
     ),
     variant: str = typer.Option(None, "--variant"),
     out: str = typer.Option(
-        None, "--out", help="Write the PNG to this path instead of the brand catalog, e.g. web/public/og.png."
+        None, "--out", help="Write the PNG here instead of the catalog, e.g. web/public/og.png."
     ),
 ) -> None:
     """Compose a deterministic on-brand share card (og_image / social_card).
@@ -148,6 +148,42 @@ def card(
         console.print(f"  {path}")
     for note in outcome.notes:
         console.print(f"[dim]{note}[/dim]")
+
+
+@app.command("share-meta")
+def share_meta_cmd(
+    brand: str = typer.Option(..., "--brand", help="Brand slug, e.g. magic-unicorn."),
+    url: str = typer.Option(
+        None, "--url", help="The brand's canonical site URL (defaults to its declared website)."
+    ),
+    image_url: str = typer.Option(
+        None, "--image-url", help="Where the brand hosts the image; defaults to <site>/og.png."
+    ),
+) -> None:
+    """Print the Open Graph + Twitter tags a brand pastes into its OWN site.
+
+    These make a shared link to the brand's site unfurl into the brand's 1200x630
+    share image (generate one with `brand-ops card`). The preview lives on the
+    brand's site, so pass --url (or set the brand's website) and --image-url for
+    absolute tags; otherwise the snippet uses a clearly-marked example domain and
+    names what to fill in.
+    """
+    from . import share_meta
+    from .brand_loader import load_brand
+
+    try:
+        b = load_brand(brand)
+    except BrandNotFound as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from None
+
+    meta = share_meta.build_share_meta(b, canonical_url=url, image_url=image_url)
+    console.print(meta["html"], markup=False, highlight=False)
+    if meta["placeholders"]:
+        console.print(
+            f"[yellow]fill in:[/yellow] {', '.join(meta['placeholders'])} "
+            "(currently an example domain; pass --url/--image-url or set the brand's website)"
+        )
 
 
 @app.command()

@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { getBrandGuidelines } from "../../api/client";
+import { toast } from "sonner";
+import { getBrandGuidelines, getSharePreview } from "../../api/client";
 import { GlassPanel } from "../../components/GlassPanel";
 import { Button } from "../../components/Button";
 import { Spinner } from "../../components/Spinner";
@@ -39,6 +40,7 @@ import type {
   BrandGuidelines,
   ColorToken,
   FontToken,
+  SharePreview,
 } from "../../lib/types";
 
 /**
@@ -264,6 +266,91 @@ function LogoPlate({
  * document. The outer wrapper carries `id="brand-book"` so the print rules can
  * isolate it (everything else on the page is hidden when printing).
  */
+/**
+ * The brand's link-preview kit: the Open Graph + Twitter tags a brand pastes
+ * into its OWN site so a shared link unfurls into the brand's share image. The
+ * snippet fills in once the brand's site URL is entered; the copy button lifts
+ * the whole block. The preview image is the brand's og_image from the catalog.
+ */
+function LinkPreviewBody({ slug }: { slug: string }) {
+  const [site, setSite] = useState("");
+  const [copied, setCopied] = useState(false);
+  const canonicalUrl = site.trim();
+  const previewQ = useQuery({
+    queryKey: ["share-preview", slug, canonicalUrl],
+    queryFn: ({ signal }) =>
+      getSharePreview(slug, canonicalUrl ? { canonicalUrl } : undefined, signal),
+    enabled: Boolean(slug),
+  });
+  const data: SharePreview | undefined = previewQ.data;
+
+  const copy = async () => {
+    if (!data) return;
+    try {
+      await navigator.clipboard.writeText(data.html);
+      setCopied(true);
+      toast.success("Meta tags copied");
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      toast.error("Could not copy to clipboard");
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {data?.image ? (
+        <img
+          src={data.image.asset_url}
+          alt={`${slug} share image`}
+          width={data.image.width}
+          height={data.image.height}
+          className="w-full rounded-xl border border-white/10 print:border-black/10"
+        />
+      ) : (
+        <p className="rounded-xl border border-dashed border-white/12 p-4 text-sm text-text-muted print:border-black/15 print:text-black/60">
+          No share image yet. Generate an <span className="font-mono">og_image</span> in
+          Studio and it appears here, ready to host.
+        </p>
+      )}
+
+      <label className="block text-xs font-medium uppercase tracking-[0.16em] text-text-muted print:text-black/60">
+        Your site URL
+        <input
+          type="url"
+          value={site}
+          onChange={(e) => setSite(e.target.value)}
+          placeholder="https://your-brand.com"
+          className="mt-2 w-full rounded-lg border border-white/12 bg-white/[0.03] px-3 py-2 text-sm text-text outline-none focus:border-accent/60 print:hidden"
+        />
+      </label>
+
+      <div className="relative">
+        <pre className="max-h-72 overflow-auto rounded-xl border border-white/10 bg-black/30 p-4 pr-12 text-[11px] leading-relaxed text-text-muted print:border-black/10 print:bg-black/[0.03] print:text-black/70">
+          <code>{data?.html ?? ""}</code>
+        </pre>
+        <button
+          type="button"
+          onClick={copy}
+          disabled={!data}
+          title="Copy the meta tags"
+          className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-md border border-white/12 bg-white/[0.04] px-2 py-1 text-xs text-text transition-colors hover:bg-white/[0.08] disabled:opacity-50 print:hidden"
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+
+      {data && data.placeholders.length > 0 && (
+        <p className="text-xs text-text-faint print:text-black/50">
+          Enter your site URL above to fill {data.placeholders.join(" and ")}, then host
+          the share image on your site (the snippet points to{" "}
+          <span className="font-mono">/og.png</span> by default).
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
   const { brand, colors, typography, rules, voice, logo, asset_groups, generated_at } =
     data;
@@ -586,6 +673,16 @@ function BrandBook({ data, slug }: { data: BrandGuidelines; slug: string }) {
             description="Generate or upload assets for this brand and they will appear here, grouped by type."
           />
         )}
+      </Section>
+
+      {/* LINK PREVIEW: the share tags the brand pastes into its own site. */}
+      <Section
+        index="06"
+        eyebrow="Share"
+        title="Link preview"
+        lede="The Open Graph and Twitter tags to paste into this brand's own site, so a shared link unfurls into the brand's share image on social, iMessage, and chat."
+      >
+        <LinkPreviewBody slug={slug} />
       </Section>
 
       {/* Printed footer line: brand + date. Hidden on screen, shown in print. */}

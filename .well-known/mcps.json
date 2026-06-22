@@ -380,6 +380,32 @@
       "read_only": true
     },
     {
+      "name": "get_share_preview",
+      "description": "Get a brand's social-share / link-preview kit (Open Graph + Twitter Card tags). Returns the meta tags and a ready-to-paste html snippet a brand drops into its own site's head so a shared link unfurls into the brand's 1200x630 share image. Pass canonical_url and image_url (or set the brand's website) for absolute tags; any tag left on an example domain is named in placeholders. image references the brand's og_image in the catalog, or is null if none has been generated yet.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "The brand slug, for example magic-unicorn."
+          },
+          "canonical_url": {
+            "type": "string",
+            "description": "The brand's site URL the shared link points to. Optional."
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Where the brand hosts its share image. Optional."
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": false
+      },
+      "scopes_required": ["brand-ops:read"],
+      "tier_required": "free",
+      "read_only": true
+    },
+    {
       "name": "check_compliance",
       "description": "Check an asset or a piece of text against a brand's deterministic rules and return a structured pass, warn, or fail result with a score, per-rule checks, and human-readable violations. Pass a catalog file (with its asset type and kind) to run the color-palette check on the image, or pass text to run the banned-term, em-dash, and required-term checks. No model is used; the result is deterministic.",
       "input_schema": {

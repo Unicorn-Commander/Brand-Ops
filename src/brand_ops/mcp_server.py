@@ -31,7 +31,7 @@ from urllib.parse import urlencode
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import ToolAnnotations
 
-from . import agent_identity, engine, voices
+from . import agent_identity, engine, share_meta, voices
 from .activity import append_event, read_events
 from .agents.brand_intake import BrandIntakeAgent
 from .agents.brand_research import _slugify
@@ -586,6 +586,53 @@ def get_brand_guidelines(slug: str) -> dict[str, Any]:
         # Validate-and-dump through the wire model so the MCP payload matches the
         # REST response exactly (AssetRecord objects become plain dicts).
         return BrandGuidelines.model_validate(doc).model_dump(mode="json")
+    except _USER_ERRORS as exc:
+        return _error(exc, slug=slug)
+    except Exception as exc:  # noqa: BLE001 - boundary guard
+        return _error(exc, slug=slug)
+
+
+def _share_image_ref(slug: str) -> dict[str, Any] | None:
+    """The brand's newest og_image catalog record as a plain dict, or None."""
+    try:
+        records = [r for r in read_assets(brand=slug, asset="og_image") if r.url]
+    except Exception:  # noqa: BLE001 - a catalog hiccup must not break the kit
+        return None
+    if not records:
+        return None
+    records.sort(key=lambda r: r.created_at or "", reverse=True)
+    newest = records[0]
+    width, height = (list(newest.size) + [1200, 630])[:2]
+    return {"asset_url": newest.url, "file": newest.file, "width": width, "height": height}
+
+
+@mcp.tool(annotations=_read("Get share preview"))
+def get_share_preview(
+    slug: str, canonical_url: str | None = None, image_url: str | None = None
+) -> dict[str, Any]:
+    """Get a brand's social-share / link-preview kit (Open Graph + Twitter tags).
+
+    Returns the <meta> tags (and a ready-to-paste ``html`` snippet) a brand drops
+    into its OWN site's <head> so a shared link unfurls into the brand's 1200x630
+    share image (compose one with compose_card / the og_image asset type). The
+    preview lives on the brand's site, so pass canonical_url and image_url (or set
+    the brand's website) for absolute tags; any tag left on an example domain is
+    named in ``placeholders``. ``image`` references the brand's og_image in the
+    catalog, or is null if none has been generated yet.
+
+    Args:
+        slug: Brand slug, for example "magic-unicorn".
+        canonical_url: The brand's site URL the shared link points to. Optional.
+        image_url: Where the brand hosts its share image. Optional.
+    """
+    try:
+        brand = load_brand(slug)
+        payload = share_meta.build_share_meta(
+            brand, canonical_url=canonical_url, image_url=image_url
+        )
+        payload["brand"] = slug
+        payload["image"] = _share_image_ref(slug)
+        return payload
     except _USER_ERRORS as exc:
         return _error(exc, slug=slug)
     except Exception as exc:  # noqa: BLE001 - boundary guard
