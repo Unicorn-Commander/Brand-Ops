@@ -25,7 +25,7 @@ export interface Agent {
   name: string;
   /** Human role label shown under the name. */
   role: string;
-  /** A mark/photo URL when the agent has one (a Steward's brand mark); null for the Director. */
+  /** A mark/photo URL: a Steward's brand mark, or Iris's commander mark. Null only as a fallback. */
   avatarUrl: string | null;
   /** A short, plain line of what they do. Optional; the Director carries one. */
   tagline?: string;
@@ -39,6 +39,12 @@ export const Director = {
   id: "iris",
   name: "Iris",
   role: "brand director",
+  // Iris's face: the Brand-Ops commander mark (a unicorn Lt Col holding a loupe
+  // with a prism in the lens). Bundled as a static web asset rather than a
+  // kit-served brand mark, because the Director is cross-tenant: she is shown to
+  // every operator, including a brand-new user whose workspace holds no brands,
+  // so her avatar must always resolve without a workspace-scoped catalog lookup.
+  avatarUrl: "/iris-director.png",
   tagline: "Looks after your brands and makes the assets you need.",
 } as const;
 
@@ -65,7 +71,7 @@ export function activeAgent(activeBrand: BrandSummary | null): Agent {
     id: Director.id,
     name: Director.name,
     role: Director.role,
-    avatarUrl: null,
+    avatarUrl: Director.avatarUrl,
     tagline: Director.tagline,
   };
 }

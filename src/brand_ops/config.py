@@ -76,6 +76,24 @@ class Settings(BaseModel):
     # the unscoped CLI are always exempt; only delegated act/agent tokens are gated.
     enforce_agent_scopes: bool = False
 
+    # Hosted-generation entitlement gate (paid-vs-free). Distinct from the dollar
+    # spend cap (BRAND_OPS_IMAGE_CAP_CENTS): this is the on/off that separates a
+    # Free tier (on-device + card paths only) from a paid tier (hosted, model-
+    # backed generation). See entitlement.py and the go-to-market plan.
+    #   * enforce: the master switch. Default OFF, so the gate is a complete
+    #     no-op and production behaves exactly as before until an operator flips
+    #     it on per node once the tier source is wired. When on, the gate fails
+    #     CLOSED on an unknown entitlement (the opposite of the soft cost gate)
+    #     because it protects shared-key spend.
+    #   * allowlist: workspace ids (and/or org ids) that always pass even when
+    #     enforced, so internal / dogfood / owner workspaces keep working the
+    #     moment enforcement is first enabled. Empty by default.
+    #   * claim: the verified token-claim key the resolver reads to learn the
+    #     tier/entitlement. The suite mints this claim; Brand-Ops only reads it.
+    entitlement_enforced: bool = False
+    entitlement_allowlist: list[str] = []
+    entitlement_claim: str = "brand_ops_entitlement"
+
     # Database, wired in WS1
     database_url: str = ""
 
@@ -208,6 +226,15 @@ def get_settings() -> Settings:
         keycloak_client_secret=os.getenv("KEYCLOAK_CLIENT_SECRET", ""),
         enforce_agent_scopes=os.getenv("BRAND_OPS_ENFORCE_AGENT_SCOPES", "").strip().lower()
         in ("1", "true", "yes", "on"),
+        entitlement_enforced=os.getenv("BRAND_OPS_ENTITLEMENT_ENFORCED", "").strip().lower()
+        in ("1", "true", "yes", "on"),
+        entitlement_allowlist=[
+            x.strip()
+            for x in os.getenv("BRAND_OPS_ENTITLEMENT_ALLOWLIST", "").split(",")
+            if x.strip()
+        ],
+        entitlement_claim=os.getenv("BRAND_OPS_ENTITLEMENT_CLAIM", "").strip()
+        or d.entitlement_claim,
         database_url=os.getenv("DATABASE_URL", ""),
         llm_base_url=os.getenv("LLM_BASE_URL", d.llm_base_url),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY", ""),

@@ -42,7 +42,12 @@ from ..agents.director import DirectorAgent
 from ..agents.planner import GenerationPlanner
 from ..agents.registry import AGENT_REGISTRY
 from ..asset_types import ASSET_TYPES, get_asset_spec
-from ..backends.base import BackendError, BackendNotConfigured, QuotaExceeded
+from ..backends.base import (
+    BackendError,
+    BackendNotConfigured,
+    EntitlementDenied,
+    QuotaExceeded,
+)
 from ..brand_clone import clone_brand, create_brand_from_draft
 from ..brand_loader import (
     BrandNotFound,
@@ -1066,6 +1071,17 @@ def generate(
             # request was valid; the tenant is rate/spend limited, so 429.
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+            ) from None
+        except EntitlementDenied as exc:
+            # Valid request, but this workspace's tier does not include hosted
+            # generation (a Free tier = on-device / card paths only). 402 Payment
+            # Required is the honest signal: not an auth failure, not a transient
+            # rate limit. Placed before the generic BackendError arm so it gets
+            # the precise status (EntitlementDenied subclasses BackendError, so
+            # without this arm it would fall through to the 502 below). The gate
+            # only raises when an operator has turned enforcement on.
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=str(exc)
             ) from None
         except BackendError as exc:
             # A real provider failure (network, quota, bad response). Surface it as a

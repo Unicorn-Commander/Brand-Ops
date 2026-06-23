@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import cards, cost
+from . import cards, cost, entitlement
 from .asset_types import get_asset_spec
 from .backends.base import BackendNotConfigured, GenRequest, GenResult, load_backend
 from .brand_loader import (
@@ -121,6 +121,19 @@ def generate_asset(
     # where no loop or DB is touched at all.
     workspace_id = get_current_workspace_id()
     with cost.image_governance(workspace_id) as governor:
+        # BEFORE the spend cap: the boolean entitlement gate (does this
+        # workspace's tier include hosted, model-backed generation?). Deny on
+        # tier before checking spend. Distinct from governor.enforce() below,
+        # which is the dollar cap. Shipped DORMANT: a complete no-op when
+        # enforcement is off (the default) and when unscoped (CLI / stdio MCP /
+        # tests), and FAIL-CLOSED on an unknown entitlement only when an operator
+        # has turned enforcement on. Raises EntitlementDenied (a BackendError)
+        # the REST handler maps to 402; the MCP/CLI surface it via BackendError.
+        # This is the single chokepoint every surface funnels through, so the
+        # check lives only here. The keyless generate_card path does not call
+        # generate_asset, so Free keeps composited cards.
+        entitlement.enforce(workspace_id)
+
         # BEFORE the backend: deny when this workspace's image spend over the
         # rolling window already meets its cap or the attributed agent's weekly
         # budget. Raises QuotaExceeded (a BackendError) on a breach, which the
