@@ -47,6 +47,7 @@ from ..activity import set_current_actor
 from ..brand_loader import set_workspace_scope
 from ..config import get_settings
 from ..db.tenancy import resolve_context
+from ..entitlement import set_entitlement_scope
 
 _log = logging.getLogger("brand_ops.api.auth")
 
@@ -522,6 +523,14 @@ async def _scope_principal(principal: Principal, x_workspace_id: str | None) -> 
     candidate = _candidate_workspace(principal.claims or {}, x_workspace_id)
     ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
     set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
+    # Publish the entitlement signal the hosted-generation gate reads, alongside
+    # the workspace scope and from the same already-verified claims. The raw
+    # value of the configured claim key (settings.entitlement_claim) is stashed
+    # in a request-scoped ContextVar; the sync engine's gate reads it with no
+    # network call. Absent -> None (UNKNOWN), which the gate (only when an
+    # operator has enforcement on) fails closed on. This is NOT the deprecated
+    # org/organization claim: it is a single purpose-built entitlement claim.
+    set_entitlement_scope((principal.claims or {}).get(get_settings().entitlement_claim))
     # Publish the real caller for the activity feed: every event written during
     # this request records principal.uc_uid alongside its persona label.
     set_current_actor(principal.uc_uid)
@@ -607,6 +616,10 @@ def _anonymous_principal() -> Principal:
     open path behaves exactly like the authed path.
     """
     set_workspace_scope(None, None)
+    # No claims, so no entitlement signal: the unscoped/anonymous path carries
+    # None (UNKNOWN). The gate is a no-op here regardless (no workspace), but
+    # clearing it keeps the request scope clean, mirroring the workspace reset.
+    set_entitlement_scope(None)
     # No authenticated caller: the activity feed records an unattributed
     # (null uc_uid) act, which reads as "system" -- the CLI / local / test path.
     set_current_actor(None)

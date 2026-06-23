@@ -68,6 +68,23 @@ class QuotaExceeded(BackendError):
     """
 
 
+class EntitlementDenied(BackendError):
+    """A valid request whose workspace tier does not include hosted generation.
+
+    Raised by the engine BEFORE any backend call when the entitlement gate is
+    enforced (``BRAND_OPS_ENTITLEMENT_ENFORCED`` on) and this workspace's tier
+    does not permit model-backed generation (a Free tier), or the entitlement
+    cannot be proven (fail-closed). Distinct from ``QuotaExceeded``: that guards
+    a dollar budget within a paid tier, this is the on/off that separates Free
+    from paid. It subclasses ``BackendError`` so the existing MCP and CLI paths
+    surface it through their ``BackendError`` handling with no per-surface edit;
+    the REST ``/generate`` handler additionally maps it to HTTP 402 (Payment
+    Required) so a tier denial reads as needing a paid plan, not an auth failure
+    or a transient rate limit. It is dormant by default: the gate is a no-op
+    until an operator turns enforcement on.
+    """
+
+
 @runtime_checkable
 class ImageBackend(Protocol):
     name: str
