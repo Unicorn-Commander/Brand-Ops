@@ -45,6 +45,18 @@ from .config import get_settings
 
 _log = logging.getLogger("brand_ops.entitlements_client")
 
+# The app installs no root log handler, so INFO/DEBUG records fall through to
+# Python's last-resort handler (WARNING+ only) and never reach the container logs.
+# Resolution outcomes are the operational signal for this external dependency, so
+# attach a stdout handler to THIS logger at INFO -- a localized choice that makes
+# "resolved entitlements for X: [...]" visible without changing the rest of the
+# app's logging. Idempotent so re-import (tests) does not stack handlers.
+if not _log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    _log.addHandler(_handler)
+    _log.setLevel(logging.INFO)
+
 __all__ = ["resolve_entitlements"]
 
 # A real-browser User-Agent: the entitlements endpoint sits on the same node
@@ -164,6 +176,8 @@ async def resolve_entitlements(
 
     _maybe_prune(now, settings.entitlement_cache_ttl_seconds)
     _cache[key] = {"entitlements": entitlements, "fetched_at": now}
-    _log.debug("resolved entitlements for %s: %s", cache_key, entitlements)
+    # INFO, not DEBUG: this is the positive-path operational signal for the
+    # entitlements endpoint (one line per cache-miss, ~once per caller per TTL).
+    _log.info("resolved entitlements for %s: %s", cache_key, entitlements)
     # Copy so the request scope and the cache hold independent lists.
     return list(entitlements)
