@@ -48,6 +48,7 @@ from ..brand_loader import set_workspace_scope
 from ..config import get_settings
 from ..db.tenancy import resolve_context
 from ..entitlement import set_entitlement_scope
+from ..entitlements_client import resolve_entitlements
 
 _log = logging.getLogger("brand_ops.api.auth")
 
@@ -499,7 +500,7 @@ async def require_principal(
 
     principal = await authenticate(credentials.credentials)
     if principal is not None:
-        return await _scope_principal(principal, x_workspace_id or ws)
+        return await _scope_principal(principal, x_workspace_id or ws, credentials.credentials)
     if required:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -511,7 +512,9 @@ async def require_principal(
     return _anonymous_principal()
 
 
-async def _scope_principal(principal: Principal, x_workspace_id: str | None) -> Principal:
+async def _scope_principal(
+    principal: Principal, x_workspace_id: str | None, raw_token: str | None = None
+) -> Principal:
     """Resolve the caller's active workspace + readable brands, and publish them.
 
     Returns a principal carrying the active ``workspace_id`` and ``role``, and
@@ -523,14 +526,32 @@ async def _scope_principal(principal: Principal, x_workspace_id: str | None) -> 
     candidate = _candidate_workspace(principal.claims or {}, x_workspace_id)
     ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
     set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
-    # Publish the entitlement signal the hosted-generation gate reads, alongside
-    # the workspace scope and from the same already-verified claims. The raw
-    # value of the configured claim key (settings.entitlement_claim) is stashed
-    # in a request-scoped ContextVar; the sync engine's gate reads it with no
-    # network call. Absent -> None (UNKNOWN), which the gate (only when an
-    # operator has enforcement on) fails closed on. This is NOT the deprecated
-    # org/organization claim: it is a single purpose-built entitlement claim.
-    set_entitlement_scope((principal.claims or {}).get(get_settings().entitlement_claim))
+    # Resolve and publish the entitlement signal the hosted-generation gate reads,
+    # alongside the workspace scope. The suite owns entitlement as a per-org fact;
+    # we forward the caller's already-verified Keycloak bearer to the Ops-Center
+    # endpoint (entitlements_client: cached ~60s + fail-safe, never raises) and
+    # stash the returned feature_keys in a request-scoped ContextVar the sync
+    # engine reads with no per-generate network call. Only a Keycloak-issued token
+    # can be forwarded to the uchub-issued endpoint, so a Brigade/agent token
+    # resolves to None (UNKNOWN -> the gate fails closed only when enforced, and is
+    # covered meanwhile by the allow-list for internal agents). The resolver is
+    # dormant (returns None, no network) until BRAND_OPS_ENTITLEMENT_URL is set, so
+    # this is a complete no-op on a node that has not been wired yet. org_id is
+    # omitted = the caller's primary org (Brand-Ops has no workspace->org map yet;
+    # see the go-to-market plan note on multi-org active-workspace).
+    entitlements = None
+    if principal.issuer == "keycloak" and raw_token:
+        try:
+            entitlements = await resolve_entitlements(raw_token, cache_key=principal.uc_uid)
+        except Exception:
+            # The resolver is contracted never to raise (every failure path returns
+            # a list or None). Belt-and-suspenders: a bug there must never 500 an
+            # authed request -- this runs on the hot path of every authed route.
+            # Degrade to None = UNKNOWN, the safe direction (the gate fails closed
+            # only when enforced, and is a no-op otherwise).
+            _log.warning("entitlement resolution raised unexpectedly; treating as UNKNOWN")
+            entitlements = None
+    set_entitlement_scope(entitlements)
     # Publish the real caller for the activity feed: every event written during
     # this request records principal.uc_uid alongside its persona label.
     set_current_actor(principal.uc_uid)

@@ -2,15 +2,17 @@
 
 These are the safety contract for a feature shipped DORMANT: the gate must be a
 complete no-op until an operator turns enforcement on, and every branch of the
-enforce() decision must be pinned so the dev who wires the real tier source and
-flips it on cannot be surprised.
+enforce() decision must be pinned so the dev who flips it on cannot be surprised.
 
 Three layers, all Postgres-free and network-free (the gate is loop/DB-free by
-design -- it reads only the flag, the allow-list, and the in-request ContextVar):
+design -- it reads only the flag, the allow-list, the feature_key, and the
+in-request ContextVar; the network resolution lives in entitlements_client and is
+tested in test_entitlements_client.py):
 
-  1. interpret_claim: the pure claim -> ALLOW/DENY/UNKNOWN mapping.
+  1. interpret_entitlements: the pure (grant list, feature_key) -> ALLOW/DENY/
+     UNKNOWN mapping.
   2. enforce(): the full decision matrix, including the production default
-     (enforcement off => no-op even with a DENY claim set).
+     (enforcement off => no-op even with a DENY grant set).
   3. A route-level test that POST /api/generate returns 402 when the gate denies.
 
 EntitlementDenied subclasses BackendError, so the MCP and CLI paths surface it
@@ -25,10 +27,14 @@ from fastapi.testclient import TestClient
 from brand_ops import entitlement
 from brand_ops.backends.base import BackendError, EntitlementDenied
 from brand_ops.config import get_settings
-from brand_ops.entitlement import Entitlement, enforce, interpret_claim
+from brand_ops.entitlement import Entitlement, enforce, interpret_entitlements
 
 # A workspace id is opaque; any stable string stands in for one in these tests.
 _WS = "ws-11111111-1111-1111-1111-111111111111"
+
+# The canonical suite feature_key that grants Brand-Ops hosted generation (the
+# config default). A grant list containing it -> ALLOW.
+_KEY = "brand_ops_access"
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +50,10 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch):
     for var in (
         "BRAND_OPS_ENTITLEMENT_ENFORCED",
         "BRAND_OPS_ENTITLEMENT_ALLOWLIST",
-        "BRAND_OPS_ENTITLEMENT_CLAIM",
+        "BRAND_OPS_ENTITLEMENT_URL",
+        "BRAND_OPS_ENTITLEMENT_FEATURE_KEY",
+        "BRAND_OPS_ENTITLEMENT_CACHE_TTL",
+        "BRAND_OPS_ENTITLEMENT_HTTP_TIMEOUT",
     ):
         monkeypatch.delenv(var, raising=False)
     get_settings.cache_clear()
@@ -61,70 +70,51 @@ def _enforce_on(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# interpret_claim: the pure ALLOW / DENY / UNKNOWN mapping
+# interpret_entitlements: the pure ALLOW / DENY / UNKNOWN mapping
 # ---------------------------------------------------------------------------
 
 
 def test_interpret_none_is_unknown() -> None:
-    # No claim at all -> UNKNOWN (no signal). The gate fails closed on this when
-    # enforced, so a missing claim is never a free pass.
-    assert interpret_claim(None) is Entitlement.UNKNOWN
+    # Nothing resolved (no list) -> UNKNOWN. The gate fails closed on this when
+    # enforced, so an unresolved entitlement is never a free pass.
+    assert interpret_entitlements(None, _KEY) is Entitlement.UNKNOWN
 
 
-def test_interpret_bool() -> None:
-    # A plain brand_ops_hosted: true|false claim maps directly.
-    assert interpret_claim(True) is Entitlement.ALLOW
-    assert interpret_claim(False) is Entitlement.DENY
+def test_interpret_list_with_feature_key_allows() -> None:
+    # The canonical grant: the feature_key is present in the org's list.
+    assert interpret_entitlements([_KEY], _KEY) is Entitlement.ALLOW
+    # Present among the other suite keys (the realistic full-suite response).
+    grants = ["meeting_ops_access", _KEY, "contact_ops_access", "project_ops_access"]
+    assert interpret_entitlements(grants, _KEY) is Entitlement.ALLOW
 
 
-def test_interpret_tier_strings() -> None:
-    # "free" (and the other explicit no-words) deny; any other non-empty tier
-    # name permits. Case-insensitive and whitespace-tolerant.
-    assert interpret_claim("free") is Entitlement.DENY
-    assert interpret_claim("FREE") is Entitlement.DENY
-    assert interpret_claim("  free  ") is Entitlement.DENY
-    assert interpret_claim("none") is Entitlement.DENY
-    assert interpret_claim("paid") is Entitlement.ALLOW
-    assert interpret_claim("pro") is Entitlement.ALLOW
-    assert interpret_claim("founder_friend") is Entitlement.ALLOW
-    assert interpret_claim("vip_founder") is Entitlement.ALLOW
-    # An empty / blank string carries no usable signal -> UNKNOWN.
-    assert interpret_claim("") is Entitlement.UNKNOWN
-    assert interpret_claim("   ") is Entitlement.UNKNOWN
+def test_interpret_list_without_feature_key_denies() -> None:
+    # The suite answered, and Brand-Ops's key is absent -> a true DENY (a Free /
+    # unentitled org), NOT unknown.
+    assert interpret_entitlements(["meeting_ops_access"], _KEY) is Entitlement.DENY
+    assert (
+        interpret_entitlements(["contact_ops_access", "tax_ops_access"], _KEY)
+        is Entitlement.DENY
+    )
 
 
-def test_interpret_numeric_flag() -> None:
-    # A 0/1 entitlement flag minted as an int.
-    assert interpret_claim(1) is Entitlement.ALLOW
-    assert interpret_claim(0) is Entitlement.DENY
-    assert interpret_claim(2) is Entitlement.ALLOW
+def test_interpret_empty_list_denies() -> None:
+    # An explicit empty grant list is a definite "no grants" -> DENY, not UNKNOWN.
+    assert interpret_entitlements([], _KEY) is Entitlement.DENY
 
 
-def test_interpret_dict_boolean_flag_wins() -> None:
-    # A structured claim: a nested boolean hosted flag is honored first.
-    assert interpret_claim({"hosted": True}) is Entitlement.ALLOW
-    assert interpret_claim({"hosted": False}) is Entitlement.DENY
-    assert interpret_claim({"hosted_generation": True}) is Entitlement.ALLOW
-    assert interpret_claim({"allowed": False}) is Entitlement.DENY
-    # The boolean flag wins over a tier string in the same dict.
-    assert interpret_claim({"hosted": False, "tier": "pro"}) is Entitlement.DENY
+def test_interpret_respects_a_custom_feature_key() -> None:
+    # The check is membership against whatever key is configured.
+    assert interpret_entitlements(["brand_ops_pro"], "brand_ops_pro") is Entitlement.ALLOW
+    assert interpret_entitlements([_KEY], "brand_ops_pro") is Entitlement.DENY
 
 
-def test_interpret_dict_tier_string() -> None:
-    # No boolean flag -> fall back to a nested tier string.
-    assert interpret_claim({"tier": "free"}) is Entitlement.DENY
-    assert interpret_claim({"tier": "founder_friend"}) is Entitlement.ALLOW
-    assert interpret_claim({"entitlement": "paid"}) is Entitlement.ALLOW
-    assert interpret_claim({"plan": "free"}) is Entitlement.DENY
-    # An empty / unrecognized dict has no usable signal -> UNKNOWN.
-    assert interpret_claim({}) is Entitlement.UNKNOWN
-    assert interpret_claim({"unrelated": "value"}) is Entitlement.UNKNOWN
-
-
-def test_interpret_unknown_shapes_never_raise() -> None:
-    # Anything we cannot map is UNKNOWN, never an exception (the gate is total).
-    assert interpret_claim(["paid"]) is Entitlement.UNKNOWN
-    assert interpret_claim(object()) is Entitlement.UNKNOWN
+def test_interpret_non_list_shapes_never_raise() -> None:
+    # Anything that is not a list is UNKNOWN, never an exception (the gate is
+    # total). A stray claim-shaped value from a misconfig must not be guessed at.
+    assert interpret_entitlements("brand_ops_access", _KEY) is Entitlement.UNKNOWN
+    assert interpret_entitlements({"entitlements": [_KEY]}, _KEY) is Entitlement.UNKNOWN
+    assert interpret_entitlements(object(), _KEY) is Entitlement.UNKNOWN
 
 
 # ---------------------------------------------------------------------------
@@ -132,17 +122,17 @@ def test_interpret_unknown_shapes_never_raise() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_enforce_is_noop_when_flag_off_even_with_a_deny_claim(
+def test_enforce_is_noop_when_flag_off_even_with_a_deny_grant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """THE production default: enforcement off => a complete no-op.
 
-    With a DENY claim set and a real workspace, but BRAND_OPS_ENTITLEMENT_ENFORCED
+    With a DENY grant set and a real workspace, but BRAND_OPS_ENTITLEMENT_ENFORCED
     unset, enforce() must NOT raise. This is the guarantee that shipping the code
     changes nothing until an operator flips the switch: production behavior is
     byte-identical to before.
     """
-    entitlement.set_entitlement_scope("free")  # a definite DENY
+    entitlement.set_entitlement_scope(["meeting_ops_access"])  # a definite DENY
     enforce(_WS)  # must not raise
 
 
@@ -152,10 +142,10 @@ def test_enforce_is_noop_without_a_workspace_when_enforced(
     """Enforced but unscoped (CLI / stdio MCP / tests / AUTH off) => no-op.
 
     An unscoped run has no tenant to entitle, mirroring the cost gate. Even with
-    a DENY claim ambiently set, no workspace means no gate.
+    a DENY grant ambiently set, no workspace means no gate.
     """
     _enforce_on(monkeypatch)
-    entitlement.set_entitlement_scope("free")
+    entitlement.set_entitlement_scope(["meeting_ops_access"])
     enforce(None)  # must not raise
     enforce("")  # empty string is also unscoped
 
@@ -163,52 +153,75 @@ def test_enforce_is_noop_without_a_workspace_when_enforced(
 def test_enforce_allows_allowlisted_workspace_even_when_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Enforced + workspace on the allow-list => allowed even with no claim.
+    """Enforced + workspace on the allow-list => allowed even with no grant.
 
     The allow-list bypass protects internal / dogfood / owner workspaces the
-    moment enforcement is first enabled, regardless of the (here UNKNOWN) claim.
+    moment enforcement is first enabled, regardless of the (here UNKNOWN) grant.
     """
     _enforce_on(monkeypatch)
     monkeypatch.setenv("BRAND_OPS_ENTITLEMENT_ALLOWLIST", f"other-ws,{_WS},third-ws")
     get_settings.cache_clear()
-    # No claim set at all -> UNKNOWN, which would otherwise fail closed.
+    # No grant resolved at all -> UNKNOWN, which would otherwise fail closed.
     enforce(_WS)  # allow-listed -> must not raise
 
 
-def test_enforce_allows_when_claim_is_paid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Enforced + the claim interprets as paid/ALLOW => allowed."""
+def test_enforce_allows_when_grant_includes_feature_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enforced + the resolved grant list includes brand_ops_access => allowed."""
     _enforce_on(monkeypatch)
-    entitlement.set_entitlement_scope("founder_friend")
+    entitlement.set_entitlement_scope([_KEY])
     enforce(_WS)  # must not raise
-    entitlement.set_entitlement_scope(True)
-    enforce(_WS)  # a boolean true claim also allows
+    entitlement.set_entitlement_scope(["meeting_ops_access", _KEY])
+    enforce(_WS)  # present among siblings also allows
 
 
-def test_enforce_denies_when_claim_is_free(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Enforced + the claim interprets as free/DENY => EntitlementDenied."""
+def test_enforce_denies_when_grant_lacks_feature_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enforced + a resolved grant without brand_ops_access => EntitlementDenied."""
     _enforce_on(monkeypatch)
-    entitlement.set_entitlement_scope("free")
+    entitlement.set_entitlement_scope(["meeting_ops_access"])
+    with pytest.raises(EntitlementDenied):
+        enforce(_WS)
+    # An explicit empty grant list is also a definite deny.
+    entitlement.set_entitlement_scope([])
     with pytest.raises(EntitlementDenied):
         enforce(_WS)
 
 
-def test_enforce_fails_closed_on_unknown_claim(
+def test_enforce_fails_closed_on_unknown(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Enforced + claim missing/UNKNOWN => EntitlementDenied (fail-closed).
+    """Enforced + nothing resolved/UNKNOWN => EntitlementDenied (fail-closed).
 
     The deliberate opposite of the cost gate's soft posture: an enforced gate
-    with no provable entitlement DENIES, because it protects shared-key spend.
+    with no resolved entitlement DENIES, because it protects shared-key spend.
     This is only ever reached once an operator has turned enforcement on.
     """
     _enforce_on(monkeypatch)
-    # No claim published at all -> the ContextVar is None -> UNKNOWN.
+    # No grant published at all -> the ContextVar is None -> UNKNOWN.
     with pytest.raises(EntitlementDenied):
         enforce(_WS)
-    # An unmappable claim value is also UNKNOWN and also denied.
-    entitlement.set_entitlement_scope(["weird"])
+    # An unmappable (non-list) value is also UNKNOWN and also denied.
+    entitlement.set_entitlement_scope("brand_ops_access")  # a string, not a list
     with pytest.raises(EntitlementDenied):
         enforce(_WS)
+
+
+def test_enforce_honors_a_custom_feature_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-default BRAND_OPS_ENTITLEMENT_FEATURE_KEY drives the verdict: the gate
+    checks membership of the configured key, not the default."""
+    monkeypatch.setenv("BRAND_OPS_ENTITLEMENT_FEATURE_KEY", "brand_ops_pro")
+    _enforce_on(monkeypatch)
+    assert get_settings().entitlement_feature_key == "brand_ops_pro"
+    # The default key present but not the configured one -> DENY.
+    entitlement.set_entitlement_scope([_KEY])
+    with pytest.raises(EntitlementDenied):
+        enforce(_WS)
+    # The configured key present -> allowed.
+    entitlement.set_entitlement_scope(["brand_ops_pro"])
+    enforce(_WS)  # must not raise
 
 
 def test_entitlement_denied_is_a_backend_error() -> None:
@@ -219,18 +232,6 @@ def test_entitlement_denied_is_a_backend_error() -> None:
     err = EntitlementDenied("needs a paid plan")
     assert isinstance(err, BackendError)
     assert str(err) == "needs a paid plan"
-
-
-def test_custom_claim_key_is_honored(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The configured claim key is what auth reads; the signal here is the raw
-    value. This proves a non-default BRAND_OPS_ENTITLEMENT_CLAIM still drives the
-    same verdict (the gate reads the published value, not the key)."""
-    monkeypatch.setenv("BRAND_OPS_ENTITLEMENT_CLAIM", "tier")
-    _enforce_on(monkeypatch)
-    assert get_settings().entitlement_claim == "tier"
-    entitlement.set_entitlement_scope("free")
-    with pytest.raises(EntitlementDenied):
-        enforce(_WS)
 
 
 # ---------------------------------------------------------------------------
