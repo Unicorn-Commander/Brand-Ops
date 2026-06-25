@@ -92,6 +92,63 @@ async def test_missing_token_is_not_forwarded(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio
+async def test_require_principal_forwards_access_token_over_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # oauth2-proxy path: Authorization carries the ID token (identity), and the
+    # ACCESS token arrives as X-Forwarded-Access-Token. The entitlement forward
+    # must use the access token (what the endpoint expects), not the bearer.
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    captured: dict = {}
+
+    async def _auth(token):
+        captured["authed_with"] = token
+        return Principal(uc_uid="u1", issuer="keycloak")
+
+    async def _scope(principal, ws, raw_token=None):
+        captured["forward"] = raw_token
+        return principal
+
+    monkeypatch.setattr(auth, "authenticate", _auth)
+    monkeypatch.setattr(auth, "_scope_principal", _scope)
+
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="ID-TOKEN")
+    await auth.require_principal(
+        credentials=creds, x_workspace_id=None, ws=None, x_forwarded_access_token="ACCESS-TOKEN"
+    )
+    assert captured["authed_with"] == "ID-TOKEN"  # identity from the bearer
+    assert captured["forward"] == "ACCESS-TOKEN"  # forward the access token
+
+
+@pytest.mark.asyncio
+async def test_require_principal_falls_back_to_bearer_without_forwarded_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Direct / MCP path (no oauth2-proxy in front): no X-Forwarded-Access-Token, so
+    # forward the bearer the caller sent.
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    captured: dict = {}
+
+    async def _auth(token):
+        return Principal(uc_uid="u1", issuer="keycloak")
+
+    async def _scope(principal, ws, raw_token=None):
+        captured["forward"] = raw_token
+        return principal
+
+    monkeypatch.setattr(auth, "authenticate", _auth)
+    monkeypatch.setattr(auth, "_scope_principal", _scope)
+
+    creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials="DIRECT-TOKEN")
+    await auth.require_principal(
+        credentials=creds, x_workspace_id=None, ws=None, x_forwarded_access_token=None
+    )
+    assert captured["forward"] == "DIRECT-TOKEN"
+
+
+@pytest.mark.asyncio
 async def test_resolver_exception_degrades_to_unknown_not_500(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -156,20 +156,26 @@ async def resolve_entitlements(
             url, bearer_token, org_id, settings.entitlement_http_timeout_seconds
         )
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        # Surface the endpoint's actual reason: for an HTTP status error, include
+        # the status code and the (non-secret) response body, not just the class.
+        detail = exc.__class__.__name__
+        if isinstance(exc, httpx.HTTPStatusError):
+            body = " ".join(exc.response.text.split())[:200]
+            detail = f"HTTP {exc.response.status_code}: {body}"
         if cached is not None:
             # Fail-soft: a transient endpoint problem must not kick a caller we
             # have already proven entitled within recent memory.
             _log.warning(
-                "entitlements endpoint unreachable (%s); using last-good grant for %s",
-                exc.__class__.__name__,
+                "entitlements endpoint error (%s); using last-good grant for %s",
+                detail,
                 cache_key,
             )
             return list(cached["entitlements"])
         # Fail-closed for a never-seen caller: no proof, so UNKNOWN.
         _log.warning(
-            "entitlements endpoint unreachable (%s) and no cached grant for %s; "
+            "entitlements endpoint error (%s) and no cached grant for %s; "
             "entitlement UNKNOWN",
-            exc.__class__.__name__,
+            detail,
             cache_key,
         )
         return None
