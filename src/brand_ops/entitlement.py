@@ -5,11 +5,21 @@ guards a budget within a paid tier (a soft, fail-open guard); this gate guards
 who may spend at all, the on/off that separates a Free tier (on-device + card
 paths only) from a paid tier (hosted, model-backed generation).
 
+The tier signal is the suite's entitlement: a list of canonical feature_keys for
+the caller's org, resolved by :mod:`entitlements_client` from the Ops-Center
+endpoint and published into a request-scoped ContextVar by ``api.auth`` (the same
+shape ``brand_loader`` uses for the workspace id). This module is the SYNC,
+network-free half: it reads that already-resolved list at the generation
+chokepoint and asks one question -- is Brand-Ops's ``feature_key``
+(``brand_ops_access``) present? -- with no loop, no DB, and no network call. All
+of the network, caching, and fail-soft/closed policy lives in the resolver; here
+the published value is simply a list of grants, or ``None`` for UNKNOWN.
+
 It is shipped DORMANT and is a complete no-op until an operator turns it on:
 
   * OFF by default (``BRAND_OPS_ENTITLEMENT_ENFORCED`` unset) -> :func:`enforce`
     returns immediately, so production behaves exactly as before. The suite dev
-    wires the real tier source and flips this on once pricing is decided.
+    flips this on once pricing is decided.
   * A no-op when unscoped (the CLI, the stdio MCP, tests, AUTH off): an unscoped
     run has no tenant to entitle, mirroring how the cost gate is a no-op without
     a workspace.
@@ -21,21 +31,15 @@ It is shipped DORMANT and is a complete no-op until an operator turns it on:
     cost gate guards a budget (a store outage must not block a run), this gate
     guards shared-key spend (an unproven caller must not generate on our dime).
     It is only ever reached when an operator has explicitly turned enforcement
-    on, so a half-built tier source cannot lock out today's users.
-
-The tier signal is read from a verified token claim that ``api.auth`` publishes
-into a request-scoped ContextVar, the same shape ``brand_loader`` uses for the
-workspace id. This module is loop-free and DB-free: it reads only the flag, the
-allow-list, and the in-request ContextVar (no network call). Resolving the claim
-into the gate's input (the lookup, or minting the claim) is the suite's job;
-Brand-Ops only reads what it is handed.
+    on, so a half-built tier source cannot lock out today's users. (UNKNOWN is
+    only ever published for a caller the resolver could not resolve AND has never
+    seen; a known caller keeps their last good grant on a transient outage.)
 """
 from __future__ import annotations
 
 import enum
 import logging
 from contextvars import ContextVar
-from typing import Any
 
 from .backends.base import EntitlementDenied
 from .config import get_settings
@@ -47,7 +51,7 @@ __all__ = [
     "EntitlementDenied",
     "enforce",
     "get_current_entitlement",
-    "interpret_claim",
+    "interpret_entitlements",
     "reset_entitlement_scope",
     "set_entitlement_scope",
 ]
@@ -57,34 +61,33 @@ __all__ = [
 # Request-scoped entitlement signal
 # ---------------------------------------------------------------------------
 #
-# ``api.auth._scope_principal`` reads the configured claim off the verified token
-# and publishes its RAW value here, alongside the workspace scope it sets on
-# ``brand_loader``. The sync engine then reads it at the chokepoint, exactly the
-# way it reads the workspace id, with no engine signature change. A contextvar
-# (not a module global) keeps the signal per-request and prevents bleed between
-# concurrent async requests.
+# ``api.auth._scope_principal`` resolves the caller's suite entitlements (via
+# ``entitlements_client``) and publishes the resulting list of feature_keys here,
+# alongside the workspace scope it sets on ``brand_loader``. The sync engine then
+# reads it at the chokepoint, exactly the way it reads the workspace id, with no
+# engine signature change. A contextvar (not a module global) keeps the signal
+# per-request and prevents bleed between concurrent async requests.
 #
-# The default is ``None`` = UNKNOWN/unscoped: no claim seen (the CLI, the stdio
-# MCP, tests, AUTH off, or a token that simply does not carry the claim). The
-# value can be any JSON-able claim shape the suite mints (a tier string, a bool,
-# or a small dict); :func:`interpret_claim` is the one place that reads its
-# meaning, so the gate does not care which shape is finalized.
-_entitlement: ContextVar[Any | None] = ContextVar("brand_ops_entitlement", default=None)
+# The default is ``None`` = UNKNOWN/unscoped: no entitlements resolved (the CLI,
+# the stdio MCP, tests, AUTH off, the resolver dormant, or a Brigade/agent token
+# we cannot forward to the uchub-issued endpoint). A list (possibly empty) means
+# the suite answered: :func:`interpret_entitlements` reads its meaning.
+_entitlement: ContextVar[list[str] | None] = ContextVar("brand_ops_entitlement", default=None)
 
 
-def set_entitlement_scope(value: Any | None):
-    """Publish this request's raw entitlement claim value. Returns the Token.
+def set_entitlement_scope(value: list[str] | None):
+    """Publish this request's resolved entitlement feature_keys. Returns the Token.
 
-    ``api.auth`` calls this with the value of the configured claim key from the
-    verified token (or ``None`` when the claim is absent). Passing ``None`` (or
-    never calling this) leaves the signal UNKNOWN = the original unscoped
-    behavior, where the gate (when enforced) fails closed.
+    ``api.auth`` calls this with the list the resolver returned (or ``None`` when
+    the resolver was dormant / could not resolve and has no cached grant). Passing
+    ``None`` (or never calling this) leaves the signal UNKNOWN = the original
+    unscoped behavior, where the gate (when enforced) fails closed.
     """
     return _entitlement.set(value)
 
 
-def get_current_entitlement() -> Any | None:
-    """This request's raw entitlement claim value, or None when unscoped/unknown."""
+def get_current_entitlement() -> list[str] | None:
+    """This request's resolved feature_keys, or None when unscoped/unknown."""
     return _entitlement.get()
 
 
@@ -103,18 +106,19 @@ def reset_entitlement_scope(token=None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Claim interpretation (the one place that reads the claim's meaning)
+# Entitlement interpretation (the one place that reads the grant's meaning)
 # ---------------------------------------------------------------------------
 
 
 class Entitlement(enum.Enum):
-    """The three outcomes of reading a claim value.
+    """The three outcomes of reading a resolved entitlement.
 
-    ALLOW   -> the tier permits hosted generation.
-    DENY    -> the tier explicitly excludes it (a Free tier).
-    UNKNOWN -> no claim, or a value we cannot map. When enforced, UNKNOWN fails
-               closed (deny), so a missing or unrecognized claim never becomes a
-               free pass on the shared key.
+    ALLOW   -> the org's grants include hosted generation (the feature_key).
+    DENY    -> the suite answered, and the feature_key is not in the grant list
+               (a Free / unentitled org).
+    UNKNOWN -> nothing resolved (no list). When enforced, UNKNOWN fails closed
+               (deny), so an unresolved entitlement never becomes a free pass on
+               the shared key.
     """
 
     ALLOW = "allow"
@@ -122,73 +126,23 @@ class Entitlement(enum.Enum):
     UNKNOWN = "unknown"
 
 
-# Tier strings (case-insensitive) that explicitly DENY hosted generation. Free
-# is the only canonical one today; the suite's other canonical tier codes
-# (founder_friend, vip_founder, byok, managed) are paid and read as ALLOW. The
-# suite dev finalizes this split when pricing lands; until then DENY is the
-# conservative, explicit set and everything else truthy reads as ALLOW.
-_DENY_TIERS = frozenset({"free", "none", "unentitled"})
+def interpret_entitlements(value: list[str] | None, feature_key: str) -> Entitlement:
+    """Interpret a resolved entitlement list against the required feature_key.
 
-
-def interpret_claim(value: Any | None) -> Entitlement:
-    """Interpret a raw claim value into ALLOW / DENY / UNKNOWN.
-
-    The claim shape is not finalized suite-side, so this is deliberately liberal
-    in what counts as "permits hosted generation", and conservative on what it
-    treats as a definite NO:
-
-      * ``None`` / missing               -> UNKNOWN (no signal; fails closed when
+      * ``None``                 -> UNKNOWN (nothing resolved; fails closed when
         enforced).
-      * a bool                           -> ALLOW if True, DENY if False. A plain
-        ``brand_ops_hosted: true|false`` claim works directly.
-      * a string                         -> a tier/entitlement name. A name in
-        ``_DENY_TIERS`` (e.g. "free") is DENY; any other non-empty string (e.g.
-        "founder_friend", "paid", "pro", "vip_founder") is ALLOW; an empty/blank
-        string is UNKNOWN.
-      * a number                         -> ALLOW when non-zero, DENY when zero
-        (a 0/1 entitlement flag minted as an int).
-      * a dict                           -> look for a nested boolean
-        ``hosted`` / ``hosted_generation`` / ``allowed`` / ``enabled`` (honored
-        first), else a nested ``tier`` / ``entitlement`` / ``plan`` string read
-        by the string rule above. An empty or unrecognized dict is UNKNOWN.
-      * anything else                    -> UNKNOWN (never guess).
+      * a list CONTAINING the    -> ALLOW.
+        feature_key
+      * a list WITHOUT it        -> DENY (the suite answered; the grant is absent).
+        (including an empty list)
+      * anything else            -> UNKNOWN (never guess).
 
     Pure and total: it never raises and never touches the network or the DB.
     """
     if value is None:
         return Entitlement.UNKNOWN
-    # bool is a subclass of int, so check it before the numeric branch.
-    if isinstance(value, bool):
-        return Entitlement.ALLOW if value else Entitlement.DENY
-    if isinstance(value, str):
-        return _interpret_tier_string(value)
-    if isinstance(value, (int, float)):
-        return Entitlement.ALLOW if value else Entitlement.DENY
-    if isinstance(value, dict):
-        return _interpret_claim_dict(value)
-    return Entitlement.UNKNOWN
-
-
-def _interpret_tier_string(value: str) -> Entitlement:
-    """A tier/entitlement name -> verdict (see :func:`interpret_claim`)."""
-    name = value.strip().lower()
-    if not name:
-        return Entitlement.UNKNOWN
-    if name in _DENY_TIERS:
-        return Entitlement.DENY
-    return Entitlement.ALLOW
-
-
-def _interpret_claim_dict(value: dict) -> Entitlement:
-    """A structured claim -> verdict (boolean flag first, then a tier string)."""
-    for flag_key in ("hosted", "hosted_generation", "allowed", "enabled"):
-        flag = value.get(flag_key)
-        if isinstance(flag, bool):
-            return Entitlement.ALLOW if flag else Entitlement.DENY
-    for tier_key in ("tier", "entitlement", "plan", "tier_code"):
-        tier = value.get(tier_key)
-        if isinstance(tier, str) and tier.strip():
-            return _interpret_tier_string(tier)
+    if isinstance(value, list):
+        return Entitlement.ALLOW if feature_key in value else Entitlement.DENY
     return Entitlement.UNKNOWN
 
 
@@ -203,7 +157,7 @@ def _allow_listed(workspace_id: str, allowlist: list[str]) -> bool:
 
     Brand-Ops has no org concept locally, so the allow-list is matched against
     the ``workspace_id`` in hand; an operator may also list org ids there for the
-    day the entitlement claim carries one, since the same single set is checked.
+    day the resolver keys on one, since the same single set is checked.
     """
     return workspace_id in allowlist
 
@@ -222,14 +176,14 @@ def enforce(workspace_id: str | None) -> None:
          gate.
       3. Workspace on the allow-list -> no-op. Internal / dogfood / owner
          workspaces are never blocked.
-      4. The entitlement claim resolves to ALLOW -> no-op.
-      5. The claim resolves to DENY (a Free tier) or to UNKNOWN (no claim, an
-         unmapped value) -> raise ``EntitlementDenied``. FAIL-CLOSED on UNKNOWN
+      4. The resolved grants include the feature_key (ALLOW) -> no-op.
+      5. The suite answered without the feature_key (DENY, a Free tier) or nothing
+         resolved (UNKNOWN) -> raise ``EntitlementDenied``. FAIL-CLOSED on UNKNOWN
          is deliberate and the opposite of the cost gate: this guards shared-key
          spend, so an unproven entitlement is never a free pass.
 
-    Loop-free and DB-free: it reads only the flag, the allow-list, and the
-    in-request ContextVar.
+    Loop-free and DB-free: it reads only the flag, the allow-list, the feature_key,
+    and the in-request ContextVar.
     """
     settings = get_settings()
     if not settings.entitlement_enforced:
@@ -239,17 +193,17 @@ def enforce(workspace_id: str | None) -> None:
     if _allow_listed(workspace_id, settings.entitlement_allowlist):
         return
 
-    verdict = interpret_claim(get_current_entitlement())
+    verdict = interpret_entitlements(get_current_entitlement(), settings.entitlement_feature_key)
     if verdict is Entitlement.ALLOW:
         return
     if verdict is Entitlement.UNKNOWN:
-        # Fail closed, loudly: an enforced gate with no provable entitlement
+        # Fail closed, loudly: an enforced gate with no resolved entitlement
         # denies, but says so, so an operator can tell a real Free denial apart
-        # from a tier-source gap and fix the claim or the allow-list.
+        # from a resolver gap and fix the endpoint config or the allow-list.
         _log.warning(
             "entitlement unknown for workspace=%s; denying hosted generation "
-            "(fail-closed). Wire the entitlement claim or add the workspace to "
-            "BRAND_OPS_ENTITLEMENT_ALLOWLIST.",
+            "(fail-closed). Check BRAND_OPS_ENTITLEMENT_URL / the entitlements "
+            "endpoint, or add the workspace to BRAND_OPS_ENTITLEMENT_ALLOWLIST.",
             workspace_id,
         )
     raise EntitlementDenied(

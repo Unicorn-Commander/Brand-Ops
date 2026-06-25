@@ -16,6 +16,18 @@ from pydantic import BaseModel
 _log = logging.getLogger("brand_ops")
 
 
+def _env_float(name: str, default: float) -> float:
+    """Read a float env var, falling back to ``default`` when unset or malformed."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        _log.warning("invalid float for %s=%r; using default %s", name, raw, default)
+        return default
+
+
 class Settings(BaseModel):
     # Image backends
     gemini_api_key: str = ""
@@ -79,20 +91,43 @@ class Settings(BaseModel):
     # Hosted-generation entitlement gate (paid-vs-free). Distinct from the dollar
     # spend cap (BRAND_OPS_IMAGE_CAP_CENTS): this is the on/off that separates a
     # Free tier (on-device + card paths only) from a paid tier (hosted, model-
-    # backed generation). See entitlement.py and the go-to-market plan.
+    # backed generation). See entitlement.py, entitlements_client.py, and the
+    # go-to-market plan.
     #   * enforce: the master switch. Default OFF, so the gate is a complete
     #     no-op and production behaves exactly as before until an operator flips
-    #     it on per node once the tier source is wired. When on, the gate fails
-    #     CLOSED on an unknown entitlement (the opposite of the soft cost gate)
-    #     because it protects shared-key spend.
+    #     it on per node once the entitlements endpoint is wired. When on, the gate
+    #     fails CLOSED on an unknown entitlement (the opposite of the soft cost
+    #     gate) because it protects shared-key spend.
     #   * allowlist: workspace ids (and/or org ids) that always pass even when
     #     enforced, so internal / dogfood / owner workspaces keep working the
     #     moment enforcement is first enabled. Empty by default.
-    #   * claim: the verified token-claim key the resolver reads to learn the
-    #     tier/entitlement. The suite mints this claim; Brand-Ops only reads it.
+    #   * endpoint_url: the suite Ops-Center entitlements endpoint
+    #     (GET /api/v1/entitlements). Brand-Ops forwards the caller's verified
+    #     Keycloak bearer to it and reads the returned org feature_keys. EMPTY by
+    #     default = the resolver is dormant (no network call, the gate sees
+    #     UNKNOWN). Resolution (URL set) and enforcement (enforce on) are
+    #     INDEPENDENT: set the URL first to confirm the right grants resolve in the
+    #     logs, then flip enforce. Per node: dogfood and prod each have their own.
+    #   * feature_key: the canonical suite entitlement string that grants hosted
+    #     generation for Brand-Ops (`brand_ops_access`). Present in the endpoint's
+    #     list => ALLOW; a successful response without it => DENY.
+    #     Setting the URL makes resolution run once per request-context on EVERY
+    #     authed request (cached, so at most one endpoint call per caller per TTL),
+    #     not only on generation -- so the timeout below bounds its reach.
+    #   * cache_ttl_seconds: how long a resolved grant is cached per caller, so a
+    #     burst of generations is one endpoint call, not one per asset. ~60s means
+    #     an upgrade takes effect within ~60s (the endpoint's documented freshness).
+    #   * http_timeout_seconds: the per-call timeout. Short and fail-safe: the
+    #     resolver never raises into the request; on a timeout/5xx it uses the last
+    #     good grant (fail-soft for a known caller) or UNKNOWN (fail-closed for a
+    #     never-seen caller, only ever blocking when enforce is also on). Kept tight
+    #     because, when the URL is set, it bounds added latency on all authed routes.
     entitlement_enforced: bool = False
     entitlement_allowlist: list[str] = []
-    entitlement_claim: str = "brand_ops_entitlement"
+    entitlement_endpoint_url: str = ""
+    entitlement_feature_key: str = "brand_ops_access"
+    entitlement_cache_ttl_seconds: float = 60.0
+    entitlement_http_timeout_seconds: float = 3.0
 
     # Database, wired in WS1
     database_url: str = ""
@@ -233,8 +268,15 @@ def get_settings() -> Settings:
             for x in os.getenv("BRAND_OPS_ENTITLEMENT_ALLOWLIST", "").split(",")
             if x.strip()
         ],
-        entitlement_claim=os.getenv("BRAND_OPS_ENTITLEMENT_CLAIM", "").strip()
-        or d.entitlement_claim,
+        entitlement_endpoint_url=os.getenv("BRAND_OPS_ENTITLEMENT_URL", "").strip(),
+        entitlement_feature_key=os.getenv("BRAND_OPS_ENTITLEMENT_FEATURE_KEY", "").strip()
+        or d.entitlement_feature_key,
+        entitlement_cache_ttl_seconds=_env_float(
+            "BRAND_OPS_ENTITLEMENT_CACHE_TTL", d.entitlement_cache_ttl_seconds
+        ),
+        entitlement_http_timeout_seconds=_env_float(
+            "BRAND_OPS_ENTITLEMENT_HTTP_TIMEOUT", d.entitlement_http_timeout_seconds
+        ),
         database_url=os.getenv("DATABASE_URL", ""),
         llm_base_url=os.getenv("LLM_BASE_URL", d.llm_base_url),
         llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("OPENROUTER_API_KEY", ""),
