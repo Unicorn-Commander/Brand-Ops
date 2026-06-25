@@ -467,6 +467,7 @@ async def require_principal(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
     x_workspace_id: Annotated[str | None, Header()] = None,
     ws: Annotated[str | None, Query()] = None,
+    x_forwarded_access_token: Annotated[str | None, Header()] = None,
 ) -> Principal:
     """FastAPI dependency yielding the validated, workspace-scoped caller.
 
@@ -500,7 +501,14 @@ async def require_principal(
 
     principal = await authenticate(credentials.credentials)
     if principal is not None:
-        return await _scope_principal(principal, x_workspace_id or ws, credentials.credentials)
+        # The entitlements endpoint wants the user's ACCESS token, but oauth2-proxy
+        # (SET_AUTHORIZATION_HEADER) puts the ID token in Authorization and passes
+        # the access token separately as X-Forwarded-Access-Token. Identity is
+        # validated from the Authorization bearer above; for the entitlement
+        # forward, prefer the access token, falling back to the bearer on the
+        # direct / MCP path (no oauth2-proxy in front, so no forwarded header).
+        forward_token = x_forwarded_access_token or credentials.credentials
+        return await _scope_principal(principal, x_workspace_id or ws, forward_token)
     if required:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -528,8 +536,10 @@ async def _scope_principal(
     set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
     # Resolve and publish the entitlement signal the hosted-generation gate reads,
     # alongside the workspace scope. The suite owns entitlement as a per-org fact;
-    # we forward the caller's already-verified Keycloak bearer to the Ops-Center
-    # endpoint (entitlements_client: cached ~60s + fail-safe, never raises) and
+    # we forward the caller's Keycloak ACCESS token (require_principal selects it
+    # from X-Forwarded-Access-Token, falling back to the verified bearer on the
+    # direct/MCP path) to the Ops-Center endpoint, which expects the access token
+    # (entitlements_client: cached ~60s + fail-safe, never raises) and
     # stash the returned feature_keys in a request-scoped ContextVar the sync
     # engine reads with no per-generate network call. Only a Keycloak-issued token
     # can be forwarded to the uchub-issued endpoint, so a Brigade/agent token
