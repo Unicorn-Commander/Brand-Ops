@@ -23,6 +23,7 @@ import base64
 import binascii
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,7 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import ToolAnnotations
 
 from . import agent_identity, engine, share_meta, voices
-from .activity import append_event, read_events
+from .activity import append_event, read_events, set_current_actor
 from .agents.brand_intake import BrandIntakeAgent
 from .agents.brand_research import _slugify
 from .agents.registry import AGENT_REGISTRY
@@ -53,6 +54,7 @@ from .brand_loader import (
     load_brand,
     resolve_reference_images,
     safe_subpath,
+    set_workspace_scope,
 )
 from .brand_loader import (
     list_brands as _list_brands,
@@ -2113,6 +2115,27 @@ def stand_up_steward_agent(brand: str, name: str = "", role: str = "brand stewar
 
 
 def main() -> None:
+    # Opt-in workspace binding for the stdio transport. A local agent client
+    # (for example `ssh <host> docker exec -i brand-ops-backend python3 -m
+    # brand_ops.mcp_server` in a Claude/agent MCP config) carries no bearer,
+    # so without this the whole session runs UNSCOPED: writes land in the
+    # flat kits root and never get a workspace catalog row -- invisible to
+    # every workspace-scoped surface (the Studio UI). Discovered live twice
+    # (rating-raider 2026-07-08, majiks-dj 2026-07-11).
+    #
+    # Setting BRAND_OPS_MCP_WORKSPACE_ID pins the session to one workspace:
+    # files resolve into the workspace subtree (current_kits_dir), creates
+    # are DB-indexed (_index_brand_best_effort sees the scope), and the UI
+    # shows the result immediately. Allowed-brands is left as None (all of
+    # the workspace's brands) because a bound stdio client is a trusted
+    # operator tool, not a tenant boundary. Unset preserves the original
+    # flat/unscoped behavior (CLI, tests, local dev).
+    ws = os.getenv("BRAND_OPS_MCP_WORKSPACE_ID", "").strip()
+    if ws:
+        set_workspace_scope(ws, None)
+        set_current_actor(
+            os.getenv("BRAND_OPS_MCP_ACTOR", "").strip() or "stdio-mcp"
+        )
     mcp.run()
 
 
