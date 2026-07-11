@@ -33,3 +33,6 @@ _asset-quarantine/
 # Per-workspace kit subtrees (brand-kits/<workspace-uuid>/...) are runtime
 # tenant state, not source. The flat-root kits above them are the seeds.
 brand-kits/????????-????-????-????-????????????/
+
+# Admin audit feed is runtime state, same as the activity feed.
+brand-kits/.admin-audit.jsonl
