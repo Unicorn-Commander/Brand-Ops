@@ -1,0 +1,80 @@
+brand:
+  slug: stable
+  display_name: Stable
+  parent: unicorn-commander
+  workspace_id: null
+  tagline: Where your team and your AI agents live
+  description: 'Unicorn Stable — the Unicorn Commander suite''s chat, voice, and video workspace
+    where humans and AI agents are co-residents. Agents are "residents"; the roster is "the
+    stable". Every resident carries a stable identity hue from a curated 12-color wheel (Majik=iris
+    #8b5cf6, The General=gold #fbbf24, Claude=ember #fb923c). Shipped Aurora identity 2026-07-03;
+    source of truth: web/src/styles/globals.css + web/src/lib/identity.ts in the Unicorn-Stable
+    repo.'
+visual:
+  colors:
+    primary: '#8b5cf6'
+    accent: '#22d3ee'
+    background: '#0b0b15'
+    foreground: '#f8f8fd'
+    muted: '#9193af'
+  typography:
+    primary_font: Inter
+    display_font: Space Grotesk
+    mono_font: JetBrains Mono
+  style_keywords:
+  - dark-first
+  - aurora gradients (violet to cyan to mint)
+  - violet-cast neutrals
+  - glassmorphism
+  - identity color per resident
+  - unicorn horn spire mark
+prompts:
+  logo:
+    base: 'Generate a logo for {brand_context}. Style: {style_keywords}. The logo should be
+      {variant}. Output a clean square composition with a transparent background where possible.
+      {ref_block}'
+    variants:
+    - flat
+    - monochrome
+    - color
+    - app-icon
+  app_icon:
+    base: Generate an app icon for {brand_context}. {style_keywords}. It must stay recognizable
+      at small sizes like 32x32 and 64x64. Square composition, rounded corners, deep contrast.
+      {ref_block}
+    variants:
+    - color
+    - monochrome
+    - dark
+    - light
+  og_image:
+    base: 'Generate a 1200x630 share image for {brand_context}. Put the headline area on the
+      left and the brand mark on the right. Topic: {topic}. {style_keywords}. {ref_block}'
+    variants:
+    - default
+    - dark
+    - light
+  podcast_cover:
+    base: 'Generate a 3000x3000 square podcast cover for {brand_context}. Episode topic: {topic}.
+      {style_keywords}. {ref_block}'
+    variants:
+    - series
+    - episode
+  social_card:
+    base: 'Generate a square social card for {brand_context}. Topic: {topic}. Platform: {platform}.
+      {style_keywords}. {ref_block}'
+    variants:
+    - instagram
+    - twitter
+    - linkedin
+reference_images: {}
+voice:
+  tone:
+  - warm
+  - confident
+  - sentence case
+  forbidden_phrases:
+  - revolutionary
+  - game-changer
+  - synergize
+  - unleash

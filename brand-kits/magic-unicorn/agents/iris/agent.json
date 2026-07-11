@@ -1,0 +1,28 @@
+{
+  "name": "Iris",
+  "role": "brand director",
+  "bio": "Leads brand ops.",
+  "voice_tone": [
+    "bold",
+    "confident",
+    "irreverent",
+    "direct",
+    "technical",
+    "unapologetic"
+  ],
+  "avatar_file": "avatar.png",
+  "compliance": {
+    "rule": "color_palette",
+    "status": "pass",
+    "detail": "0% of significant area is off-brand",
+    "score": 100,
+    "offending": []
+  },
+  "created_at": "2026-06-09T22:25:35.145044+00:00",
+  "variants": {
+    "primary": "avatar.png",
+    "thinking": "avatar-thinking.png",
+    "success": "avatar-success.png",
+    "alert": "avatar-alert.png"
+  }
+}

@@ -1,0 +1,108 @@
+# Knowledge-Ops inherits the Magic Unicorn parent system and adds a calm,
+# archival knowledge layer.
+
+brand:
+  slug: knowledge-ops
+  display_name: Knowledge-Ops
+  tagline: Innovation That Doesn't Apologize
+  parent: magic-unicorn
+  description: |
+    Knowledge-Ops is Magic Unicorn's federated knowledge and library layer. It
+    connects product docs, operational memory, source evidence, and app-owned
+    knowledge into a scoped retrieval surface so every answer is traceable,
+    cited, and grounded in the organization's own systems.
+
+visual:
+  colors:
+    primary: "#8f5bff"
+    accent: "#52e0ff"
+    background: "#07070d"
+    foreground: "#f7f5ff"
+    muted: "#9ca3af"
+  typography:
+    primary_font: Inter
+    display_font: Inter
+    mono_font: Monaco
+  style_keywords:
+    - dark UI
+    - deep purple archive glow
+    - purple-to-cyan gradient
+    - quiet library light
+    - citation marks
+    - indexed knowledge graph
+    - precise information architecture
+    - calm technical
+
+voice:
+  tone:
+    - wise
+    - precise
+    - calm
+    - archival
+    - genuinely helpful
+    - citation-first
+  forbidden_phrases:
+    - revolutionary
+    - game-changer
+    - synergize
+    - unleash
+    - MagicUnicorn
+    - Magic Unicorn Inc.
+    - Command Center
+    - Majik's
+    - CenterDeep
+    - cutting-edge synergy
+    - seamlessly empower
+    - next-generation paradigm
+    - trust me
+    - probably
+    - just assume
+
+prompts:
+  avatar:
+    base: |
+      Generate a tasteful Magic Unicorn-style AI agent avatar for {brand_context}.
+      The character is the Librarian, a wise unicorn keeper of organizational
+      knowledge. Include refined librarian motifs such as subtle spectacles, a
+      book or scroll, indexed archive light, and deep purple-to-cyan illumination.
+      The result should be polished, precise, not cartoonish, and readable as a
+      square profile avatar at small sizes. No text, no watermark. {ref_block}
+    variants: [primary, thinking, success, alert]
+  logo:
+    base: |
+      Generate a logo for {brand_context}. Style: {style_keywords}. Combine the
+      Magic Unicorn dark-purple system with knowledge and library cues: indexed
+      shelves, citation marks, graph nodes, or an archival glow. Keep it clean,
+      high contrast, and usable at small sizes. {ref_block}
+    variants: [flat, monochrome, color, app-icon]
+  app_icon:
+    base: |
+      Generate an app icon for {brand_context}. {style_keywords}. The icon
+      should suggest a federated knowledge library: citation marks, a bound
+      index, or knowledge graph nodes in the Magic Unicorn palette. Square
+      composition, rounded corners, deep contrast. {ref_block}
+    variants: [color, monochrome, dark, light]
+  og_image:
+    base: |
+      Generate a 1200x630 share image for {brand_context}. Put a calm knowledge
+      archive visual on the right and headline space on the left. Topic: {topic}.
+      {style_keywords}. {ref_block}
+    variants: [default, dark, light]
+  podcast_cover:
+    base: |
+      Generate a 3000x3000 square podcast cover for {brand_context}. Episode
+      topic: {topic}. Use deep purple archive light, citation motifs, and Magic
+      Unicorn contrast. {style_keywords}. {ref_block}
+    variants: [series, episode]
+  social_card:
+    base: |
+      Generate a square social card for {brand_context}. Topic: {topic}.
+      Platform: {platform}. Use the deep-purple Magic Unicorn system with calm
+      archival knowledge cues and cited-answer motifs. {style_keywords}.
+      {ref_block}
+    variants: [instagram, twitter, linkedin]
+
+reference_images:
+  canonical: /Users/aaronstransky/Pictures/magic_unicorn_logo.png
+  subdued: /Users/aaronstransky/Pictures/unicorn_subdued_black_logo.png
+  vector: /Users/aaronstransky/AI-Software/MagiCode_sync/public/magic-unicorn-logo.svg

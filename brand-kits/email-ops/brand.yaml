@@ -1,0 +1,32 @@
+brand:
+  slug: email-ops
+  display_name: Email-Ops
+  tagline: A sovereign inbox with agents on approval.
+  parent: unicorn-commander
+  description: |
+    Email-Ops is the mailbox manager in the Ops suite. It pairs a sovereign mail
+    server with an agent inbox, triage, drafting, and approval workflows so email
+    turns into finished action without leaking private context.
+visual:
+  colors:
+    primary: "#4f46e5"
+    accent: "#06b6d4"
+    background: "#0b1020"
+    foreground: "#f8fafc"
+    muted: "#94a3b8"
+  typography:
+    primary_font: Inter
+    display_font: Inter
+    mono_font: "JetBrains Mono"
+  style_keywords: [sovereign inbox, approval queue, dark mail UI, indigo, cyan, agent draft]
+voice:
+  tone: [clear, efficient, privacy-first, direct, calm]
+  forbidden_phrases: [revolutionary, game-changer, synergize, unleash, MagicUnicorn, Command Center, Majik's, CenterDeep]
+prompts:
+  og_image:
+    base: "Generate a 1200x630 share image for {brand_context}. Topic: {topic}. Sovereign inbox, approval queue, agent drafts, privacy. {ref_block}"
+    variants: [default]
+  social_card:
+    base: "Generate a square social card for {brand_context}. Topic: {topic}. Platform: {platform}. Mail triage, approval, private agent workflow. {ref_block}"
+    variants: [instagram, linkedin]
+reference_images: {}

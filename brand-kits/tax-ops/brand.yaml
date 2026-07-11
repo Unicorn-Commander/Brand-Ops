@@ -1,0 +1,32 @@
+brand:
+  slug: tax-ops
+  display_name: Tax-Planning-Ops
+  tagline: Tax work that ends in a review-ready plan.
+  parent: unicorn-commander
+  description: |
+    Tax-Planning-Ops is the AI tax strategist in the Ops suite. It helps prepare
+    planning, filings, quarterly estimates, and review-ready work products while
+    keeping sensitive financial data under the operator's control.
+visual:
+  colors:
+    primary: "#2563eb"
+    accent: "#10b981"
+    background: "#f8fafc"
+    foreground: "#0f172a"
+    muted: "#64748b"
+  typography:
+    primary_font: Inter
+    display_font: Inter
+    mono_font: "JetBrains Mono"
+  style_keywords: [professional tax workflow, calm blue, green approval, forms, ledger, local-first]
+voice:
+  tone: [precise, careful, professional, grounded, direct]
+  forbidden_phrases: [revolutionary, game-changer, synergize, unleash, guaranteed refund, audit-proof, MagicUnicorn, Command Center, Majik's, CenterDeep]
+prompts:
+  og_image:
+    base: "Generate a 1200x630 share image for {brand_context}. Topic: {topic}. Use professional tax workflow cues, review-ready documents, calm trust. {ref_block}"
+    variants: [default, dark]
+  social_card:
+    base: "Generate a square social card for {brand_context}. Topic: {topic}. Platform: {platform}. Tax planning, documents, approvals, local-first. {ref_block}"
+    variants: [instagram, linkedin]
+reference_images: {}

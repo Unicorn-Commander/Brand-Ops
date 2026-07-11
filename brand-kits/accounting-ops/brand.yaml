@@ -1,0 +1,33 @@
+brand:
+  slug: accounting-ops
+  display_name: Accounting-Ops
+  tagline: Books reconciled on infrastructure you own.
+  parent: unicorn-commander
+  website: https://accounting-ops.magicunicorn.dev
+  description: |
+    Accounting-Ops is the AI bookkeeper and accountant in the Ops suite. It
+    handles ledgers, reconciliation, approvals, reporting, and handoffs to other
+    Ops apps while keeping finance workflows local-first.
+visual:
+  colors:
+    primary: "#0f766e"
+    accent: "#f59e0b"
+    background: "#f8fafc"
+    foreground: "#111827"
+    muted: "#64748b"
+  typography:
+    primary_font: Inter
+    display_font: Inter
+    mono_font: "JetBrains Mono"
+  style_keywords: [ledger, reconciliation, approvals, teal, amber, trustworthy finance UI]
+voice:
+  tone: [plain, exact, calm, professional, accountable]
+  forbidden_phrases: [revolutionary, game-changer, synergize, unleash, MagicUnicorn, Command Center, Majik's, CenterDeep]
+prompts:
+  og_image:
+    base: "Generate a 1200x630 share image for {brand_context}. Topic: {topic}. Ledger, reconciliation, approvals, clean finance surface. {ref_block}"
+    variants: [default, dark]
+  social_card:
+    base: "Generate a square social card for {brand_context}. Topic: {topic}. Platform: {platform}. Finance workflow, reconciled books, owned data. {ref_block}"
+    variants: [instagram, linkedin]
+reference_images: {}

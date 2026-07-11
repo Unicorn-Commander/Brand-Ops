@@ -12,7 +12,7 @@ brand:
     companies alongside clients. It is the parent behind the Unicorn Commander
     suite, Center Deep, and the MAJIKS family (majiks.online music,
     majiks.studio creative apps). Its work ships to production rather than
-    staying as demos, and the core of Unicorn Commander and Majik's Music Studio
+    staying as demos, and the core of Unicorn Commander and Majiks Studio
     is open source.
   mark:
     asset_type: logo
@@ -53,6 +53,14 @@ voice:
     - game-changer
     - synergize
     - unleash
+    - MagicUnicorn
+    - Magic Unicorn Inc.
+    - Command Center
+    - Majik's
+    - CenterDeep
+    - cutting-edge synergy
+    - seamlessly empower
+    - next-generation paradigm
 
 prompts:
   logo:

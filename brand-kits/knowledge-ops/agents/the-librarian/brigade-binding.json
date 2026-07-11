@@ -1,0 +1,20 @@
+{
+  "schema": "brand-ops/brigade-agent-binding@1",
+  "brand": "knowledge-ops",
+  "brand_display_name": "Knowledge-Ops",
+  "persona_agent": "the-librarian",
+  "functional_agent": {
+    "system": "Brigade",
+    "agent": "librarian",
+    "namespace": "knowledge",
+    "service_url": "https://knowledge-ops.magicunicorn.dev"
+  },
+  "identity_contract": {
+    "avatar_source": "Brand-Ops",
+    "voice_source": "Brand-Ops",
+    "brain_source": "Brigade",
+    "display_name": "the Librarian",
+    "service_name": "Knowledge-Ops"
+  },
+  "created_at": "2026-06-27T00:00:00+00:00"
+}

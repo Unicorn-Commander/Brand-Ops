@@ -1,0 +1,32 @@
+brand:
+  slug: customer-ops
+  display_name: Customer-Ops
+  tagline: A sales-ops cockpit that finishes the follow-through.
+  parent: unicorn-commander
+  description: |
+    Customer-Ops is the CRM and sales-ops cockpit in the Ops suite. It connects
+    accounts, opportunities, messages, and agent follow-up with the rest of the
+    Magic Unicorn operating system.
+visual:
+  colors:
+    primary: "#0891b2"
+    accent: "#f97316"
+    background: "#f8fafc"
+    foreground: "#0f172a"
+    muted: "#64748b"
+  typography:
+    primary_font: Inter
+    display_font: Inter
+    mono_font: "JetBrains Mono"
+  style_keywords: [sales cockpit, CRM pipeline, cyan, orange accent, contact graph, action queue]
+voice:
+  tone: [direct, useful, commercially aware, human, outcome-led]
+  forbidden_phrases: [revolutionary, game-changer, synergize, unleash, MagicUnicorn, Command Center, Majik's, CenterDeep]
+prompts:
+  og_image:
+    base: "Generate a 1200x630 share image for {brand_context}. Topic: {topic}. CRM cockpit, pipeline, action queue, human follow-through. {ref_block}"
+    variants: [default, dark]
+  social_card:
+    base: "Generate a square social card for {brand_context}. Topic: {topic}. Platform: {platform}. Sales ops, customer context, finished follow-up. {ref_block}"
+    variants: [instagram, linkedin]
+reference_images: {}
