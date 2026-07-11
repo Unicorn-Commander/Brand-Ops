@@ -25,3 +25,11 @@ build/
 
 # Curation quarantine: reversible holding pen for junk assets, not source.
 _asset-quarantine/
+
+# Ad-hoc backup files from live-ops edits (*.py.bak-<date>, compose baks).
+*.bak-*
+*.bak.*
+
+# Per-workspace kit subtrees (brand-kits/<workspace-uuid>/...) are runtime
+# tenant state, not source. The flat-root kits above them are the seeds.
+brand-kits/????????-????-????-????-????????????/
