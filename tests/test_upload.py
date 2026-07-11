@@ -17,10 +17,16 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from brand_ops.api.app import create_app
-from brand_ops.api.upload import MAX_IMAGE_PIXELS, UploadError, _verify_raster_bytes
+from brand_ops.api.upload import (
+    MAX_IMAGE_PIXELS,
+    UploadError,
+    _verify_raster_bytes,
+    save_upload,
+)
 from brand_ops.brand_loader import DEFAULT_KITS_DIR
 
 # A 1x1 transparent PNG, the smallest valid PNG. Decoded from base64 so the test
@@ -352,6 +358,86 @@ def test_upload_svg_bypasses_raster_verification(
     record = resp.json()["asset"]
     cleanup_uploads.append(_imported_path("magic-unicorn", "logo", record["file"]))
     assert record["file"].endswith(".svg")
+
+
+# ─────────────────────── auto-mark on logo import ────────────────────────────
+# save_upload is the shared core the REST route and the MCP upload_asset tool
+# both funnel through: a logo landing in a brand whose own brand.yaml has no
+# canonical mark must become that mark; anything else must leave the file alone.
+# Exercised against a throwaway tmp kits tree so no real kit is touched.
+
+_MARKLESS_YAML = """brand:
+  slug: fresh
+  display_name: Fresh
+  parent: null
+visual:
+  colors:
+    primary: "#112233"
+    accent: "#445566"
+"""
+
+
+def _markless_kit(tmp_path: Path) -> Path:
+    kit = tmp_path / "fresh"
+    kit.mkdir(parents=True)
+    (kit / "brand.yaml").write_text(_MARKLESS_YAML)
+    return tmp_path
+
+
+def test_save_upload_logo_sets_brand_mark(tmp_path: Path) -> None:
+    root = _markless_kit(tmp_path)
+    record = save_upload(
+        brand="fresh",
+        asset_type="logo",
+        filename="first-logo.png",
+        content_type="image/png",
+        data=_TINY_PNG,
+        kits_dir=root,
+    )
+    assert record.kind == "imported"
+    raw = yaml.safe_load((root / "fresh" / "brand.yaml").read_text())
+    assert raw["brand"]["mark"] == {
+        "asset_type": "logo",
+        "file": record.file,
+        "kind": "imported",
+    }
+
+
+def test_save_upload_second_logo_keeps_first_mark(tmp_path: Path) -> None:
+    root = _markless_kit(tmp_path)
+    first = save_upload(
+        brand="fresh",
+        asset_type="logo",
+        filename="first-logo.png",
+        content_type="image/png",
+        data=_TINY_PNG,
+        kits_dir=root,
+    )
+    save_upload(
+        brand="fresh",
+        asset_type="logo",
+        filename="second-logo.png",
+        content_type="image/png",
+        data=_TINY_PNG,
+        kits_dir=root,
+    )
+    raw = yaml.safe_load((root / "fresh" / "brand.yaml").read_text())
+    # The first imported logo stays the mark; a later import never overwrites.
+    assert raw["brand"]["mark"]["file"] == first.file
+
+
+def test_save_upload_non_logo_does_not_mark(tmp_path: Path) -> None:
+    root = _markless_kit(tmp_path)
+    save_upload(
+        brand="fresh",
+        asset_type="og_image",
+        filename="share.png",
+        content_type="image/png",
+        data=_TINY_PNG,
+        kits_dir=root,
+    )
+    raw = yaml.safe_load((root / "fresh" / "brand.yaml").read_text())
+    assert "mark" not in raw["brand"]
 
 
 # --- unit-level checks on the verifier itself --------------------------------

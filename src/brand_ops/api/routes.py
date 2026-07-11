@@ -59,6 +59,7 @@ from ..brand_loader import (
     safe_subpath,
     workspace_query_suffix,
 )
+from ..brand_mark import maybe_set_brand_mark
 from ..compliance import (
     build_rules,
     build_tokens,
@@ -170,6 +171,29 @@ _Owner = Annotated[Principal, Depends(require_role("owner"))]
 # carry <script>) is served as a forced download, so a stored-XSS payload in an
 # uploaded asset cannot execute on a shared origin once auth is on.
 _INLINE_RASTER_EXTS = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
+
+# The literal placeholder copy the retired copy-the-template create path left in
+# a brand.yaml that was never dressed. new_brand no longer writes these, but
+# legacy kits may still carry them, so the read boundary scrubs them to None:
+# an undressed brand renders as an honest empty card, never template junk.
+_PLACEHOLDER_TAGLINE = "REPLACE one line"
+_PLACEHOLDER_DESCRIPTION_PREFIX = "Replace with a few sentences"
+
+
+def _scrub_tagline(tagline: str | None) -> str | None:
+    """None out the template's literal placeholder tagline; pass real ones through."""
+    if tagline is not None and tagline.strip() == _PLACEHOLDER_TAGLINE:
+        return None
+    return tagline
+
+
+def _scrub_description(description: str | None) -> str | None:
+    """None out the template's placeholder description; pass real ones through."""
+    if description is not None and description.strip().startswith(
+        _PLACEHOLDER_DESCRIPTION_PREFIX
+    ):
+        return None
+    return description
 
 
 # A served asset is private to its workspace; cache it in the browser but make it
@@ -301,7 +325,7 @@ def _brand_summary(brand: Brand) -> BrandSummary:
     return BrandSummary(
         slug=meta.slug,
         display_name=meta.display_name,
-        tagline=meta.tagline,
+        tagline=_scrub_tagline(meta.tagline),
         parent=meta.parent,
         mark_url=_mark_url(brand),
         # Carry the resolved palette so the list-only brand switcher can theme by
@@ -317,10 +341,10 @@ def _brand_detail(brand: Brand) -> BrandDetail:
     return BrandDetail(
         slug=meta.slug,
         display_name=meta.display_name,
-        tagline=meta.tagline,
+        tagline=_scrub_tagline(meta.tagline),
         parent=meta.parent,
         mark_url=_mark_url(brand),
-        description=meta.description,
+        description=_scrub_description(meta.description),
         visual=BrandVisualOut(
             colors=BrandColorsOut(**visual.colors.model_dump()),
             typography=BrandTypographyOut(**visual.typography.model_dump()),
@@ -476,6 +500,8 @@ async def clone_brand_route(
             body.new_slug,
             body.display_name,
             as_child=body.as_child,
+            tagline=body.tagline,
+            description=body.description,
         )
     except BrandNotFound as exc:
         raise HTTPException(
@@ -1451,6 +1477,17 @@ def _apply_transition(
         raise HTTPException(
             status_code=_HTTP_422, detail="sidecar is not an asset record"
         )
+
+    # Auto-mark on approval: a logo accepted into ``approved`` becomes the
+    # brand's canonical mark when its own brand.yaml has none yet. Approval
+    # moves no files, so the mark records the tree the bytes actually live in
+    # (``kind``: a generated file stays kind="generated", which
+    # /api/assets/file serves as-is). Both REST routes and both MCP tools
+    # funnel through this boundary, so every approve surface gets the same
+    # behavior. The helper never raises and never overwrites an existing mark.
+    if to == "approved" and asset == "logo":
+        maybe_set_brand_mark(brand, asset_type=asset, file=file, kind=kind)
+
     return record
 
 

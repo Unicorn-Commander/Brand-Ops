@@ -123,6 +123,60 @@ def test_clone_distinct_diverges_from_source(kits: Path) -> None:
     assert clone.visual.colors.primary == SOURCE_PRIMARY
 
 
+def test_clone_tagline_description_written_as_child(kits: Path) -> None:
+    brand = clone_brand(
+        SOURCE,
+        "mu-copy-child",
+        "MU Copy Child",
+        as_child=True,
+        kits_dir=kits,
+        tagline="One honest line.",
+        description="A few honest sentences about this brand.",
+    )
+    assert brand.brand.tagline == "One honest line."
+    assert brand.brand.description == "A few honest sentences about this brand."
+
+    # The copy is written into the child's own file (a child's brand block is
+    # never merged from the parent, so this is the block the loader serves).
+    raw = yaml.safe_load((kits / "mu-copy-child" / "brand.yaml").read_text())
+    assert raw["brand"]["tagline"] == "One honest line."
+    assert raw["brand"]["description"] == "A few honest sentences about this brand."
+
+
+def test_clone_tagline_description_written_distinct(kits: Path) -> None:
+    brand = clone_brand(
+        SOURCE,
+        "mu-copy-distinct",
+        "MU Copy Distinct",
+        as_child=False,
+        kits_dir=kits,
+        tagline="Distinct line.",
+        description="Distinct description.",
+    )
+    assert brand.brand.tagline == "Distinct line."
+    raw = yaml.safe_load((kits / "mu-copy-distinct" / "brand.yaml").read_text())
+    assert raw["brand"]["tagline"] == "Distinct line."
+    assert raw["brand"]["description"] == "Distinct description."
+
+
+def test_clone_blank_tagline_description_not_written(kits: Path) -> None:
+    # Empty / whitespace-only values change nothing about the file: no key is
+    # written at all (never a placeholder), preserving the minimal child shape.
+    brand = clone_brand(
+        SOURCE,
+        "mu-copy-blank",
+        "MU Copy Blank",
+        kits_dir=kits,
+        tagline="   ",
+        description="",
+    )
+    raw = yaml.safe_load((kits / "mu-copy-blank" / "brand.yaml").read_text())
+    assert "tagline" not in raw["brand"]
+    assert "description" not in raw["brand"]
+    assert brand.brand.tagline is None
+    assert brand.brand.description is None
+
+
 def test_clone_duplicate_slug_raises(kits: Path) -> None:
     clone_brand(SOURCE, "mu-dup", "MU Dup", kits_dir=kits)
     with pytest.raises(FileExistsError):
@@ -204,6 +258,28 @@ def test_route_clone_distinct_parent_null(
     assert body["mark_url"] is None
 
 
+def test_route_clone_carries_tagline_description(
+    client: TestClient, cleanup_real_kits: list[str]
+) -> None:
+    cleanup_real_kits.append("mu-copy-api")
+    resp = client.post(
+        f"/api/brands/{SOURCE}/clone",
+        json={
+            "new_slug": "mu-copy-api",
+            "display_name": "MU Copy API",
+            "tagline": "API-supplied line.",
+            "description": "API-supplied description.",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["tagline"] == "API-supplied line."
+    assert body["description"] == "API-supplied description."
+    raw = yaml.safe_load((DEFAULT_KITS_DIR / "mu-copy-api" / "brand.yaml").read_text())
+    assert raw["brand"]["tagline"] == "API-supplied line."
+    assert raw["brand"]["description"] == "API-supplied description."
+
+
 def test_route_clone_duplicate_is_409(
     client: TestClient, cleanup_real_kits: list[str]
 ) -> None:
@@ -250,6 +326,24 @@ def test_mcp_clone_brand_inherits(cleanup_real_kits: list[str]) -> None:
     assert result["parent"] == SOURCE
     # _brand_identity flattens colors; the inherited primary is present.
     assert result["colors"]["primary"] == SOURCE_PRIMARY
+
+
+def test_mcp_clone_brand_carries_tagline_description(
+    cleanup_real_kits: list[str],
+) -> None:
+    cleanup_real_kits.append("mu-copy-mcp")
+    result = mcp_server.clone_brand(
+        SOURCE,
+        "mu-copy-mcp",
+        "MU Copy MCP",
+        tagline="MCP-supplied line.",
+        description="MCP-supplied description.",
+    )
+    assert "error" not in result
+    assert result["tagline"] == "MCP-supplied line."
+    assert result["description"] == "MCP-supplied description."
+    raw = yaml.safe_load((DEFAULT_KITS_DIR / "mu-copy-mcp" / "brand.yaml").read_text())
+    assert raw["brand"]["tagline"] == "MCP-supplied line."
 
 
 def test_mcp_clone_brand_duplicate_returns_error(
