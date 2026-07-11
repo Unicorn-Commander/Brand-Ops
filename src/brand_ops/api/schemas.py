@@ -83,12 +83,17 @@ class CloneBrandRequest(BaseModel):
     ``as_child`` (default True) writes a minimal child that inherits {slug}'s
     visual and voice through the loader merge; False copies them in as a distinct
     brand with no parent. The source mark is never copied — the new brand starts
-    with no logo, so its ``mark_url`` is null until one is imported.
+    with no logo, so its ``mark_url`` is null until one is imported. An optional
+    ``tagline`` / ``description`` is written into the new brand block verbatim
+    (a clone never inherits or copies the source's own tagline/description), so
+    a clone can carry honest copy from birth instead of starting blank.
     """
 
     new_slug: str = Field(max_length=128)
     display_name: str = Field(max_length=512)
     as_child: bool = True
+    tagline: str | None = Field(default=None, max_length=512)
+    description: str | None = Field(default=None, max_length=8000)
 
 
 class IntakeRequest(BaseModel):

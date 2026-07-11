@@ -24,7 +24,6 @@ import binascii
 import json
 import logging
 import os
-import shutil
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -41,12 +40,10 @@ from .api.catalog import read_assets
 from .api.guidelines import build_guidelines
 from .api.schemas import BrandGuidelines
 from .asset_types import ASSET_TYPES
-from .atomic_write import atomic_write_text
 from .backends.base import BackendError, BackendNotConfigured
 from .brand_clone import clone_brand as _clone_brand
 from .brand_clone import create_brand_from_draft as _create_brand_from_draft
 from .brand_loader import (
-    DEFAULT_KITS_DIR,
     BrandNotFound,
     current_kits_dir,
     get_allowed_brands,
@@ -971,62 +968,90 @@ def generate_brand_kit(
     }
 
 
-@mcp.tool(annotations=_write("Create brand from template", idempotent=False))
+# The palette a parentless new_brand starts with: the template's neutral,
+# honest "not dressed yet" values (black primary/accent on near-black), NOT a
+# guessed identity. create_brand_from_draft requires primary and accent, so the
+# starter is explicit here rather than implied by a template file on disk.
+_STARTER_PALETTE: dict[str, str] = {
+    "primary": "#000000",
+    "accent": "#000000",
+    "background": "#0a0a0a",
+    "foreground": "#fafafa",
+    "muted": "#404040",
+}
+
+
+@mcp.tool(annotations=_write("Create a new brand", idempotent=False))
 def new_brand(
     slug: str,
     display_name: str,
     parent: str | None = None,
+    tagline: str | None = None,
+    description: str | None = None,
 ) -> dict[str, Any]:
-    """Bootstrap a new brand kit from the blank template.
+    """Create a new brand kit with honest values. Never writes placeholders.
 
-    Copies brand-kits/_template to brand-kits/<slug> and replaces the template
-    placeholder tokens with the supplied slug, display name, and optional parent
-    slug. The result is a brand.yaml ready to fill in (colors, style keywords,
-    references). Fails cleanly if the slug already exists.
+    With ``parent`` this is a thin adapter over the same clone core the REST
+    clone route uses: the new brand is a minimal child that inherits the
+    parent's visual, voice, and prompt templates through the loader merge (and
+    tracks the parent as it evolves). Without a parent, a complete brand.yaml
+    is written from a neutral starter identity -- black primary/accent on a
+    near-black background (honest "not dressed yet" colors) plus the default
+    prompt templates -- so the brand is immediately generatable. Either way the
+    supplied ``tagline`` / ``description`` are written verbatim when given and
+    simply absent when not; no REPLACE-token template junk ever lands in the
+    file. For a drafted identity (palette, voice, style keywords from the
+    Director) use intake_brand instead. Fails cleanly if the slug exists.
 
     Args:
         slug: Filesystem-safe identifier for the new brand, for example
-            "majiks-studio".
+            "majiks-studio" (lowercase letters, digits, and hyphens).
         display_name: Human-readable brand name, for example "Majiks Studio".
         parent: Optional parent brand slug if this is a sub-brand. When set, the
             new brand inherits the parent's visual and voice defaults.
+        tagline: Optional one-line tagline written into the brand block.
+        description: Optional few-sentence description written into the brand
+            block (it is used as context in every prompt).
 
-    Returns the created path and the brand.yaml path.
+    Returns the created kit path, the brand.yaml path, and the parent /
+    tagline / description actually recorded. A duplicate or invalid slug and an
+    unknown parent are returned as structured errors, not raised.
     """
     try:
-        # The template is a shared, global seed resource (a "_"-prefixed dir that
-        # is not a tenant brand), so it is read from the global root; the new brand
-        # is written into the active workspace's subtree.
-        template = DEFAULT_KITS_DIR / "_template"
-        if not template.is_dir():
-            return _error(f"template not found at {template}")
-
-        dest = current_kits_dir() / slug
-        if dest.exists():
-            return _error(f"brand {slug!r} already exists at {dest}", slug=slug)
-
-        shutil.copytree(template, dest)
-
-        brand_yaml = dest / "brand.yaml"
-        text = brand_yaml.read_text()
-        replacements = {
-            "REPLACE-slug": slug,
-            "REPLACE Display Name": display_name,
-        }
-        for token, value in replacements.items():
-            text = text.replace(token, value)
         if parent:
-            text = text.replace("parent: null", f"parent: {parent}")
-        atomic_write_text(brand_yaml, text)
-
-        return {
-            "slug": slug,
-            "created": str(dest),
-            "brand_yaml": str(brand_yaml),
-            "parent": parent,
-        }
+            brand = _clone_brand(
+                parent,
+                slug,
+                display_name,
+                as_child=True,
+                tagline=tagline,
+                description=description,
+            )
+        else:
+            draft: dict[str, Any] = {
+                "display_name": display_name,
+                "tagline": tagline,
+                "description": description,
+                "palette": dict(_STARTER_PALETTE),
+            }
+            brand = _create_brand_from_draft(slug, draft, parent=None)
+    except FileExistsError as exc:
+        return _error(exc, slug=slug)
+    except _USER_ERRORS as exc:
+        return _error(exc, slug=slug)
     except Exception as exc:  # noqa: BLE001 - boundary guard
         return _error(exc, slug=slug)
+
+    _index_brand_best_effort(brand)
+    dest = current_kits_dir() / brand.slug
+    return {
+        "slug": brand.slug,
+        "created": str(dest),
+        "brand_yaml": str(dest / "brand.yaml"),
+        "parent": brand.brand.parent,
+        "tagline": brand.brand.tagline,
+        "description": brand.brand.description,
+    }
 
 
 @mcp.tool(annotations=_write("Clone brand", idempotent=False))
@@ -1035,6 +1060,8 @@ def clone_brand(
     new_slug: str,
     display_name: str,
     as_child: bool = True,
+    tagline: str | None = None,
+    description: str | None = None,
 ) -> dict[str, Any]:
     """Clone an existing brand into a new sub-brand or a distinct seeded brand.
 
@@ -1053,13 +1080,24 @@ def clone_brand(
         display_name: Human-readable name for the new brand.
         as_child: True (default) inherits the source via the parent merge; False
             copies the source's visual, voice, and prompts in with no parent.
+        tagline: Optional one-line tagline written into the new brand block (a
+            clone never inherits or copies the source's own tagline).
+        description: Optional few-sentence description written into the new
+            brand block, same rule as ``tagline``.
 
     Returns the new brand's identity (the same shape get_brand returns). A
     duplicate new_slug or an invalid slug is returned as a structured error, not
     raised across the boundary.
     """
     try:
-        brand = _clone_brand(slug, new_slug, display_name, as_child=as_child)
+        brand = _clone_brand(
+            slug,
+            new_slug,
+            display_name,
+            as_child=as_child,
+            tagline=tagline,
+            description=description,
+        )
     except FileExistsError as exc:
         return _error(exc, slug=slug, new_slug=new_slug)
     except _USER_ERRORS as exc:

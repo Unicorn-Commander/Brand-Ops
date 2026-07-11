@@ -140,6 +140,9 @@ def clone_brand(
     display_name: str,
     as_child: bool = True,
     kits_dir: Path | None = None,
+    *,
+    tagline: str | None = None,
+    description: str | None = None,
 ) -> Brand:
     """Clone ``source_slug`` into a new ``brand-kits/<new_slug>/brand.yaml``.
 
@@ -151,6 +154,11 @@ def clone_brand(
             the source via the loader merge. When False, copy the source's
             resolved visual, voice, and prompts in with ``parent: null``.
         kits_dir: Override the brand-kits root (used by tests).
+        tagline: Optional one-line tagline written into the new brand block.
+            Empty or whitespace-only values are simply not written, so a
+            caller passing nothing changes nothing about the file shape.
+        description: Optional few-sentence description written into the new
+            brand block, same non-empty rule as ``tagline``.
 
     Returns:
         The loaded, validated :class:`Brand` for the newly written clone.
@@ -209,6 +217,17 @@ def clone_brand(
         }
         if prompts:
             doc["prompts"] = prompts
+
+    # The caller's own identity copy, both modes: a non-empty tagline/description
+    # is written into the brand block verbatim (a child's brand block replaces the
+    # parent's wholesale in the loader merge, so these are genuinely the clone's
+    # own). Absent or blank, the key is not written at all -- never a placeholder.
+    clean_tagline = _clean(tagline)
+    if clean_tagline:
+        doc["brand"]["tagline"] = clean_tagline
+    clean_description = _clean(description)
+    if clean_description:
+        doc["brand"]["description"] = clean_description
 
     dest_dir.mkdir(parents=True)
     brand_yaml = dest_dir / "brand.yaml"

@@ -23,6 +23,7 @@ from ..activity import append_event
 from ..asset_types import ASSET_TYPES
 from ..atomic_write import atomic_write_bytes, atomic_write_text, reserve_unique_path
 from ..brand_loader import current_kits_dir, get_current_workspace_id
+from ..brand_mark import maybe_set_brand_mark
 from ..catalog_index import index_sidecar_sync
 from ..compliance.lifecycle import stamp_compliance
 from ..ingest import _write_sidecar
@@ -328,6 +329,21 @@ def save_upload(
     record = _build_record(sidecar, dest, brand)
     if record is None:  # pragma: no cover - sidecar was just written
         raise UploadError("write_failed", "the upload was saved but could not be read back")
+
+    # Auto-mark: the first logo imported into a brand whose own brand.yaml has
+    # no canonical ``mark`` becomes that mark, so the brand's card shows the
+    # imported logo instead of rendering blank. Both the REST route and the MCP
+    # upload_asset tool funnel through here, so the two surfaces cannot drift.
+    # The helper never raises, never overwrites an existing mark, and a failure
+    # is logged, not fatal -- the upload itself already succeeded.
+    if asset_type == "logo":
+        maybe_set_brand_mark(
+            brand,
+            asset_type=asset_type,
+            file=dest.name,
+            kind="imported",
+            kits_dir=root,
+        )
 
     # Record the upload on the provenance feed: a human dropped this asset in.
     # Best-effort and after the record is built, so a feed failure never fails an
