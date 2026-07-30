@@ -316,3 +316,12 @@ def test_a_pat_principal_carries_no_scopes(monkeypatch: pytest.MonkeyPatch) -> N
     assert principal is not None
     assert principal.scopes == ()
     assert principal.pat_role == "member"
+
+
+def test_the_two_role_hierarchies_cannot_drift() -> None:
+    """``tokens`` duplicates the rank table (it must not import the HTTP layer).
+
+    A duplicated constant is only safe if something fails when the copies
+    diverge. This is that something.
+    """
+    assert pat_tokens._ROLE_RANK == auth_mod._ROLE_RANK

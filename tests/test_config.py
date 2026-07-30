@@ -94,3 +94,26 @@ def test_auth_on_still_raises_on_missing_required(
     _clear_settings_cache()
     assert "DATABASE_URL" in str(excinfo.value)
     assert "BRAND_OPS_BOOTSTRAP_WORKSPACE_ID" in str(excinfo.value)
+
+
+def test_boot_check_shares_the_one_auth_required_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The request path and the boot check must agree on what "unset" means.
+
+    ``auth_required()``'s default is now fail-closed (true). This module used to
+    keep its OWN copy of the parse, defaulting to false -- so an unconfigured node
+    would have enforced auth on every request while the boot check believed it was
+    a dev box and skipped the prod-profile assertions. One reader, one answer:
+    with nothing configured, the profile is prod, and prod without a DATABASE_URL
+    refuses to boot rather than coming up serving a broken, empty surface.
+    """
+    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("BRAND_OPS_BOOTSTRAP_WORKSPACE_ID", raising=False)
+    _clear_settings_cache()
+    try:
+        with pytest.raises(config.ConfigError):
+            config.validate_runtime_config()
+    finally:
+        _clear_settings_cache()
