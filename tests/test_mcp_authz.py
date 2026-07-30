@@ -444,3 +444,133 @@ def test_a_resolved_principal_can_never_carry_the_sentinel() -> None:
     resolved.publish()
     assert brand_loader.get_allowed_brands() == frozenset()
     assert brand_loader.get_allowed_brands() is not None
+
+
+# ---------------------------------------------------------------------------
+# The ROLE VALUE, end to end: membership row -> principal -> MCP enforcement
+# ---------------------------------------------------------------------------
+#
+# Everything above builds a ``ResolvedPrincipal`` by hand and asserts what the
+# guard does with the role it is HANDED. Nothing asserted that the role the guard
+# is handed is the role the caller's membership actually grants -- and that gap
+# is a whole fail-open of its own. ``_snapshot`` is the one place the resolved
+# principal is turned into the object the guard reads, so a single
+# ``dataclasses.replace(principal, role="owner")`` there silently makes every
+# caller an owner while leaving the entire suite green: the authz tests pass
+# because they never go through ``_snapshot``, and the auth tests pass because
+# they only assert workspace and brands.
+#
+# These drive the REAL ``resolve_mcp_principal`` -- the same authenticate ->
+# _scope_principal -> _snapshot chain the HTTP mount and the stdio session use --
+# with only the JWT verifier and the tenancy DB read stubbed, and assert the role
+# VALUE that comes out the far end, then that the dispatch enforces it.
+
+
+def _membership(monkeypatch: pytest.MonkeyPatch, *, role: str | None) -> None:
+    """Stand in for the two external facts: a verified token and a member row."""
+    from brand_ops.db.tenancy import WorkspaceContext
+
+    async def _verified(token):
+        return Principal(uc_uid="user-a", issuer="keycloak", credential_kind="keycloak")
+
+    async def _resolve(uc_uid, *, requested_workspace_id=None):
+        return WorkspaceContext(
+            workspace_id=WS_A,
+            workspace_slug="ws-a",
+            role=role,
+            allowed_brand_slugs=frozenset({"magic-unicorn"}),
+        )
+
+    async def _no_entitlements(raw, *, cache_key=None):
+        return None
+
+    monkeypatch.setattr(auth_mod, "authenticate", _verified)
+    monkeypatch.setattr(auth_mod, "resolve_context", _resolve)
+    monkeypatch.setattr(auth_mod, "resolve_entitlements", _no_entitlements)
+
+
+@pytest.mark.parametrize("role", ["viewer", "member", "admin", "owner"])
+def test_the_resolved_principal_carries_the_role_membership_granted(
+    monkeypatch: pytest.MonkeyPatch, role: str
+) -> None:
+    """MUTATION PIN: ``_snapshot`` must pass the principal through UNCHANGED.
+
+    Not "a principal comes out" and not "some role comes out": the EXACT role the
+    membership row carries. Parametrised over all four ranks so no constant
+    substitution can satisfy it -- ``replace(principal, role="owner")`` fails the
+    viewer/member/admin cases, and any other constant fails the rest.
+    """
+    _membership(monkeypatch, role=role)
+    resolved = asyncio.run(mcp_auth.resolve_mcp_principal("a-verified-bearer"))
+    assert resolved is not None
+    assert resolved.principal.role == role
+    # And the object really is the scoped principal, not a rebuilt lookalike.
+    assert resolved.workspace_id == WS_A
+    assert resolved.allowed_brands == frozenset({"magic-unicorn"})
+
+
+def test_a_viewer_membership_is_refused_clone_through_the_real_resolver(
+    monkeypatch: pytest.MonkeyPatch, kits: Path
+) -> None:
+    """The headline escalation, driven from the membership row rather than a stub.
+
+    This is the assertion that was missing: with ``_snapshot`` handing the guard
+    a forged ``role="owner"``, a viewer credential resolved to an owner principal
+    and ``clone_brand`` WROTE THE BRAND TO DISK -- while the whole suite stayed
+    green. Both halves are asserted: the refusal, and the absence of the file.
+    """
+    _membership(monkeypatch, role="viewer")
+    resolved = asyncio.run(mcp_auth.resolve_mcp_principal("a-viewer-bearer"))
+    assert resolved is not None
+    assert resolved.principal.role == "viewer"
+    mcp_auth.set_mcp_principal(resolved)
+    with pytest.raises(mcp_auth.MCPAuthzError) as exc:
+        asyncio.run(
+            mcp.call_tool(
+                "clone_brand",
+                {
+                    "slug": "magic-unicorn",
+                    "new_slug": "escalated-clone",
+                    "display_name": "Escalated Clone",
+                },
+            )
+        )
+    assert "owner role in this workspace" in str(exc.value)
+    assert not (kits / WS_A / "escalated-clone").exists()
+
+
+def test_an_owner_membership_still_clones_through_the_real_resolver(
+    monkeypatch: pytest.MonkeyPatch, kits: Path
+) -> None:
+    """The other direction, so the pin above cannot be satisfied by denying all."""
+    _membership(monkeypatch, role="owner")
+    resolved = asyncio.run(mcp_auth.resolve_mcp_principal("an-owner-bearer"))
+    assert resolved is not None
+    mcp_auth.set_mcp_principal(resolved)
+    result = repr(
+        asyncio.run(
+            mcp.call_tool(
+                "clone_brand",
+                {
+                    "slug": "magic-unicorn",
+                    "new_slug": "resolved-clone",
+                    "display_name": "Resolved Clone",
+                },
+            )
+        )
+    )
+    assert "error" not in result.lower(), result
+    assert (kits / WS_A / "resolved-clone" / "brand.yaml").is_file()
+
+
+def test_a_membership_with_no_role_cannot_reach_an_owner_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Indeterminate denies, through the real chain: a NULL role is not an owner."""
+    _membership(monkeypatch, role=None)
+    resolved = asyncio.run(mcp_auth.resolve_mcp_principal("a-roleless-bearer"))
+    assert resolved is not None
+    assert resolved.principal.role is None
+    mcp_auth.set_mcp_principal(resolved)
+    with pytest.raises(mcp_auth.MCPAuthzError):
+        asyncio.run(mcp.call_tool("clone_brand", {}))

@@ -125,3 +125,56 @@ def test_the_settings_are_actually_installed_on_the_served_app() -> None:
     assert installed is not None
     assert installed.enable_dns_rebinding_protection is True
     assert PROD_HOST in installed.allowed_hosts
+
+
+def test_a_wildcard_public_url_is_scrubbed_too(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same rule for the OTHER source of a hostname.
+
+    ``MCP_ALLOWED_HOSTS`` entries went through ``_clean_host``; the
+    ``MCP_PUBLIC_URL`` hostname was appended raw, so ``https://*/mcp`` put ``*``
+    and ``*:*`` straight into ``allowed_hosts``. Not exploitable -- the SDK
+    matches the Host header exactly (plus the ``:*`` any-port suffix), so a
+    literal ``*`` entry matches only a literal ``*`` Host -- but "a wildcard never
+    reaches the allow-list" is either true of every source or it is not an
+    invariant, and an asymmetry like this is exactly what a later refactor
+    (a prefix match, a different transport) turns into a real hole.
+    """
+    monkeypatch.setenv("MCP_PUBLIC_URL", "https://*/mcp")
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+    settings = mcp_http._transport_security()
+    assert settings.enable_dns_rebinding_protection is True
+    assert "*" not in settings.allowed_hosts, settings.allowed_hosts
+    assert "*:*" not in settings.allowed_hosts, settings.allowed_hosts
+    assert not any(
+        entry.count("*") and not entry.endswith(":*")
+        for entry in settings.allowed_hosts
+    ), settings.allowed_hosts
+    # And nothing was widened: only the loopback names survive.
+    mw = TransportSecurityMiddleware(settings)
+    assert mw._validate_host("evil.example.com") is False
+    assert mw._validate_host("*") is False
+    assert mw._validate_host("127.0.0.1") is True
+
+
+def test_both_hostname_sources_go_through_one_scrubber(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A partial wildcard in the public URL is dropped the same way too."""
+    monkeypatch.setenv("MCP_PUBLIC_URL", "https://*.example.dev/mcp")
+    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "*.example.dev")
+    settings = mcp_http._transport_security()
+    bare = [e[:-2] if e.endswith(":*") else e for e in settings.allowed_hosts]
+    assert not any("*" in entry for entry in bare), settings.allowed_hosts
+    mw = TransportSecurityMiddleware(settings)
+    assert mw._validate_host("anything.example.dev") is False
+
+
+def test_a_legitimate_public_url_still_reaches_the_allow_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scrub must drop wildcards, not the hostname (that would be a 421 again)."""
+    monkeypatch.setenv("MCP_PUBLIC_URL", "https://MCP.Brand.Example.dev:8443/mcp")
+    monkeypatch.delenv("MCP_ALLOWED_HOSTS", raising=False)
+    mw = TransportSecurityMiddleware(mcp_http._transport_security())
+    assert mw._validate_host("mcp.brand.example.dev") is True
+    assert mw._validate_host("mcp.brand.example.dev:8443") is True

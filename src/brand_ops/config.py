@@ -225,7 +225,9 @@ def validate_runtime_config() -> Settings:
         names = ", ".join(missing)
         raise ConfigError(
             "AUTH_REQUIRED is on (production profile) but required settings are "
-            f"missing: {names}. Set them, or unset AUTH_REQUIRED for local/CLI use."
+            f"missing: {names}. Set them, or set AUTH_REQUIRED=false for "
+            "local/CLI use. (AUTH_REQUIRED now DEFAULTS to on, so UNSETTING it "
+            "is what produces this error, not what clears it.)"
         )
     return settings
 

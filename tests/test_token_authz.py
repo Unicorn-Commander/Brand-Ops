@@ -325,3 +325,233 @@ def test_the_two_role_hierarchies_cannot_drift() -> None:
     diverge. This is that something.
     """
     assert pat_tokens._ROLE_RANK == auth_mod._ROLE_RANK
+
+
+# ---------------------------------------------------------------------------
+# 4. The role VALUE, end to end: minter -> row -> verified token -> enforcement
+# ---------------------------------------------------------------------------
+#
+# Everything above pins the mint POLICY (who may mint) and the CAP ARITHMETIC
+# (``cap_role`` given two roles). Neither touches the two lines where the role
+# value is actually produced:
+#
+#   * ``api.tokens.create_token``   role=(principal.role or "").lower() or None
+#   * ``tokens.verify_token``       role=row.role
+#
+# Replacing either with the constant ``"owner"`` left the whole suite green, and
+# each one on its own hands every PAT owner powers -- the mint side forever
+# (the row is written wrong), the verify side on every existing row.
+# ``test_the_minted_role_is_taken_from_the_principal_not_the_body`` does not
+# cover this: it only asserts ``role`` is absent from the request SCHEMA, and
+# never looks at the value written.
+#
+# There is no Postgres in this suite, so the DATABASE is the seam -- the
+# sessionmaker is replaced, and every line of the functions under test runs for
+# real. The role value then travels the rest of the way through real code:
+# row -> verify_token -> authenticate -> _scope_principal (cap) -> the MCP guard.
+
+
+class _FakeResult:
+    def __init__(self, row):
+        self._row = row
+
+    def scalar_one_or_none(self):
+        return self._row
+
+
+class _FakeTxn:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _FakeSession:
+    """Just enough AsyncSession for the two functions under test.
+
+    Deliberately minimal: it stands in for Postgres and NOTHING else, so the
+    mint's authorization, the row construction, the usability check, and the
+    PatIdentity/Principal construction are all the real ones.
+    """
+
+    def __init__(self, row=None):
+        self.row = row
+        self.added: list = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def begin(self):
+        return _FakeTxn()
+
+    async def execute(self, stmt):
+        return _FakeResult(self.row)
+
+    def add(self, obj):
+        self.added.append(obj)
+        self.row = obj
+
+    async def refresh(self, obj):
+        # What the database would fill in on flush.
+        import uuid as _uuid
+        from datetime import UTC as _UTC
+        from datetime import datetime as _dt
+
+        if getattr(obj, "id", None) is None:
+            obj.id = _uuid.uuid4()
+        if getattr(obj, "created_at", None) is None:
+            obj.created_at = _dt.now(_UTC)
+
+
+def _stub_db(monkeypatch: pytest.MonkeyPatch, session: _FakeSession, *modules):
+    for mod in modules:
+        monkeypatch.setattr(mod, "get_sessionmaker", lambda: (lambda: session))
+
+
+@pytest.mark.parametrize("minter_role", ["member", "admin", "owner"])
+def test_the_minted_row_records_the_minters_own_role(
+    monkeypatch: pytest.MonkeyPatch, minter_role: str
+) -> None:
+    """MUTATION PIN: ``create_token`` writes the PRINCIPAL's role onto the row.
+
+    Parametrised over every role that may mint, so a constant cannot satisfy it:
+    writing ``"owner"`` unconditionally fails the member and admin cases. The
+    assertion is on the ApiToken object actually handed to the session, not on a
+    return value, because the row is what every later use reads.
+    """
+    from brand_ops.db import base as db_base
+
+    session = _FakeSession()
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
+    _stub_db(monkeypatch, session, tokens_api, db_base)
+
+    body = tokens_api.TokenCreate(name="headless")
+    # Mixed case on purpose: the row must be normalised, not echoed.
+    out = asyncio.run(tokens_api.create_token(body, _sso(minter_role.upper())))
+
+    assert len(session.added) == 1
+    row = session.added[0]
+    assert row.role == minter_role, f"row.role was {row.role!r}"
+    assert out["role"] == minter_role
+    assert row.user_key == "user-a"
+    assert str(row.workspace_id) == WS_A
+    # The plaintext is returned once and is not the thing stored.
+    assert out["token"].startswith("brand_pat_")
+    assert row.token_hash == pat_tokens.hash_token(out["token"])
+    assert out["token"] not in (row.token_hash, row.token_prefix)
+
+
+def _row_with_role(role: str | None, raw: str):
+    from brand_ops.db.models import ApiToken
+
+    return ApiToken(
+        user_key="user-a",
+        name="headless",
+        token_hash=pat_tokens.hash_token(raw),
+        token_prefix=pat_tokens.display_prefix(raw),
+        role=role,
+        workspace_id=None,
+        brand_slug=None,
+        expires_at=None,
+        revoked_at=None,
+    )
+
+
+@pytest.mark.parametrize("stored_role", ["viewer", "member", "admin", "owner"])
+def test_verify_token_returns_the_role_stored_on_the_row(
+    monkeypatch: pytest.MonkeyPatch, stored_role: str
+) -> None:
+    """MUTATION PIN: ``verify_token`` reads ``row.role``, never a constant.
+
+    Every rank is asserted, so substituting any single constant is red. This is
+    the line that decides what an ALREADY MINTED token is worth on every call, so
+    forging it here escalates every live PAT at once, retroactively.
+    """
+    from brand_ops.db import base as db_base
+
+    raw, _, _ = pat_tokens.generate_token()
+    session = _FakeSession(_row_with_role(stored_role, raw))
+    _stub_db(monkeypatch, session, db_base)
+
+    identity = asyncio.run(pat_tokens.verify_token(raw))
+    assert identity is not None
+    assert identity.role == stored_role
+    # ...and it is carried onto the Principal the auth chain builds, unchanged.
+    principal = asyncio.run(auth_mod.authenticate(raw))
+    assert principal is not None
+    assert principal.pat_role == stored_role
+
+
+def test_a_viewer_minted_token_is_refused_an_owner_mcp_tool_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole chain, in one test, with the MCP guard as the far end.
+
+    membership row (viewer) -> minted ApiToken row -> verify_token -> Principal
+    -> _scope_principal (cap against a LIVE OWNER membership) -> the MCP
+    dispatch. Every one of the three mutations breaks this: forge the mint role,
+    forge the verified role, or forge the snapshot role, and the viewer's token
+    clones a brand.
+    """
+    from brand_ops.api import mcp_auth
+    from brand_ops.db import base as db_base
+    from brand_ops.mcp_server import mcp
+
+    # 1. A viewer... may not mint at all, which is the first gate. Mint as the
+    #    lowest role that CAN, so the test is about the value, not the gate.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://u:p@localhost/db")
+    mint_session = _FakeSession()
+    _stub_db(monkeypatch, mint_session, tokens_api, db_base)
+    minted = asyncio.run(
+        tokens_api.create_token(tokens_api.TokenCreate(name="headless"), _sso("member"))
+    )
+    row = mint_session.added[0]
+    assert row.role == "member"
+
+    # 2. That row is what the verifier reads back on every later call.
+    verify_session = _FakeSession(row)
+    _stub_db(monkeypatch, verify_session, db_base)
+
+    # 3. The owner's LIVE membership is owner -- so only the recorded mint role
+    #    can hold this token below owner. That is the escalation being pinned.
+    async def _resolve(uc_uid, *, requested_workspace_id=None):
+        return WorkspaceContext(
+            workspace_id=WS_A,
+            workspace_slug="ws-a",
+            role="owner",
+            allowed_brand_slugs=frozenset({"magic-unicorn"}),
+        )
+
+    async def _no_entitlements(raw, *, cache_key=None):
+        return None
+
+    monkeypatch.setattr(auth_mod, "resolve_context", _resolve)
+    monkeypatch.setattr(auth_mod, "resolve_entitlements", _no_entitlements)
+
+    mcp_auth.reset_mcp_principal()
+    mcp_auth.set_stdio_credential(None)
+    try:
+        resolved = asyncio.run(mcp_auth.resolve_mcp_principal(minted["token"]))
+        assert resolved is not None
+        assert resolved.principal.role == "member", resolved.principal.role
+        mcp_auth.set_mcp_principal(resolved)
+        with pytest.raises(mcp_auth.MCPAuthzError) as exc:
+            asyncio.run(
+                mcp.call_tool(
+                    "clone_brand",
+                    {
+                        "slug": "magic-unicorn",
+                        "new_slug": "pat-clone",
+                        "display_name": "PAT Clone",
+                    },
+                )
+            )
+        assert "owner role in this workspace" in str(exc.value)
+        # The same token still gets the reads its role does carry.
+        assert asyncio.run(mcp.call_tool("list_brands", {})) is not None
+    finally:
+        mcp_auth.reset_mcp_principal()

@@ -109,7 +109,14 @@ def _allowed_hosts() -> list[str]:
     neither.
     """
     names: list[str] = list(_LOOPBACK_HOSTS)
-    endpoint_host = urlsplit(_public_endpoint()).hostname
+    # Through _clean_host, exactly like the MCP_ALLOWED_HOSTS entries below.
+    # It used to be appended raw, so ``MCP_PUBLIC_URL=https://*/mcp`` put ``*``
+    # (and ``*:*``) into the allow-list while the same wildcard typed into
+    # MCP_ALLOWED_HOSTS was dropped. Not exploitable -- the SDK matches the Host
+    # header exactly, plus the ``:*`` any-port suffix, so a literal ``*`` matches
+    # only the literal Host ``*`` -- but "a wildcard never reaches the allow-list"
+    # has to be true of EVERY source of a name, or it is not an invariant.
+    endpoint_host = _clean_host(urlsplit(_public_endpoint()).hostname or "")
     if endpoint_host:
         names.append(endpoint_host)
     for extra in os.getenv("MCP_ALLOWED_HOSTS", "").split(","):
