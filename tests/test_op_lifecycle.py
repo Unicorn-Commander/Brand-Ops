@@ -20,7 +20,7 @@ from brand_ops.db import base
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     app = create_app()
     setup_lifecycle(app)
     return TestClient(app)
@@ -137,7 +137,7 @@ def test_readyz_not_in_openapi_schema(client: TestClient) -> None:
 
 def test_validate_config_noop_in_dev_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     # AUTH off => dev/CLI/test profile => never raises, even with nothing set.
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("BRAND_OPS_BOOTSTRAP_WORKSPACE_ID", raising=False)
     config.get_settings.cache_clear()

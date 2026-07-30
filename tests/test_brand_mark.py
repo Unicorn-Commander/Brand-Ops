@@ -156,7 +156,7 @@ def test_falls_back_to_slug_line_when_no_display_name(tmp_path: Path) -> None:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 

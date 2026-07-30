@@ -181,7 +181,7 @@ def test_non_admin_gets_403_over_http(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_anonymous_denied_when_auth_off(monkeypatch: pytest.MonkeyPatch) -> None:
     # The real require_principal (auth off) yields anonymous, which the gate must
     # reject even with an empty allow-list (deny-by-default).
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("BRAND_OPS_ADMIN_SUBS", raising=False)
     app = FastAPI()
     app.include_router(admin_router)

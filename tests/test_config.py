@@ -24,7 +24,7 @@ def test_warns_when_auth_off_and_database_url_set(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Auth off + a real DB url looks like a deploy serving unauthenticated."""
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.setenv("DATABASE_URL", "postgresql://app:REMOVED@db/brand_ops")
     _clear_settings_cache()
     with caplog.at_level(logging.WARNING, logger="brand_ops"):
@@ -43,7 +43,7 @@ def test_silent_when_auth_off_and_no_database_url(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The CLI / stdio MCP / DB-less test path must stay quiet (no warning)."""
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("DATABASE_URL", raising=False)
     _clear_settings_cache()
     with caplog.at_level(logging.WARNING, logger="brand_ops"):
@@ -73,7 +73,7 @@ def test_warning_does_not_raise_with_db_and_auth_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The warning is advisory: auth off must never raise, even with a DB url."""
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.setenv("DATABASE_URL", "postgresql://app:REMOVED@db/brand_ops")
     _clear_settings_cache()
     settings = config.validate_runtime_config()

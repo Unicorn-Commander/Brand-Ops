@@ -253,7 +253,7 @@ def test_generate_route_returns_402_when_entitlement_denied(
     from brand_ops.api import routes
     from brand_ops.api.app import create_app
 
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
 
     def _deny(*args, **kwargs):
         raise EntitlementDenied(
@@ -287,7 +287,7 @@ def test_generate_card_route_is_never_gated(monkeypatch: pytest.MonkeyPatch) -> 
     from brand_ops.engine import AssetOutcome
     from brand_ops.prompt_builder import BuiltPrompt
 
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     _enforce_on(monkeypatch)
 
     built = BuiltPrompt(

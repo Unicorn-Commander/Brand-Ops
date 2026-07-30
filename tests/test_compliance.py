@@ -179,7 +179,7 @@ def test_vector_skips(tmp_path) -> None:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 

@@ -25,14 +25,20 @@ Three pieces:
      publishes, plus a process-scoped credential (:func:`set_stdio_credential`)
      that the stdio entrypoint publishes.
   3. :func:`install_mcp_guard` -- wraps the FastMCP dispatch methods so EVERY
-     call re-asserts the principal and re-publishes its scope before the tool
-     body runs. That is what makes the enforcement per-call rather than
-     per-session, and it is defence in depth behind the ``stateless_http``
-     ContextVar-inheritance property the HTTP transport relies on.
+     call re-asserts the principal, re-publishes its scope, and checks the
+     caller's in-workspace ROLE before the tool body runs. That is what makes the
+     enforcement per-call rather than per-session, and it is defence in depth
+     behind the ``stateless_http`` ContextVar-inheritance property the HTTP
+     transport relies on.
+  4. :data:`TOOL_MIN_ROLE` -- the declarative tool -> required-role table the
+     guard reads. It mirrors the ``require_role`` gates already on the REST
+     routes, and an unlisted tool is REFUSED, so the authorization axis cannot be
+     skipped by adding a tool and forgetting to gate it.
 
 Fail-closed everywhere: a missing credential, an unverifiable one, a caller with
-no active workspace, a database outage, or any unexpected exception all end in a
-refusal. There is no branch that turns an error into an unscoped session.
+no active workspace, a database outage, an undeclared tool, or any unexpected
+exception all end in a refusal. There is no branch that turns an error into an
+unscoped session, and none that turns an unknown capability into an allowed one.
 """
 from __future__ import annotations
 
@@ -49,8 +55,15 @@ from . import auth as _auth
 _log = logging.getLogger("brand_ops.api.mcp_auth")
 
 __all__ = [
+    "PROMPT_MIN_ROLE",
+    "RESOURCE_MIN_ROLE",
+    "TOOL_MIN_ROLE",
     "MCPAuthError",
+    "MCPAuthzError",
     "ResolvedPrincipal",
+    "authorize_prompt",
+    "authorize_resource",
+    "authorize_tool",
     "current_call_principal",
     "get_mcp_principal",
     "install_mcp_guard",
@@ -73,6 +86,17 @@ class MCPAuthError(PermissionError):
     FastMCP turns a raised exception into an MCP error result, so the client sees
     a refusal instead of data. It is a distinct type so a test can assert the
     refusal came from the auth guard and not from a tool's own validation.
+    """
+
+
+class MCPAuthzError(MCPAuthError):
+    """Raised when an authenticated caller lacks the ROLE a tool requires.
+
+    Authentication and authorization are different axes and this is the second
+    one: the caller proved who they are and which workspace they act in, and the
+    refusal is about what their membership role may DO inside it. It subclasses
+    :class:`MCPAuthError` so anything that already treats "the guard refused" as
+    one condition keeps working, while a test can assert which axis refused.
     """
 
 
@@ -257,6 +281,145 @@ async def current_call_principal() -> ResolvedPrincipal:
     return resolved
 
 
+# ---------------------------------------------------------------------------
+# Authorization: the in-workspace ROLE axis the MCP lane used to skip entirely
+# ---------------------------------------------------------------------------
+#
+# Authentication says WHO the caller is and WHICH tenant they act in. RLS and the
+# brand allow-list keep them inside that tenant. Neither says what they may DO
+# inside it -- that is ``api.auth.require_role``, and until now the MCP lane
+# never consulted it. The result was a proven privilege escalation: a viewer-role
+# member got 403 from ``POST /api/brands/<slug>/clone`` and 200 (plus a brand
+# written to disk) from the ``clone_brand`` MCP tool.
+#
+# The table below is the mirror of the REST surface's own gates. It is DERIVED,
+# not invented: every entry is the role the REST route that does the same thing
+# demands today.
+#
+#   * ``owner``  -- the routes annotated ``_Owner`` in ``api/routes.py``
+#     (``require_role("owner")``): brand creation and cloning, the asset lifecycle
+#     moves, and the whole agent-identity surface.
+#   * ``viewer`` -- the routes annotated ``_Auth`` (``require_principal`` only):
+#     every read, plus generation, upload, and the agent/planner/director calls.
+#     "viewer" is the floor rank, so this means "any authenticated member of the
+#     workspace" -- exactly what the REST route means. It is recorded explicitly
+#     rather than left out, because an ABSENT entry means DENY (see below).
+#
+# Two MCP tools have no REST twin. Both are mapped to the twin of the code they
+# actually run, so the two lanes still cannot drift:
+#
+#   * ``new_brand``          -- its own docstring calls it "a thin adapter over
+#                               the same clone core the REST clone route uses",
+#                               and the two REST brand-creation doors (clone,
+#                               intake) are both owner-gated.
+#   * ``generate_brand_kit`` -- the batch form of ``generate_asset``, which is
+#                               ``POST /api/generate`` (``_Auth``).
+#
+# DENY BY DEFAULT: a tool name absent from this table is refused. A tool added
+# later therefore ships ungated-as-in-unreachable rather than ungated-as-in-open,
+# and ``test_every_registered_tool_has_a_declared_role`` turns that into a red
+# test at the moment it is added rather than an incident later.
+TOOL_MIN_ROLE: dict[str, str] = {
+    # --- reads: mirror the _Auth (authenticated member) REST routes ---------
+    "build_prompt": "viewer",
+    "check_compliance": "viewer",
+    "fetch_asset_bytes": "viewer",
+    "get_agent_manifest": "viewer",
+    "get_agent_team": "viewer",
+    "get_brand": "viewer",
+    "get_brand_compliance": "viewer",
+    "get_brand_guidelines": "viewer",
+    "get_brand_rules": "viewer",
+    "get_brand_tokens": "viewer",
+    "get_share_preview": "viewer",
+    "list_agents": "viewer",
+    "list_asset_types": "viewer",
+    "list_brand_agents": "viewer",
+    "list_brands": "viewer",
+    "list_generated_assets": "viewer",
+    "list_templates": "viewer",
+    "list_voices": "viewer",
+    "read_activity": "viewer",
+    # --- generation + upload + assistants: also _Auth on REST ---------------
+    "director_chat": "viewer",  # POST /api/director/chat
+    "generate_asset": "viewer",  # POST /api/generate
+    "generate_brand_kit": "viewer",  # batch of POST /api/generate
+    "generate_card": "viewer",  # POST /api/generate-card
+    "plan_generation": "viewer",  # POST /api/plan-generation
+    "run_agent": "viewer",  # POST /api/agents/{name}/run
+    "upload_asset": "viewer",  # POST /api/assets/upload
+    # --- owner-gated: mirror the _Owner REST routes exactly -----------------
+    "approve_asset": "owner",  # POST /api/assets/approve
+    "clone_brand": "owner",  # POST /api/brands/{slug}/clone
+    "create_agent": "owner",  # POST /api/brands/{slug}/agents
+    "generate_agent_avatar": "owner",  # POST .../agents/{agent}/avatar
+    "generate_agent_variants": "owner",  # POST .../agents/{agent}/variants
+    "intake_brand": "owner",  # POST /api/brands/intake
+    "new_brand": "owner",  # no REST twin; same core as clone
+    "set_agent_voice": "owner",  # PUT .../agents/{agent}/voice
+    "transition_asset": "owner",  # POST /api/assets/transition
+    "update_agent": "owner",  # PATCH /api/brands/{slug}/agents/{agent}
+}
+
+# Resources and prompts are the READ surfaces (brand-ops://... documents and the
+# three canned walkthrough texts). They mirror the _Auth REST reads, so any
+# authenticated member of the workspace may fetch them; the brand allow-list, not
+# the role, is what keeps them inside the tenant.
+RESOURCE_MIN_ROLE = "viewer"
+PROMPT_MIN_ROLE = "viewer"
+
+
+def _role_rank(role: str | None) -> int:
+    """The caller's rank on ``api.auth``'s hierarchy. Unknown/absent ranks 0.
+
+    Reuses the REST layer's own ``_ROLE_RANK`` so the two lanes cannot rank the
+    same role differently, and inherits its fail-closed default: a malformed or
+    legacy role is rank 0 and can never satisfy an owner gate.
+    """
+    return _auth._ROLE_RANK.get((role or "").lower(), 0)
+
+
+def _authorize(kind: str, name: str, minimum: str | None, resolved: ResolvedPrincipal) -> None:
+    """Refuse unless ``resolved`` outranks ``minimum``. ``None`` minimum = deny."""
+    if minimum is None:
+        _log.error(
+            "MCP %s %r has no declared minimum role; refusing (deny by default)",
+            kind,
+            name,
+        )
+        raise MCPAuthzError(
+            f"{name!r} is not authorized on this MCP surface: no required role is "
+            "declared for it, and an undeclared capability is refused."
+        )
+    role = resolved.principal.role
+    if _role_rank(role) < _auth._ROLE_RANK[minimum]:
+        _log.info(
+            "MCP %s %r refused: caller role %r is below the required %r",
+            kind,
+            name,
+            role or "none",
+            minimum,
+        )
+        raise MCPAuthzError(
+            f"this action requires the {minimum} role in this workspace"
+        )
+
+
+def authorize_tool(name: str, resolved: ResolvedPrincipal) -> None:
+    """Enforce the REST-mirrored role gate for one tool call. Raises to refuse."""
+    _authorize("tool", name, TOOL_MIN_ROLE.get(name), resolved)
+
+
+def authorize_resource(uri: object, resolved: ResolvedPrincipal) -> None:
+    """Enforce the read-surface role gate for a resource read."""
+    _authorize("resource", str(uri), RESOURCE_MIN_ROLE, resolved)
+
+
+def authorize_prompt(name: str, resolved: ResolvedPrincipal) -> None:
+    """Enforce the read-surface role gate for a prompt fetch."""
+    _authorize("prompt", name, PROMPT_MIN_ROLE, resolved)
+
+
 def install_mcp_guard(server) -> None:
     """Make every FastMCP dispatch require an authenticated, scoped principal.
 
@@ -272,6 +435,11 @@ def install_mcp_guard(server) -> None:
     ``.well-known/mcps.json`` manifest already publishes; gating them would add
     no confidentiality and would break capability negotiation for clients that
     enumerate before they authenticate. Idempotent: installing twice is a no-op.
+
+    This is also the single AUTHORIZATION chokepoint. Both axes are asserted here,
+    in order -- authenticate and scope, then check the caller's in-workspace role
+    against :data:`TOOL_MIN_ROLE` -- so a tool cannot be gated by forgetting to
+    sprinkle a decorator on it, and a tool with no declared role is refused.
     """
     if getattr(server, "_brand_ops_auth_guard", False):
         return
@@ -281,15 +449,18 @@ def install_mcp_guard(server) -> None:
     original_get_prompt = server.get_prompt
 
     async def call_tool(name, arguments):
-        await current_call_principal()
+        resolved = await current_call_principal()
+        authorize_tool(name, resolved)
         return await original_call_tool(name, arguments)
 
     async def read_resource(uri):
-        await current_call_principal()
+        resolved = await current_call_principal()
+        authorize_resource(uri, resolved)
         return await original_read_resource(uri)
 
     async def get_prompt(name, arguments=None):
-        await current_call_principal()
+        resolved = await current_call_principal()
+        authorize_prompt(name, resolved)
         return await original_get_prompt(name, arguments)
 
     server.call_tool = call_tool

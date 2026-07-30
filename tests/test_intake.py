@@ -138,7 +138,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Auth off and no LLM gateway by default, made explicit regardless of ambient
     # env so a route test that does not stub chat takes the deterministic
     # no-gateway path and never reaches a live model.
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     return TestClient(create_app())

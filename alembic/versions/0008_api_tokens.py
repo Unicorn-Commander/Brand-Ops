@@ -4,7 +4,14 @@ Brand-Ops accepted only short-lived IdP JWTs, so a headless MCP client -- the
 stdio transport above all -- had nothing it could hold and ran with no identity.
 This table is the missing durable credential: a ``brand_pat_``-prefixed secret
 stored ONLY as its sha256 hash, owned by a uc_uid, optionally bound to one
-workspace and/or one brand, with an expiry and a revocation stamp.
+workspace and/or one brand, with the minter's role at mint time as a cap, an
+expiry, and a revocation stamp.
+
+There is deliberately no ``scopes`` column: an earlier draft of this revision had
+one, it was carried all the way onto the request principal, and nothing anywhere
+consulted it. ``role`` replaces it and IS enforced on every call. This revision
+has never been applied to any node, so it is edited in place rather than being
+followed by a second migration that drops a column no database ever had.
 
 Deliberately NOT row-level-security scoped, unlike every workspace-scoped table:
 a verification looks the row up by its sha256 hash BEFORE any identity exists, so
@@ -53,7 +60,10 @@ def upgrade() -> None:
         sa.Column("token_hash", sa.String(length=64), nullable=False),
         # Display-only, non-secret fragment so a human can identify a row.
         sa.Column("token_prefix", sa.String(length=32), nullable=False),
-        sa.Column("scopes", sa.JSON(), nullable=True),
+        # The minter's in-workspace role at mint time. A CAP applied on every
+        # use (the lower of this and the owner's live role), so a token can
+        # never carry more reach than the human had when they issued it.
+        sa.Column("role", sa.String(length=32), nullable=True),
         sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("brand_slug", sa.String(length=120), nullable=True),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),

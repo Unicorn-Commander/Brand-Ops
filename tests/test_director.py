@@ -291,7 +291,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Auth off and no LLM gateway, made explicit regardless of ambient env so
     # the route takes the deterministic no-gateway path and never reaches a live
     # model. This is the same posture as tests/test_agent_api.py.
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     return TestClient(create_app())
@@ -395,7 +395,7 @@ def agent_kits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 @pytest.fixture
 def agent_client(monkeypatch: pytest.MonkeyPatch, agent_kits: Path) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 

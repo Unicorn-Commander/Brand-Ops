@@ -383,6 +383,12 @@ class ApiToken(Base):
         NARROW the owner's reach (never widen it): a workspace-bound token is
         refused outside that workspace, a brand-bound token sees only that one
         brand.
+      * ``role`` is the minter's in-workspace role AT MINT TIME, and is the same
+        kind of narrowing in the time dimension: every use takes the LOWER of it
+        and the owner's live role (``tokens.cap_role``), so a token minted by a
+        viewer stays a viewer's token even after its owner is promoted. There is
+        deliberately no ``scopes`` column: the one that used to be here was
+        stored, carried onto the principal, and enforced by nothing.
       * ``expires_at`` (null = no expiry) and ``revoked_at`` (null = live) are
         both checked on every verification.
 
@@ -402,7 +408,8 @@ class ApiToken(Base):
     # equality lookup and two rows can never collide on one secret.
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     token_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
-    scopes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # The minter's workspace role at mint time; a CAP, never a grant.
+    role: Mapped[str | None] = mapped_column(String(32), nullable=True)
     workspace_id: Mapped[uuid.UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("workspace.id", ondelete="CASCADE"),

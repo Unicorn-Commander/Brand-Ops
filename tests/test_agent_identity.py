@@ -308,7 +308,7 @@ def api_kits(monkeypatch: pytest.MonkeyPatch, kits: Path) -> Path:
 def api_client(
     monkeypatch: pytest.MonkeyPatch, api_kits: Path
 ) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 

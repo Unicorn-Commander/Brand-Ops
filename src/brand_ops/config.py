@@ -169,11 +169,12 @@ class ConfigError(RuntimeError):
 def validate_runtime_config() -> Settings:
     """Fail fast at boot when a prod deploy is missing a required setting.
 
-    "Prod profile" is keyed on ``AUTH_REQUIRED`` being truthy: that flag is on for
-    every real deployment and off for the CLI, the stdio MCP server, local dev,
-    and the tests, so this gate only ever fires where it should. When the profile
-    is prod it asserts the two settings the surface cannot safely run without and
-    that otherwise fail late and obscurely:
+    "Prod profile" is keyed on ``api.auth.auth_required()`` -- one reader, shared
+    with the request path, whose default is now ON. That flag is on for every real
+    deployment and is switched off EXPLICITLY (``AUTH_REQUIRED=false``) for the
+    CLI, local dev, and the tests, so this gate only ever fires where it should.
+    When the profile is prod it asserts the two settings the surface cannot safely
+    run without and that otherwise fail late and obscurely:
 
       * ``DATABASE_URL`` -- without it the tenancy DB is unreachable, so every
         authed caller silently sees no brands (the read path fails closed). Better
@@ -189,12 +190,13 @@ def validate_runtime_config() -> Settings:
     deploy sees one clear error rather than discovering them one boot at a time.
     Never called from import; the application entrypoint calls it once at startup.
     """
-    auth_required = os.getenv("AUTH_REQUIRED", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    # One reader for the flag, shared with the request path. Imported lazily
+    # because ``api.auth`` imports this module at module scope. Keeping a second
+    # copy of the parse here is how the two could disagree about what an unset
+    # AUTH_REQUIRED means -- and it now means "on", so they must not.
+    from .api.auth import auth_required as _auth_required
+
+    auth_required = _auth_required()
     settings = get_settings()
     if not auth_required:
         # Dev / CLI / MCP / tests: no production guarantees are required, so this

@@ -71,7 +71,7 @@ def _reset_scope() -> Iterator[None]:
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Auth off (local/dev posture): every request resolves to the anonymous
     # principal, which is UNSCOPED. No token, no Keycloak, no DB, no network.
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 
@@ -125,7 +125,7 @@ async def test_require_principal_anonymous_is_unscoped(
 ) -> None:
     # With no credentials and auth off, the dependency returns the anonymous
     # principal with NO workspace and publishes the UNSCOPED scope (allowed None).
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     from brand_ops.api.auth import require_principal
 
     principal = await require_principal(credentials=None, x_workspace_id=None)

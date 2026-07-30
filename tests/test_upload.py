@@ -84,7 +84,7 @@ def _bomb_png_bytes() -> bytes:
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Make auth-off explicit and deterministic regardless of the ambient env.
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 

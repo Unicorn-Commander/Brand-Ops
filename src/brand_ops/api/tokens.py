@@ -7,15 +7,22 @@ that neither surface will serve an unidentified caller.
 
 Posture, all enforced below and covered by tests:
 
-  * **Only an SSO identity mints.** ``tokens.assert_can_mint`` refuses both the
-    anonymous principal (the AUTH_REQUIRED-off local path) and a caller who
-    themselves authenticated with a PAT. A leaked token therefore cannot roll
-    itself forward past its own revocation.
+  * **Only a first-person SSO identity mints.** ``tokens.assert_can_mint``
+    refuses the anonymous principal (the AUTH_REQUIRED-off local path), a caller
+    who themselves authenticated with a PAT, and a DELEGATED agent credential (an
+    ``act``/``agent_id`` token). A leaked or delegated credential therefore cannot
+    roll itself forward past its own revocation.
+  * **Role-gated.** Minting needs at least ``_MIN_MINT_ROLE`` in the active
+    workspace. A viewer is a read-only member and had no way to write anything
+    through the product; before this gate they could mint a 365-day headless
+    credential, which is an operational capability their role does not carry.
   * **Self only.** The token is always minted for ``principal.uc_uid``. There is
     no body field for an owner.
   * **Never wider than the minter.** The workspace binding must be the caller's
-    own resolved active workspace, and a brand binding must be a brand that
-    workspace can already see. A PAT is a narrowing of its owner, never a grant.
+    own resolved active workspace, a brand binding must be a brand that workspace
+    can already see, and the minter's role at mint time is recorded and re-applied
+    as a CAP on every use. A PAT is a narrowing of its owner, never a grant --
+    including later, if the owner is promoted.
   * **Shown once.** The plaintext is in the 201 response body and nowhere else --
     not the database, not a log line, not a later GET.
   * **Revocable.** ``DELETE`` stamps ``revoked_at``; the verifier checks it on
@@ -38,7 +45,7 @@ from .. import tokens as pat_tokens
 from ..brand_loader import get_allowed_brands
 from ..db.base import get_sessionmaker
 from ..db.models import ApiToken
-from .auth import Principal, require_principal
+from .auth import _ROLE_RANK, Principal, require_principal
 
 _log = logging.getLogger("brand_ops.api.tokens")
 # A dedicated audit logger, mirroring the admin and onboarding routers: every
@@ -55,13 +62,17 @@ _Auth = Annotated[Principal, Depends(require_principal)]
 _DEFAULT_EXPIRY_DAYS = 90
 _MAX_EXPIRY_DAYS = 365
 
+# The floor role that may issue a durable headless credential. A ``viewer`` is a
+# read-only member: they can write nothing through the REST surface and, since
+# the MCP guard now mirrors those gates, nothing through the tool surface either.
+# Issuing a 365-day credential that a machine holds is an operational capability,
+# so it starts at ``member``. Fail-closed by construction: an unknown or missing
+# role ranks 0 (below ``member``) and is refused.
+_MIN_MINT_ROLE = "member"
+
 
 class TokenCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120, description="Human label for this token.")
-    scopes: list[str] = Field(
-        default_factory=list,
-        description="Optional scope strings carried on the principal (advisory today).",
-    )
     workspace_id: str | None = Field(
         default=None,
         description=(
@@ -82,7 +93,9 @@ class TokenOut(BaseModel):
     id: str
     name: str
     token_prefix: str
-    scopes: list[str]
+    # The minter's role at mint time: the cap this token can never exceed.
+    # Server-assigned, never accepted from the request body.
+    role: str | None
     workspace_id: str | None
     brand_slug: str | None
     expires_at: datetime | None
@@ -108,7 +121,7 @@ def _row_out(row: ApiToken) -> dict[str, Any]:
         "id": str(row.id),
         "name": row.name,
         "token_prefix": row.token_prefix,
-        "scopes": list(row.scopes or []),
+        "role": row.role,
         "workspace_id": str(row.workspace_id) if row.workspace_id else None,
         "brand_slug": row.brand_slug,
         "expires_at": row.expires_at,
@@ -118,10 +131,19 @@ def _row_out(row: ApiToken) -> dict[str, Any]:
 
 
 def check_mint_allowed(principal: Principal) -> None:
-    """Translate the credential-kind policy into an HTTP 403. Fail closed."""
+    """Translate the credential-kind policy into an HTTP 403. Fail closed.
+
+    Covers all three refusals: anonymous, a PAT minting a PAT, and a DELEGATED
+    agent credential (``act`` / ``agent_id``) minting a durable one. The last was
+    the open hole -- ``credential_kind == "brigade"`` was allowed outright and
+    nothing here or in ``tokens`` ever looked at whether the Brigade token was a
+    person or an agent acting for one.
+    """
     try:
         pat_tokens.assert_can_mint(
-            principal.credential_kind, anonymous=principal.anonymous
+            principal.credential_kind,
+            anonymous=principal.anonymous,
+            delegated=pat_tokens.is_delegated(principal),
         )
     except pat_tokens.PatMintForbidden as exc:
         raise HTTPException(
@@ -129,10 +151,31 @@ def check_mint_allowed(principal: Principal) -> None:
         ) from exc
 
 
+def check_mint_role(principal: Principal) -> None:
+    """Require at least ``_MIN_MINT_ROLE`` in the active workspace. Fail closed.
+
+    Uses the same ``_ROLE_RANK`` hierarchy and the same unknown-role-ranks-zero
+    rule as ``auth.require_role``, so the token door cannot rank a role
+    differently from every other gated route.
+    """
+    if _ROLE_RANK.get((principal.role or "").lower(), 0) < _ROLE_RANK[_MIN_MINT_ROLE]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                f"issuing a personal access token requires at least the "
+                f"{_MIN_MINT_ROLE} role in this workspace"
+            ),
+        )
+
+
 @tokens_router.post("", response_model=TokenCreated, status_code=201)
 async def create_token(body: TokenCreate, principal: _Auth) -> dict[str, Any]:
     """Mint a personal access token for the calling identity. Shown once."""
+    # Authorization first, availability second: an unauthorized caller must get
+    # the same refusal whether or not the database happens to be reachable, and
+    # must not learn anything about the node from trying.
     check_mint_allowed(principal)
+    check_mint_role(principal)
     _require_db()
 
     active_ws = principal.workspace_id
@@ -165,7 +208,9 @@ async def create_token(body: TokenCreate, principal: _Auth) -> dict[str, Any]:
         name=body.name.strip(),
         token_hash=digest,
         token_prefix=prefix,
-        scopes=[str(s) for s in body.scopes],
+        # The cap. Taken from the RESOLVED principal (the caller's live
+        # membership role), never from the request body.
+        role=(principal.role or "").lower() or None,
         workspace_id=uuid.UUID(active_ws),
         brand_slug=body.brand_slug,
         expires_at=expires_at,
@@ -186,12 +231,13 @@ async def create_token(body: TokenCreate, principal: _Auth) -> dict[str, Any]:
 
     # The secret is deliberately absent from this line: prefix + row id only.
     _audit.info(
-        "api_token.mint user=%s token=%s prefix=%s workspace=%s brand=%s",
+        "api_token.mint user=%s token=%s prefix=%s workspace=%s brand=%s role=%s",
         principal.uc_uid,
         row.id,
         prefix,
         active_ws,
         body.brand_slug,
+        row.role,
     )
     out = _row_out(row)
     out["token"] = raw

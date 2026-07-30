@@ -30,7 +30,7 @@ _needs_seeded_assets = pytest.mark.skipif(
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Make auth-off explicit and deterministic regardless of the ambient env.
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 
@@ -208,11 +208,31 @@ def test_assets_catalog_shape(client: TestClient) -> None:
     assert isinstance(body["assets"], list)
 
 
-def test_auth_bypassed_by_default(client: TestClient) -> None:
-    # With AUTH_REQUIRED unset, protected routes answer without any token.
-    assert os.getenv("AUTH_REQUIRED") in (None, "")
+def test_auth_bypassed_only_when_explicitly_switched_off(client: TestClient) -> None:
+    # AUTH_REQUIRED=false is the EXPLICIT opt-out (the CLI / local / test path):
+    # protected routes then answer without any token. Merely leaving the flag
+    # unset no longer does this -- see
+    # test_auth_required_defaults_to_on_when_unset.
+    assert os.getenv("AUTH_REQUIRED") == "false"
     resp = client.get("/api/brands")
     assert resp.status_code == 200
+
+
+def test_auth_required_defaults_to_on_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With nothing configured at all, the surface must DENY, not serve everything.
+
+    The old code default was false, and the anonymous principal it produced is
+    exempt from ``require_role`` and carries the unscoped "every brand, all
+    tenants" sentinel -- so a node with a dropped env file served every workspace's
+    brands, with owner powers, to anyone who could reach the port. Deleting the
+    variable is exactly that node.
+    """
+    from brand_ops.api.auth import auth_required
+
+    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    assert auth_required() is True
+    c = TestClient(create_app())
+    assert c.get("/api/brands").status_code == 401
 
 
 def test_auth_required_blocks_without_token(monkeypatch: pytest.MonkeyPatch) -> None:

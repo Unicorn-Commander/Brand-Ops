@@ -20,9 +20,13 @@ metered gateway, the same as the REST and stdio paths.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import urlsplit
+
+from mcp.server.transport_security import TransportSecuritySettings
 
 from .. import __version__
 from ..config import get_settings
@@ -32,6 +36,14 @@ from .mcp_auth import (
     resolve_mcp_principal,
     set_mcp_principal,
 )
+
+_log = logging.getLogger("brand_ops.api.mcp_http")
+
+# The loopback names a local client (an MCP inspector on the box, a container
+# health check, the test suite) legitimately uses. Kept alongside the configured
+# public hostname rather than instead of it: adding the real hostname must not
+# take the local path away.
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]")
 
 
 def mcp_http_enabled() -> bool:
@@ -62,6 +74,91 @@ def _public_endpoint() -> str:
     return os.getenv("MCP_PUBLIC_URL", "").strip() or "https://mcp.brand-ops.magicunicorn.dev/mcp"
 
 
+def _clean_host(value: str) -> str | None:
+    """Normalise one configured hostname, or None if it may not be trusted.
+
+    A bare ``*`` (or any entry carrying a ``*`` that is not the SDK's trailing
+    ``:*`` any-port marker) is DROPPED rather than honoured: a wildcard host
+    allow-list is exactly the DNS-rebinding hole the protection exists to close,
+    so a typo or a copy-pasted "allow everything" can never disable it here.
+    """
+    host = value.strip().rstrip("/").lower()
+    if not host:
+        return None
+    if "://" in host:
+        host = urlsplit(host).netloc or host
+    if "*" in host:
+        _log.warning(
+            "ignoring wildcard MCP allowed-host entry %r: DNS-rebinding "
+            "protection is not disabled by configuration",
+            value,
+        )
+        return None
+    return host
+
+
+def _allowed_hosts() -> list[str]:
+    """The exact Host header values ``/mcp`` will serve. Never wildcarded.
+
+    Sources, in order: the loopback names, the hostname of ``MCP_PUBLIC_URL``
+    (which already has to be right for the manifest to advertise a reachable
+    endpoint), and any extra names in ``MCP_ALLOWED_HOSTS`` (comma separated) for
+    a node fronted by more than one router name. Each name is emitted both bare
+    and with the SDK's ``:*`` any-port marker, so ``Host: mcp.example.dev`` and
+    ``Host: mcp.example.dev:8443`` both match while a foreign name matches
+    neither.
+    """
+    names: list[str] = list(_LOOPBACK_HOSTS)
+    endpoint_host = urlsplit(_public_endpoint()).hostname
+    if endpoint_host:
+        names.append(endpoint_host)
+    for extra in os.getenv("MCP_ALLOWED_HOSTS", "").split(","):
+        cleaned = _clean_host(extra)
+        if cleaned:
+            names.append(cleaned)
+
+    out: list[str] = []
+    for name in names:
+        for entry in (name, f"{name}:*"):
+            if entry not in out:
+                out.append(entry)
+    return out
+
+
+def _transport_security() -> TransportSecuritySettings:
+    """DNS-rebinding protection, configured for the hostname we actually serve.
+
+    The bug this fixes: ``FastMCP()`` defaults ``host="127.0.0.1"``, and that
+    default AUTO-ENABLES rebinding protection with ``allowed_hosts`` limited to
+    the loopback names. Behind a real router the Host header is
+    ``mcp.brand-ops.magicunicorn.dev``, which matched nothing, so every
+    production request died at ``421 Misdirected Request`` -- inside the MCP
+    transport, i.e. AFTER our auth wrapper had already accepted the credential.
+    It failed closed, so it was never a hole; it did mean the HTTP surface had
+    never been exercised past the auth wrapper.
+
+    Protection stays ON. What changes is that the allow-list now contains the
+    hostname the deployment is actually reached on, taken from configuration and
+    never from the request. Origin is allow-listed for the same names over https
+    (and http on loopback) so a browser-based client works without opening the
+    endpoint to a page served from anywhere.
+    """
+    hosts = _allowed_hosts()
+    origins: list[str] = []
+    for entry in hosts:
+        bare = entry[:-2] if entry.endswith(":*") else entry
+        schemes = ("http", "https") if bare in _LOOPBACK_HOSTS else ("https",)
+        for scheme in schemes:
+            for origin in (f"{scheme}://{bare}", f"{scheme}://{bare}:*"):
+                if origin not in origins:
+                    origins.append(origin)
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=hosts,
+        allowed_origins=origins,
+    )
+
+
 # The inner Streamable-HTTP ASGI app, built once. Setting the path to "/" means a
 # mount at "/mcp" exposes the protocol at exactly "/mcp" with no doubled segment.
 _inner: Any = None
@@ -71,6 +168,9 @@ def _ensure_inner() -> Any:
     global _inner
     if _inner is None:
         mcp.settings.streamable_http_path = "/"
+        # Read by streamable_http_app() when it lazily builds the session
+        # manager, so it must be set BEFORE that call, not after.
+        mcp.settings.transport_security = _transport_security()
         _inner = mcp.streamable_http_app()
     return _inner
 

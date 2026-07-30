@@ -444,7 +444,7 @@ def test_transition_missing_sidecar_raises_not_found(tmp_path: Path) -> None:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     # Redirect the activity feed to a tmp file so the route-level tests never
     # write into the repo's real brand-kits/.activity.jsonl.
     feed = tmp_path / ".activity.jsonl"
