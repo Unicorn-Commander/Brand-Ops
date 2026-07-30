@@ -32,12 +32,13 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import ToolAnnotations
 
 from . import agent_identity, engine, share_meta, voices
-from .activity import append_event, read_events, set_current_actor
+from .activity import append_event, read_events
 from .agents.brand_intake import BrandIntakeAgent
 from .agents.brand_research import _slugify
 from .agents.registry import AGENT_REGISTRY
 from .api.catalog import read_assets
 from .api.guidelines import build_guidelines
+from .api.mcp_auth import install_mcp_guard, set_stdio_credential
 from .api.schemas import BrandGuidelines
 from .asset_types import ASSET_TYPES
 from .backends.base import BackendError, BackendNotConfigured
@@ -51,7 +52,6 @@ from .brand_loader import (
     load_brand,
     resolve_reference_images,
     safe_subpath,
-    set_workspace_scope,
 )
 from .brand_loader import (
     list_brands as _list_brands,
@@ -73,6 +73,19 @@ from .templates import list_templates as _list_templates
 # within the per-request call, AFTER mcp_http sets the scope, so the tool task
 # inherits the caller's allow-list. The stdio transport is unaffected.
 mcp = FastMCP("brand-ops", stateless_http=True)
+
+# Per-call authentication + tenant scoping, for BOTH transports. The guard wraps
+# the FastMCP dispatch (call_tool / read_resource / get_prompt) so a tool body can
+# only ever run behind a resolved principal whose workspace scope has just been
+# published -- the HTTP mount publishes one per request, the stdio entrypoint
+# supplies a credential that is re-verified per call. Installed here, next to the
+# server it protects, so no transport can be added later that forgets it.
+#
+# Note this is a DISPATCH guard: importing this module and calling a tool
+# function directly as ordinary Python (which is what tests/test_mcp.py does, and
+# what the CLI does through the engine) is not an MCP call and is not gated --
+# in-process Python already has the whole engine.
+install_mcp_guard(mcp)
 
 # Tool annotations (MCP ToolAnnotations) advertise each tool's behavior to the
 # client so an agent can reason about safety before it calls. They are hints, not
@@ -2153,27 +2166,58 @@ def stand_up_steward_agent(brand: str, name: str = "", role: str = "brand stewar
 
 
 def main() -> None:
-    # Opt-in workspace binding for the stdio transport. A local agent client
-    # (for example `ssh <host> docker exec -i brand-ops-backend python3 -m
-    # brand_ops.mcp_server` in a Claude/agent MCP config) carries no bearer,
-    # so without this the whole session runs UNSCOPED: writes land in the
-    # flat kits root and never get a workspace catalog row -- invisible to
-    # every workspace-scoped surface (the Studio UI). Discovered live twice
-    # (rating-raider 2026-07-08, majiks-dj 2026-07-11).
-    #
-    # Setting BRAND_OPS_MCP_WORKSPACE_ID pins the session to one workspace:
-    # files resolve into the workspace subtree (current_kits_dir), creates
-    # are DB-indexed (_index_brand_best_effort sees the scope), and the UI
-    # shows the result immediately. Allowed-brands is left as None (all of
-    # the workspace's brands) because a bound stdio client is a trusted
-    # operator tool, not a tenant boundary. Unset preserves the original
-    # flat/unscoped behavior (CLI, tests, local dev).
-    ws = os.getenv("BRAND_OPS_MCP_WORKSPACE_ID", "").strip()
-    if ws:
-        set_workspace_scope(ws, None)
-        set_current_actor(
-            os.getenv("BRAND_OPS_MCP_ACTOR", "").strip() or "stdio-mcp"
+    """Start the stdio transport. FAIL CLOSED without a credential.
+
+    History: this entrypoint used to take its tenancy from
+    ``BRAND_OPS_MCP_WORKSPACE_ID`` -- an environment variable the operator
+    ASSERTED and nothing verified -- and set ``allowed_brands=None``, i.e. every
+    brand in that workspace, with the actor label likewise taken from the
+    environment. With the variable unset the session ran fully unscoped: every
+    brand of every tenant, every write tool, no identity. Since the documented
+    way to reach it is ``docker exec -i brand-ops-backend python3 -m
+    brand_ops.mcp_server``, that made shell access on the host equal to
+    all-tenant, spend-bearing access to the product.
+
+    Now stdio carries a real credential like every other surface:
+
+      * ``BRAND_OPS_MCP_TOKEN`` (required) is a Brand-Ops personal access token
+        (``brand_pat_...``, the durable credential minted at ``POST /api/tokens``)
+        or a suite bearer. Absent -> the process refuses to start, exit code 2.
+      * The credential is VERIFIED, and the workspace + readable brands are
+        resolved from the owner's memberships, on every tool call (see
+        ``api.mcp_auth``) -- not once at startup, so revocation takes effect on a
+        live session.
+      * ``BRAND_OPS_MCP_WORKSPACE_ID`` survives as a REQUEST for which of the
+        caller's workspaces to act in, honored only if they are a member of it.
+        It can no longer select a workspace on its own.
+      * ``BRAND_OPS_MCP_ACTOR`` is no longer read: the activity feed records the
+        credential's real ``uc_uid``, so a write cannot be attributed to a label
+        its author chose.
+
+    Nothing is verified here at startup on purpose: the verification needs the
+    database, and opening a pooled asyncpg connection on a throwaway event loop
+    before ``mcp.run()`` starts its own would poison the pool (see
+    ``db.base.get_bridge_engine``). The first call authenticates, and refuses.
+    """
+    import sys
+
+    token = os.getenv("BRAND_OPS_MCP_TOKEN", "").strip()
+    if not token:
+        print(
+            "brand-ops mcp: refusing to start without a credential.\n"
+            "  Set BRAND_OPS_MCP_TOKEN to a Brand-Ops personal access token "
+            "(brand_pat_..., minted at POST /api/tokens) or a suite bearer.\n"
+            "  Optionally set BRAND_OPS_MCP_WORKSPACE_ID to choose which of your "
+            "workspaces to act in (it is honored only if you are a member).",
+            file=sys.stderr,
         )
+        raise SystemExit(2)
+
+    set_stdio_credential(
+        token,
+        requested_workspace_id=os.getenv("BRAND_OPS_MCP_WORKSPACE_ID", "").strip()
+        or None,
+    )
     mcp.run()
 
 

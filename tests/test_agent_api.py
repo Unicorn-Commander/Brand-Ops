@@ -25,7 +25,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Auth off, and no LLM gateway: make both explicit and deterministic
     # regardless of the ambient env, so the refine run takes its pure path and
     # never reaches a live model.
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     return TestClient(create_app())

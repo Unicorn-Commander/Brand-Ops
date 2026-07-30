@@ -25,6 +25,10 @@ EXPECTED_TABLES = {
     "agent_governance",
     "agent_spend_event",
     "idempotency_key",
+    # The durable credential (migration 0008). Deliberately NOT in
+    # WORKSPACE_SCOPED_TABLES: a token is looked up by its sha256 hash before any
+    # identity exists, so there is no GUC to filter on at that moment.
+    "api_token",
 }
 
 

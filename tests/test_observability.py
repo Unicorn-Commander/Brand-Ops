@@ -43,7 +43,7 @@ def _reset_logging_state():
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     app = create_app()
     setup_observability(app)

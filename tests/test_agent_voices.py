@@ -226,7 +226,7 @@ def test_preview_success_returns_audio(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("ORATOR_BASE_URL", raising=False)
     get_settings.cache_clear()
     app = create_app()

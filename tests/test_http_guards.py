@@ -24,7 +24,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Make auth-off explicit and deterministic regardless of the ambient env, so
     # every request is the anonymous principal (the original global view) and the
     # docs stay on (the dev/test profile).
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     return TestClient(create_app())
 
 

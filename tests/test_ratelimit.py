@@ -23,7 +23,7 @@ from brand_ops.api.app import create_app
 def _make_client(monkeypatch: pytest.MonkeyPatch, *, limit: str | None, enabled: str | None,
                  ) -> TestClient:
     """Build a TestClient with the limiter env set, then the app, in that order."""
-    monkeypatch.delenv("AUTH_REQUIRED", raising=False)
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
     monkeypatch.delenv("BRAND_OPS_RATELIMIT_REDIS_URL", raising=False)
     if limit is None:
         monkeypatch.delenv("BRAND_OPS_RATELIMIT", raising=False)

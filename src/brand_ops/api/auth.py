@@ -13,10 +13,13 @@ One validation path, two issuers, both optional:
      own verifier with its own cache. A Brigade token is tried only after the
      Keycloak path declines, mirroring the Accounting-Ops auth chain.
 
-Auth is OPTIONAL. ``AUTH_REQUIRED`` (env, default false) gates the whole thing:
-when false, every request resolves to an anonymous principal and no token is
+``AUTH_REQUIRED`` (env, default TRUE) gates the whole thing: when it is
+explicitly off, every request resolves to an anonymous principal and no token is
 required, so tests and local development work with no Keycloak or Brigade. When
-true, a valid bearer from either issuer is required and anything else is 401.
+on -- including when it is simply not set -- a valid bearer from either issuer is
+required and anything else is 401. The default is fail-closed on purpose: the
+anonymous principal is exempt from ``require_role`` and unscoped across tenants,
+so "nobody configured this node" must not be its most permissive state.
 
 This module reads its own env (AUTH_REQUIRED, BRIGADE_* , KEYCLOAK_AUDIENCE)
 directly rather than extending the shared Settings model, which is owned by
@@ -43,6 +46,7 @@ except ImportError:  # pragma: no cover - python-jose is a hard dependency
     JWTError = Exception  # type: ignore[assignment]
     jwt = None  # type: ignore[assignment]
 
+from .. import tokens as pat_tokens
 from ..activity import set_current_actor
 from ..brand_loader import set_workspace_scope
 from ..config import get_settings
@@ -85,6 +89,19 @@ class Principal:
     are resolved by :func:`require_principal` from the caller's memberships, not
     carried on the token; the readable brand set is published to the
     ``brand_loader`` scope at the same time.
+
+    ``credential_kind`` names the KIND of credential that proved this identity --
+    ``"keycloak"``, ``"brigade"``, or ``"pat"`` -- and is None for the anonymous
+    principal. It is distinct from ``issuer`` (which is about who signed) because
+    policy cares about the credential's nature: a PAT is durable and headless, so
+    it may not mint another PAT (see ``tokens.assert_can_mint``).
+
+    ``pat_workspace_id`` / ``pat_brand_slug`` / ``pat_role`` are the optional
+    narrowings carried by a PAT. They only ever REDUCE what the owner may reach
+    and are applied by :func:`_scope_principal`; none of them is ever a grant.
+    ``pat_role`` in particular is the minter's role at mint time, and the
+    resolved ``role`` is capped to it, so a token issued by a viewer never gains
+    owner powers because its owner was promoted afterwards.
     """
 
     uc_uid: str
@@ -96,6 +113,11 @@ class Principal:
     workspace_slug: str | None = None
     role: str | None = None
     claims: dict[str, Any] = field(default_factory=dict)
+    credential_kind: str | None = None
+    token_id: str | None = None
+    pat_workspace_id: str | None = None
+    pat_brand_slug: str | None = None
+    pat_role: str | None = None
 
 
 def _candidate_workspace(claims: dict[str, Any], x_workspace_id: str | None) -> str | None:
@@ -126,12 +148,29 @@ ANONYMOUS = Principal(uc_uid="anonymous", anonymous=True, issuer=None)
 
 
 def auth_required() -> bool:
-    """Whether a valid bearer token is required. Default false.
+    """Whether a valid bearer token is required. Default TRUE (fail closed).
 
-    Honors ``AUTH_REQUIRED`` with any truthy value (1, true, yes, on). Read at
-    call time so a test can flip it with an env var without reimporting.
+    The code default used to be false, and the anonymous principal it produced is
+    explicitly exempt from :func:`require_role` and carries the "every brand, all
+    tenants" scope sentinel. So a node that simply failed to set ``AUTH_REQUIRED``
+    -- a typo, a dropped env file, a new compose profile copied from the wrong
+    place -- served every brand of every workspace to any unauthenticated caller
+    that could reach the port, with owner powers. "Forgot to configure" must not
+    be the most permissive state a deployment can be in.
+
+    Flipping the default changes no deployed behaviour: every compose profile in
+    ``deploy/`` already pins ``AUTH_REQUIRED: ${AUTH_REQUIRED:-true}`` and the
+    live dogfood node sets ``AUTH_REQUIRED=true`` and ``MCP_AUTH_REQUIRED=true``
+    explicitly, so on every real node this function already returned True. What
+    changes is only the value on a node that set nothing -- which now denies
+    instead of serving everything.
+
+    Honors ``AUTH_REQUIRED`` with any truthy value (1, true, yes, on); anything
+    else, including the empty string, is off. Local dev, the CLI, and the tests
+    opt out EXPLICITLY with ``AUTH_REQUIRED=false``. Read at call time so a test
+    can flip it with an env var without reimporting.
     """
-    return os.getenv("AUTH_REQUIRED", "").strip().lower() in ("1", "true", "yes", "on")
+    return os.getenv("AUTH_REQUIRED", "true").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _keycloak_audience() -> str:
@@ -305,6 +344,7 @@ async def _verify_keycloak(token: str) -> Principal | None:
         agent_id=agent_id,
         scopes=_extract_scopes(claims),
         issuer="keycloak",
+        credential_kind="keycloak",
         claims=claims,
     )
 
@@ -446,7 +486,35 @@ async def _verify_brigade(token: str) -> Principal | None:
         agent_id=agent_id,
         scopes=_extract_scopes(claims),
         issuer="brigade",
+        credential_kind="brigade",
         claims=claims,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Personal access token verification (the durable, headless credential)
+# ---------------------------------------------------------------------------
+
+
+async def _verify_pat(token: str) -> Principal | None:
+    """Verify a ``brand_pat_`` credential. None on any failure.
+
+    The token proves only WHO the caller is. Its workspace and readable brands
+    come from the owner's live memberships in :func:`_scope_principal`, exactly
+    like an SSO caller's, with the token's optional bindings applied on top as a
+    narrowing filter.
+    """
+    identity = await pat_tokens.verify_token(token)
+    if identity is None:
+        return None
+    return Principal(
+        uc_uid=identity.user_key,
+        issuer="pat",
+        credential_kind="pat",
+        token_id=identity.token_id,
+        pat_workspace_id=identity.workspace_id,
+        pat_brand_slug=identity.brand_slug,
+        pat_role=identity.role,
     )
 
 
@@ -456,7 +524,18 @@ async def _verify_brigade(token: str) -> Principal | None:
 
 
 async def authenticate(token: str) -> Principal | None:
-    """Validate a raw bearer token. Keycloak first, then Brigade. None on miss."""
+    """Validate a raw bearer credential. None on miss.
+
+    Dispatch is by shape and is MUTUALLY EXCLUSIVE: a ``brand_pat_`` string is
+    only ever handed to the PAT verifier, and anything else is only ever handed
+    to the JWT chain (Keycloak, then Brigade). A PAT can therefore never be
+    "tried as a JWT" (or the reverse) and coax a different code path into
+    accepting it.
+    """
+    if not isinstance(token, str) or not token:
+        return None
+    if pat_tokens.looks_like_pat(token):
+        return await _verify_pat(token)
     principal = await _verify_keycloak(token)
     if principal is not None:
         return principal
@@ -530,10 +609,47 @@ async def _scope_principal(
     usable membership gets ``workspace_id=None`` and an empty allow-list, so they
     see no brands. The resolver fails closed (empty) on any database problem, so
     this never leaks another tenant's brands and never raises.
+
+    A PAT's bindings are applied here, AFTER the membership resolution, and only
+    ever narrow it:
+
+      * a workspace-bound PAT asks for exactly that workspace and is refused
+        outright (empty context) if the owner is not, or is no longer, an active
+        member of it -- so revoking the human's membership revokes the token;
+      * a brand-bound PAT intersects the workspace's brand set with its single
+        slug, so it can reach that one brand and nothing else;
+      * the resolved ROLE is capped to the minter's role at mint time
+        (``tokens.cap_role``), so the token can never act above the human who
+        issued it -- not even after that human is promoted.
+
+    No binding can widen anything: the starting point is always the owner's own
+    membership-derived context.
     """
-    candidate = _candidate_workspace(principal.claims or {}, x_workspace_id)
+    bound_ws = principal.pat_workspace_id
+    candidate = bound_ws or _candidate_workspace(principal.claims or {}, x_workspace_id)
     ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
-    set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
+    workspace_id = ctx.workspace_id
+    workspace_slug = ctx.workspace_slug
+    role = ctx.role
+    allowed = ctx.allowed_brand_slugs
+    if bound_ws is not None and workspace_id != bound_ws:
+        # A bound token whose workspace did not resolve to itself: the owner is
+        # not an active member of it (or the resolver fell back to their default
+        # workspace, which this token is explicitly NOT for). Deny, never swap.
+        _log.info(
+            "api token refused: bound workspace is not an active membership "
+            "(token=%s)",
+            principal.token_id,
+        )
+        workspace_id, workspace_slug, role, allowed = None, None, None, frozenset()
+    elif principal.pat_brand_slug is not None:
+        allowed = frozenset(allowed) & {principal.pat_brand_slug}
+    if principal.credential_kind == "pat" and workspace_id is not None:
+        # A PAT never carries more authority than its minter had at mint time.
+        # Applied AFTER the membership resolution so it can only ever lower the
+        # live role, never raise it.
+        role = pat_tokens.cap_role(role, principal.pat_role)
+    set_workspace_scope(workspace_id, allowed)
     # Resolve and publish the entitlement signal the hosted-generation gate reads,
     # alongside the workspace scope. The suite owns entitlement as a per-org fact;
     # we forward the caller's Keycloak ACCESS token (require_principal selects it
@@ -567,9 +683,9 @@ async def _scope_principal(
     set_current_actor(principal.uc_uid)
     return replace(
         principal,
-        workspace_id=ctx.workspace_id,
-        workspace_slug=ctx.workspace_slug,
-        role=ctx.role,
+        workspace_id=workspace_id,
+        workspace_slug=workspace_slug,
+        role=role,
     )
 
 
