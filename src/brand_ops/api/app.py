@@ -37,6 +37,7 @@ from .onboarding import onboarding_router
 from .ratelimit import setup_ratelimit
 from .routes import router
 from .schemas import HealthOut
+from .tokens import tokens_router
 
 
 def _cors_origins() -> list[str]:
@@ -136,6 +137,9 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(admin_router)
     app.include_router(onboarding_router)
+    # Durable credentials (personal access tokens): what a headless MCP client
+    # holds now that neither MCP surface will serve an unidentified caller.
+    app.include_router(tokens_router)
     if mcp_http:
         attach_mcp_http(app)
 

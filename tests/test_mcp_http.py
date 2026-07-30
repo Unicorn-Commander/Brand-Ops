@@ -21,7 +21,11 @@ def test_mcp_http_surface(monkeypatch):
         assert body["name"] == "brand-ops"
         assert body["transport"] == "streamable-http"
         assert body["auth"]["required"] is True
-        assert body["entitlement"] == "brand_ops"
+        # The manifest must advertise the feature_key the generation gate really
+        # checks (settings.entitlement_feature_key). It used to say "brand_ops",
+        # which no code path reads.
+        assert body["entitlement"] == "brand_ops_access"
+        assert "brand-ops-pat" in body["auth"]["credential_types"]
         assert any(t["name"] == "list_brands" for t in body["tools"])
         assert len(body["tools"]) >= 10
 
@@ -33,13 +37,32 @@ def test_mcp_http_surface(monkeypatch):
         assert client.get("/health").status_code == 200
 
 
-def test_mcp_auth_required_defaults_on(monkeypatch):
+def test_mcp_auth_cannot_be_disabled(monkeypatch):
+    """``MCP_AUTH_REQUIRED=false`` must no longer open the protocol endpoint.
+
+    It used to: the off branch called ``set_workspace_scope(None, None)`` and
+    served every tenant's brands to anyone who could reach the port -- on a
+    hostname whose Traefik router bypasses oauth2-proxy. One env var was the only
+    thing between the public internet and an all-tenant, spend-bearing tool
+    surface. The switch is gone; the reporting helper is constant.
+    """
     from brand_ops.api.mcp_http import mcp_auth_required
 
-    monkeypatch.setenv("MCP_AUTH_REQUIRED", "false")
-    assert mcp_auth_required() is False
+    for value in ("false", "0", "off", "no", ""):
+        monkeypatch.setenv("MCP_AUTH_REQUIRED", value)
+        assert mcp_auth_required() is True
     monkeypatch.delenv("MCP_AUTH_REQUIRED", raising=False)
     assert mcp_auth_required() is True
+
+
+def test_mcp_http_refuses_even_with_auth_switched_off(monkeypatch):
+    """The end-to-end proof of the above: the old bypass value still gets a 401."""
+    monkeypatch.setenv("MCP_HTTP_ENABLED", "true")
+    monkeypatch.setenv("MCP_AUTH_REQUIRED", "false")
+    app = create_app()
+    with TestClient(app) as client:
+        r = client.post("/mcp", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
+        assert r.status_code == 401
 
 
 def test_mcp_http_disabled_by_default(monkeypatch):

@@ -1,0 +1,274 @@
+"""Personal access token management: mint, list, revoke.
+
+The credential itself lives in :mod:`brand_ops.tokens`; this is the human door to
+it. A PAT is what makes the MCP surfaces installable by a headless client -- an
+agent config, a CI job, or the stdio transport's ``BRAND_OPS_MCP_TOKEN`` -- now
+that neither surface will serve an unidentified caller.
+
+Posture, all enforced below and covered by tests:
+
+  * **Only an SSO identity mints.** ``tokens.assert_can_mint`` refuses both the
+    anonymous principal (the AUTH_REQUIRED-off local path) and a caller who
+    themselves authenticated with a PAT. A leaked token therefore cannot roll
+    itself forward past its own revocation.
+  * **Self only.** The token is always minted for ``principal.uc_uid``. There is
+    no body field for an owner.
+  * **Never wider than the minter.** The workspace binding must be the caller's
+    own resolved active workspace, and a brand binding must be a brand that
+    workspace can already see. A PAT is a narrowing of its owner, never a grant.
+  * **Shown once.** The plaintext is in the 201 response body and nowhere else --
+    not the database, not a log line, not a later GET.
+  * **Revocable.** ``DELETE`` stamps ``revoked_at``; the verifier checks it on
+    every use, so revocation is immediate rather than waiting for expiry.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+
+from .. import tokens as pat_tokens
+from ..brand_loader import get_allowed_brands
+from ..db.base import get_sessionmaker
+from ..db.models import ApiToken
+from .auth import Principal, require_principal
+
+_log = logging.getLogger("brand_ops.api.tokens")
+# A dedicated audit logger, mirroring the admin and onboarding routers: every
+# mint and every revoke leaves a line naming the caller and the token ROW (never
+# the secret).
+_audit = logging.getLogger("brand_ops.tokens.audit")
+
+tokens_router = APIRouter(prefix="/api/tokens", tags=["tokens"])
+
+_Auth = Annotated[Principal, Depends(require_principal)]
+
+# A PAT is a long-lived credential, so it gets a bounded default life rather than
+# an unbounded one. 365 days is the ceiling; "no expiry" is not offered.
+_DEFAULT_EXPIRY_DAYS = 90
+_MAX_EXPIRY_DAYS = 365
+
+
+class TokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120, description="Human label for this token.")
+    scopes: list[str] = Field(
+        default_factory=list,
+        description="Optional scope strings carried on the principal (advisory today).",
+    )
+    workspace_id: str | None = Field(
+        default=None,
+        description=(
+            "Pin the token to one workspace. Must be the caller's own active "
+            "workspace; omit to pin it to that workspace anyway."
+        ),
+    )
+    brand_slug: str | None = Field(
+        default=None,
+        description="Optionally narrow the token to a single brand the caller can see.",
+    )
+    expires_in_days: int = Field(
+        default=_DEFAULT_EXPIRY_DAYS, ge=1, le=_MAX_EXPIRY_DAYS
+    )
+
+
+class TokenOut(BaseModel):
+    id: str
+    name: str
+    token_prefix: str
+    scopes: list[str]
+    workspace_id: str | None
+    brand_slug: str | None
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class TokenCreated(TokenOut):
+    token: str = Field(description="The plaintext token. Shown once; store it now.")
+
+
+def _require_db() -> None:
+    """Clean 503 when no database is configured, rather than a 500 deeper down."""
+    if not os.getenv("DATABASE_URL", "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="database is not configured (DATABASE_URL unset)",
+        )
+
+
+def _row_out(row: ApiToken) -> dict[str, Any]:
+    return {
+        "id": str(row.id),
+        "name": row.name,
+        "token_prefix": row.token_prefix,
+        "scopes": list(row.scopes or []),
+        "workspace_id": str(row.workspace_id) if row.workspace_id else None,
+        "brand_slug": row.brand_slug,
+        "expires_at": row.expires_at,
+        "revoked_at": row.revoked_at,
+        "created_at": row.created_at,
+    }
+
+
+def check_mint_allowed(principal: Principal) -> None:
+    """Translate the credential-kind policy into an HTTP 403. Fail closed."""
+    try:
+        pat_tokens.assert_can_mint(
+            principal.credential_kind, anonymous=principal.anonymous
+        )
+    except pat_tokens.PatMintForbidden as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from exc
+
+
+@tokens_router.post("", response_model=TokenCreated, status_code=201)
+async def create_token(body: TokenCreate, principal: _Auth) -> dict[str, Any]:
+    """Mint a personal access token for the calling identity. Shown once."""
+    check_mint_allowed(principal)
+    _require_db()
+
+    active_ws = principal.workspace_id
+    if not active_ws:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="you have no active workspace to issue a token for",
+        )
+    if body.workspace_id and body.workspace_id != active_ws:
+        # The caller may only bind a token to the workspace this request already
+        # resolved them into (switch with X-Workspace-Id and mint again). This is
+        # the membership gate: the resolver would never have produced a workspace
+        # they are not an active member of.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="a token can only be bound to your active workspace",
+        )
+    if body.brand_slug:
+        allowed = get_allowed_brands()
+        if allowed is not None and body.brand_slug not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"brand {body.brand_slug!r} not found",
+            )
+
+    raw, digest, prefix = pat_tokens.generate_token()
+    expires_at = datetime.now(UTC) + timedelta(days=body.expires_in_days)
+    row = ApiToken(
+        user_key=principal.uc_uid,
+        name=body.name.strip(),
+        token_hash=digest,
+        token_prefix=prefix,
+        scopes=[str(s) for s in body.scopes],
+        workspace_id=uuid.UUID(active_ws),
+        brand_slug=body.brand_slug,
+        expires_at=expires_at,
+        created_by=principal.uc_uid,
+    )
+    try:
+        sm = get_sessionmaker()
+        async with sm() as session:
+            async with session.begin():
+                session.add(row)
+            await session.refresh(row)
+    except (SQLAlchemyError, OSError, RuntimeError) as exc:
+        _log.error("api token mint failed: %s", exc.__class__.__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="could not issue a token right now",
+        ) from exc
+
+    # The secret is deliberately absent from this line: prefix + row id only.
+    _audit.info(
+        "api_token.mint user=%s token=%s prefix=%s workspace=%s brand=%s",
+        principal.uc_uid,
+        row.id,
+        prefix,
+        active_ws,
+        body.brand_slug,
+    )
+    out = _row_out(row)
+    out["token"] = raw
+    return out
+
+
+@tokens_router.get("", response_model=list[TokenOut])
+async def list_tokens(principal: _Auth) -> list[dict[str, Any]]:
+    """Every token this identity owns. Never returns a secret or its hash."""
+    if principal.anonymous:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="listing tokens requires an authenticated suite identity",
+        )
+    _require_db()
+    try:
+        sm = get_sessionmaker()
+        async with sm() as session:
+            async with session.begin():
+                rows = (
+                    await session.execute(
+                        select(ApiToken)
+                        .where(ApiToken.user_key == principal.uc_uid)
+                        .order_by(ApiToken.created_at.desc())
+                    )
+                ).scalars().all()
+                return [_row_out(r) for r in rows]
+    except (SQLAlchemyError, OSError, RuntimeError) as exc:
+        _log.error("api token listing failed: %s", exc.__class__.__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="could not list tokens right now",
+        ) from exc
+
+
+@tokens_router.delete("/{token_id}", status_code=204)
+async def revoke_token(token_id: str, principal: _Auth) -> None:
+    """Revoke one of the caller's own tokens. Immediate, and irreversible."""
+    if principal.anonymous:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="revoking a token requires an authenticated suite identity",
+        )
+    _require_db()
+    try:
+        row_id = uuid.UUID(token_id)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="token not found"
+        ) from exc
+    try:
+        sm = get_sessionmaker()
+        async with sm() as session:
+            async with session.begin():
+                row = (
+                    await session.execute(
+                        select(ApiToken).where(
+                            ApiToken.id == row_id,
+                            # Ownership is part of the lookup, so another user's
+                            # token id reads as "not found", never as a 403 that
+                            # confirms the id exists.
+                            ApiToken.user_key == principal.uc_uid,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND, detail="token not found"
+                    )
+                if row.revoked_at is None:
+                    row.revoked_at = datetime.now(UTC)
+    except HTTPException:
+        raise
+    except (SQLAlchemyError, OSError, RuntimeError) as exc:
+        _log.error("api token revoke failed: %s", exc.__class__.__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="could not revoke the token right now",
+        ) from exc
+    _audit.info("api_token.revoke user=%s token=%s", principal.uc_uid, token_id)

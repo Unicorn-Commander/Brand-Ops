@@ -359,6 +359,67 @@ class IdempotencyKey(Base):
     )
 
 
+class ApiToken(Base):
+    """A durable Brand-Ops credential (personal access token, "PAT").
+
+    Brand-Ops's only credentials were short-lived IdP JWTs (Keycloak uchub /
+    Brigade), so a headless MCP client -- the stdio transport in particular --
+    had nothing it could hold and therefore ran with no identity at all. This
+    table is the missing durable credential: a ``brand_pat_``-prefixed secret
+    that is issued once, shown once, and stored ONLY as a sha256 hash.
+
+    Posture:
+      * ``token_hash`` is ``sha256(raw_token)`` hex. The plaintext is never
+        stored, never logged, and cannot be recovered -- a lost token is
+        revoked and re-minted, not read back.
+      * ``token_prefix`` is a display-only, non-secret fragment
+        (``brand_pat_`` + the first 8 characters) so a human can tell two
+        tokens apart in a list.
+      * ``user_key`` is the OWNING uc_uid. A PAT never carries its own identity
+        or its own grants: it authenticates AS its owner and is re-resolved
+        through ``workspace_member`` on every use, so revoking the human's
+        membership immediately revokes the token's reach.
+      * ``workspace_id`` / ``brand_slug`` are OPTIONAL bindings that only ever
+        NARROW the owner's reach (never widen it): a workspace-bound token is
+        refused outside that workspace, a brand-bound token sees only that one
+        brand.
+      * ``expires_at`` (null = no expiry) and ``revoked_at`` (null = live) are
+        both checked on every verification.
+
+    Deliberately NOT row-level-security scoped: verification looks a row up by
+    its sha256 hash BEFORE any identity exists, so there is no GUC to filter on
+    at that moment. The row is reachable only by presenting the secret whose
+    hash it is; every management read filters on ``user_key`` in the query.
+    """
+
+    __tablename__ = "api_token"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    # The owning suite identity (uc_uid). Indexed for the "my tokens" listing.
+    user_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # sha256 hex of the raw token. Unique so a verification is a single indexed
+    # equality lookup and two rows can never collide on one secret.
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    token_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
+    scopes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    brand_slug: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+
 # Tables that carry a workspace_id and are guarded by row level security. The
 # migration enables RLS and creates a policy on each of these.
 WORKSPACE_SCOPED_TABLES = (

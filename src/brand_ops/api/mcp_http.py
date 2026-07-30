@@ -7,11 +7,12 @@ reach it at ``/mcp`` with a bearer token, instead of only over a local stdio
 pipe.
 
 It is OPT-IN via ``MCP_HTTP_ENABLED`` (default off) so the default app and the
-test suite are unchanged. ``MCP_AUTH_REQUIRED`` (default ON) gates the protocol
-endpoint with the same suite identity the REST layer verifies (Keycloak uchub /
-Brigade) and stamps the caller's org onto the request, so the tools are
+test suite are unchanged. Authentication itself is NOT optional: every request to
+``/mcp`` must carry a credential the suite verifier accepts (a JWKS-verified
+Keycloak uchub / Brigade bearer, or a Brand-Ops personal access token), and the
+caller's workspace is resolved from their memberships, so the tools are
 tenant-scoped exactly like the REST surface. The ``.well-known`` manifest stays
-public for discovery.
+public for discovery -- it lists tool names and safety hints, no tenant data.
 
 The endpoint owns no provider keys: a tool's generation still flows through the
 metered gateway, the same as the REST and stdio paths.
@@ -24,11 +25,13 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from .. import __version__
-from ..activity import set_current_actor
-from ..brand_loader import set_workspace_scope
-from ..db.tenancy import resolve_context
+from ..config import get_settings
 from ..mcp_server import mcp
-from .auth import _candidate_workspace, authenticate
+from .mcp_auth import (
+    reset_mcp_principal,
+    resolve_mcp_principal,
+    set_mcp_principal,
+)
 
 
 def mcp_http_enabled() -> bool:
@@ -37,13 +40,22 @@ def mcp_http_enabled() -> bool:
 
 
 def mcp_auth_required() -> bool:
-    """Whether ``/mcp`` requires a valid bearer. ON by default.
+    """Always True: ``/mcp`` cannot be served to an unidentified caller.
 
-    The HTTP tool surface is remote and powerful (it can spend on the metered
-    gateway), so it is gated by default even though the dogfood REST/GUI run open
-    under their own ``AUTH_REQUIRED`` knob.
+    This used to read ``MCP_AUTH_REQUIRED`` (default on) and, when switched off,
+    served the protocol endpoint with ``set_workspace_scope(None, None)`` -- i.e.
+    every tenant's brands, to anyone who could reach the port. On the production
+    profile the ``mcp.brand-ops.*`` Traefik router points straight at the backend
+    and bypasses oauth2-proxy, so that switch was one env var away from an
+    internet-reachable, all-tenant tool surface that can spend on the metered
+    gateway.
+
+    The bypass is gone. The function is kept (and pinned by a test) so the
+    manifest and any caller reading the posture get a truthful, constant answer,
+    and so setting ``MCP_AUTH_REQUIRED=false`` in an old .env silently tightens
+    rather than silently opens.
     """
-    return os.getenv("MCP_AUTH_REQUIRED", "true").strip().lower() in ("1", "true", "yes", "on")
+    return True
 
 
 def _public_endpoint() -> str:
@@ -113,8 +125,15 @@ async def _reject(send, status: int, message: str) -> None:
 async def mcp_asgi_app(scope, receive, send) -> None:
     """Auth + tenancy wrapper around the Streamable-HTTP MCP app.
 
-    Verifies the bearer (when required) with the suite verifier and stamps the
-    caller's org onto the request before delegating to the MCP protocol app.
+    Unconditional: no credential, no service. The credential is verified with the
+    same chain the REST layer uses, the caller's workspace and readable brands are
+    resolved from their memberships (never from a header they control), and the
+    resulting principal is published for the request so the per-call guard in
+    ``mcp_auth`` re-asserts that scope around every individual tool call.
+
+    Both failure modes are 401 with ``WWW-Authenticate: Bearer`` and no detail
+    about WHY beyond "missing" vs "not accepted", so this endpoint is not an
+    oracle for probing which tokens or workspaces exist.
     """
     inner = _ensure_inner()
     if scope.get("type") != "http":
@@ -125,27 +144,22 @@ async def mcp_asgi_app(scope, receive, send) -> None:
     raw = headers.get(b"authorization", b"").decode()
     token = raw[7:].strip() if raw[:7].lower() == "bearer " else ""
 
-    if mcp_auth_required():
-        if not token:
-            await _reject(send, 401, "missing bearer token")
-            return
-        principal = await authenticate(token)
-        if principal is None:
-            await _reject(send, 401, "invalid or untrusted token")
-            return
-        x_ws = headers.get(b"x-workspace-id", b"").decode() or None
-        candidate = _candidate_workspace(principal.claims or {}, x_ws)
-        ctx = await resolve_context(principal.uc_uid, requested_workspace_id=candidate)
-        set_workspace_scope(ctx.workspace_id, ctx.allowed_brand_slugs)
-        # Stamp the real caller onto the activity feed for this MCP request, the
-        # same uc_uid the REST path publishes, so a tool's writes are attributed.
-        set_current_actor(principal.uc_uid)
-    else:
-        # Auth off (dev only; MCP_AUTH_REQUIRED defaults on): unscoped = all brands.
-        set_workspace_scope(None, None)
-        set_current_actor(None)
+    if not token:
+        await _reject(send, 401, "missing bearer token")
+        return
+    x_ws = headers.get(b"x-workspace-id", b"").decode() or None
+    resolved = await resolve_mcp_principal(token, requested_workspace_id=x_ws)
+    if resolved is None:
+        await _reject(
+            send, 401, "credential not accepted, or no active workspace membership"
+        )
+        return
 
-    await inner(scope, receive, send)
+    principal_token = set_mcp_principal(resolved)
+    try:
+        await inner(scope, receive, send)
+    finally:
+        reset_mcp_principal(principal_token)
 
 
 def _tool_annotations(tool: Any) -> dict[str, Any]:
@@ -199,8 +213,17 @@ async def build_manifest() -> dict[str, Any]:
             "type": "bearer",
             "required": mcp_auth_required(),
             "issuers": ["keycloak-uchub", "brigade"],
+            # The durable credential a headless client can hold. Same bearer
+            # header, verified against a sha256 hash instead of a JWKS.
+            "credential_types": ["jwt", "brand-ops-pat"],
+            "pat_prefix": "brand_pat_",
         },
-        "entitlement": "brand_ops",
+        # The canonical suite feature_key the generation gate actually checks
+        # (settings.entitlement_feature_key, env BRAND_OPS_ENTITLEMENT_FEATURE_KEY).
+        # This used to be hard-coded to "brand_ops", which is not the key the code
+        # reads -- a consumer that pre-flighted a caller's grants against the
+        # manifest would have checked the wrong string.
+        "entitlement": get_settings().entitlement_feature_key,
         "tools": [
             {
                 "name": t.name,
