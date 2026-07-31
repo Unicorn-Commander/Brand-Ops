@@ -39,6 +39,14 @@ visual:
     - high contrast
     - glassy panels
     - playful-technical
+  # Character recipe for agent avatars (distinct from the graphic UI keywords
+  # above). Agent-avatar generation leads with this + refs/ so "neon glow" cannot
+  # overpower the chibi mascot style into a logo emblem.
+  mascot_style: >
+    white cartoon unicorn bust with thick black outlines and a white sticker
+    border on a dark navy background, chibi proportions but a SERIOUS, capable,
+    adult attitude (stern brows / confident smirks, detailed role costuming) —
+    absolutely not cutesy or babyish
 
 voice:
   tone:
@@ -92,7 +100,9 @@ prompts:
       Platform: {platform}. {style_keywords}. {ref_block}
     variants: [instagram, twitter, linkedin]
 
+# Kit-relative only. Absolute workstation paths are rejected by the loader and
+# flagged as invalid_references in the Studio UI.
 reference_images:
-  canonical: /Users/aaronstransky/Pictures/magic_unicorn_logo.png
-  subdued: /Users/aaronstransky/Pictures/unicorn_subdued_black_logo.png
-  vector: /Users/aaronstransky/AI-Software/MagiCode_sync/public/magic-unicorn-logo.svg
+  canonical: imported/logo/magic_unicorn_logo.png
+  subdued: imported/logo/unicorn_subdued_black_logo.png
+  vector: imported/logo/magic-unicorn-logo.svg

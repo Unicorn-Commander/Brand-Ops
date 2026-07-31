@@ -326,23 +326,157 @@ def load_brand(slug: str, kits_dir: Path | None = None) -> Brand:
     return brand_obj
 
 
+# Raster (and SVG) suffixes accepted as brand reference / character-ref images.
+_REF_IMAGE_SUFFIXES = frozenset(
+    {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+)
+# Hard cap on reference images handed to image backends (Gemini allows 14).
+_MAX_CHARACTER_REFS = 14
+
+
+def _kit_base(slug: str, kits_dir: Path | None = None) -> Path:
+    """Resolved on-disk root for one brand's kit directory."""
+    root = kits_dir or current_kits_dir()
+    return (root / slug).resolve()
+
+
+def _resolve_kit_relative(base: Path, ref: str) -> Path | None:
+    """Resolve a kit-relative ref under ``base``, or None if it escapes / is unsafe.
+
+    Accepts multi-segment relative paths (``imported/logo/mark.png``). Absolute
+    paths, empty strings, parent-dir walks, and NUL bytes are refused so a
+    misconfigured brand.yaml cannot read outside the kit.
+    """
+    if not isinstance(ref, str) or not ref.strip() or "\x00" in ref:
+        return None
+    candidate = Path(ref)
+    if candidate.is_absolute():
+        return None
+    # Refuse any ``..`` segment so ``foo/../../etc/passwd`` cannot escape.
+    if ".." in candidate.parts:
+        return None
+    try:
+        resolved = (base / candidate).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if resolved != base and not resolved.is_relative_to(base):
+        return None
+    return resolved
+
+
+def audit_reference_images(
+    slug: str, brand: Brand, kits_dir: Path | None = None
+) -> dict[str, list[str] | dict[str, str]]:
+    """Classify every declared reference path for Studio / API surfaces.
+
+    Returns a dict with:
+      * ``declared`` — role -> path string as written in brand.yaml
+      * ``ok`` — roles whose kit-relative path exists under the brand kit
+      * ``missing`` — kit-relative paths that do not exist on disk
+      * ``invalid_absolute`` — absolute workstation / host paths (never used)
+      * ``invalid_escape`` — relative paths that escape the kit root
+
+    Generation and composition only consume ``ok`` roles. Absolute paths used to
+    resolve "missing" silently when the file was absent on the host; they are
+    now always flagged so misconfiguration is impossible to miss.
+    """
+    base = _kit_base(slug, kits_dir)
+    declared: dict[str, str] = {
+        str(role): str(path) for role, path in brand.reference_images.items()
+    }
+    ok: list[str] = []
+    missing: list[str] = []
+    invalid_absolute: list[str] = []
+    invalid_escape: list[str] = []
+
+    for role, ref in brand.reference_images.items():
+        role_s = str(role)
+        if not isinstance(ref, str) or not ref.strip():
+            missing.append(role_s)
+            continue
+        candidate = Path(ref)
+        if candidate.is_absolute():
+            # Absolute paths are never composition inputs. Flag loudly even if
+            # the file happens to exist on this host (it will not on the server).
+            invalid_absolute.append(role_s)
+            continue
+        resolved = _resolve_kit_relative(base, ref)
+        if resolved is None:
+            invalid_escape.append(role_s)
+            continue
+        if resolved.exists():
+            ok.append(role_s)
+        else:
+            missing.append(role_s)
+
+    return {
+        "declared": declared,
+        "ok": ok,
+        "missing": missing,
+        "invalid_absolute": invalid_absolute,
+        "invalid_escape": invalid_escape,
+    }
+
+
 def resolve_reference_images(
     slug: str, brand: Brand, kits_dir: Path | None = None
 ) -> tuple[dict[str, Path], list[str]]:
-    """Return (existing refs by role, missing role names).
+    """Return (existing kit-relative refs by role, missing-or-invalid role names).
 
-    A missing reference is a warning, not an error: composition mode is optional.
+    A missing or invalid reference is a warning, not an error: composition mode
+    is optional. Absolute workstation paths are never opened (they land in the
+    missing list so every surface that already surfaces ``missing`` lights up).
     """
-    root = kits_dir or current_kits_dir()
-    base = root / slug
+    base = _kit_base(slug, kits_dir)
     found: dict[str, Path] = {}
     missing: list[str] = []
     for role, ref in brand.reference_images.items():
-        candidate = Path(ref)
-        if not candidate.is_absolute():
-            candidate = (base / ref).resolve()
-        if candidate.exists():
-            found[role] = candidate
+        if not isinstance(ref, str) or not ref.strip():
+            missing.append(role)
+            continue
+        if Path(ref).is_absolute():
+            # Do not follow absolute host paths — they silently failed for months
+            # when brand.yaml pointed at a Mac workstation path that does not
+            # exist on the server.
+            missing.append(role)
+            continue
+        resolved = _resolve_kit_relative(base, ref)
+        if resolved is None:
+            missing.append(role)
+            continue
+        if resolved.exists():
+            found[role] = resolved
         else:
             missing.append(role)
     return found, missing
+
+
+def resolve_character_references(
+    slug: str, brand: Brand, kits_dir: Path | None = None
+) -> list[Path]:
+    """Prefer the kit's character reference set for agent-avatar generation.
+
+    Looks under ``brand-kits/<slug>/refs/`` first (the dedicated character /
+    mascot reference directory). When that directory has images, those are the
+    only refs returned — logo ``reference_images`` stay out of the avatar path
+    so a logo mark cannot dominate the mascot style. When ``refs/`` is empty or
+    missing, falls back to the brand's declared (and resolvable) reference
+    images so generation still has something to lock onto.
+    """
+    base = _kit_base(slug, kits_dir)
+    refs_dir = base / "refs"
+    if refs_dir.is_dir():
+        files = sorted(
+            p
+            for p in refs_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in _REF_IMAGE_SUFFIXES
+        )
+        if files:
+            return files[:_MAX_CHARACTER_REFS]
+    found, _missing = resolve_reference_images(slug, brand, kits_dir)
+    # Prefer raster refs for edit models; SVG often fails as a reference part.
+    ordered = sorted(
+        found.values(),
+        key=lambda p: (0 if p.suffix.lower() != ".svg" else 1, p.name),
+    )
+    return ordered[:_MAX_CHARACTER_REFS]

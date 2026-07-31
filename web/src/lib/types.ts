@@ -29,6 +29,8 @@ export interface BrandVisual {
   colors: BrandColors;
   typography: BrandTypography;
   style_keywords: string[];
+  /** Character/mascot style for agent avatars (distinct from graphic style_keywords). */
+  mascot_style: string | null;
 }
 
 export interface BrandVoice {
@@ -63,6 +65,12 @@ export interface BrandDetail extends BrandSummary {
   voice: BrandVoice;
   prompt_assets: string[];
   reference_roles: string[];
+  /** Kit-relative roles whose files are missing on disk. */
+  missing_references: string[];
+  /** Absolute host paths or kit-escaping paths (never used for generation). */
+  invalid_references: string[];
+  /** role -> path string as declared in brand.yaml. */
+  reference_paths: Record<string, string>;
 }
 
 export interface BrandList {

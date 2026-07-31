@@ -164,6 +164,20 @@ function IdentityBody({ brand }: { brand: BrandDetail }) {
         </Section>
       )}
 
+      {visual.mascot_style && (
+        <Section title="Mascot style" icon={<Tag size={13} />}>
+          <p className="text-sm leading-relaxed text-text-muted">
+            {visual.mascot_style}
+          </p>
+          <p className="mt-2 text-xs text-text-faint">
+            Used for agent avatars (with character refs under{" "}
+            <code className="font-mono">refs/</code>). Distinct from the graphic
+            style keywords above so dark-UI chrome language cannot overpower the
+            mascot recipe.
+          </p>
+        </Section>
+      )}
+
       <Section title="Voice">
         <div className="space-y-4">
           <div>
@@ -195,19 +209,82 @@ function IdentityBody({ brand }: { brand: BrandDetail }) {
       </Section>
 
       <Section title="Reference images" icon={<ImageIcon size={13} />}>
+        {(brand.invalid_references?.length ?? 0) > 0 && (
+          <div
+            role="alert"
+            className="mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+          >
+            <p className="flex items-start gap-2 font-medium">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              Invalid reference paths (absolute host paths or kit escapes)
+            </p>
+            <ul className="mt-2 space-y-1 font-mono text-xs text-red-200/90">
+              {brand.invalid_references.map((role) => (
+                <li key={role}>
+                  <span className="text-red-100">{role}</span>
+                  {brand.reference_paths?.[role]
+                    ? ` → ${brand.reference_paths[role]}`
+                    : ""}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-red-200/80">
+              Use kit-relative paths only (e.g.{" "}
+              <code className="font-mono">imported/logo/mark.png</code>). Absolute
+              workstation paths are never used for generation.
+            </p>
+          </div>
+        )}
+        {(brand.missing_references?.length ?? 0) > 0 && (
+          <div
+            role="alert"
+            className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100"
+          >
+            <p className="flex items-start gap-2 font-medium">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+              Missing reference files
+            </p>
+            <ul className="mt-2 space-y-1 font-mono text-xs text-amber-100/90">
+              {brand.missing_references.map((role) => (
+                <li key={role}>
+                  <span className="text-amber-50">{role}</span>
+                  {brand.reference_paths?.[role]
+                    ? ` → ${brand.reference_paths[role]}`
+                    : ""}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-amber-100/80">
+              Declared in brand.yaml but not found under this brand&apos;s kit.
+              Generations run without these references until the files are
+              restored.
+            </p>
+          </div>
+        )}
         {brand.reference_roles.length > 0 ? (
           <>
             <div className="flex flex-wrap gap-2">
-              {brand.reference_roles.map((role) => (
-                <Chip key={role} tone="muted">
-                  <ImageIcon size={11} />
-                  {role}
-                </Chip>
-              ))}
+              {brand.reference_roles.map((role) => {
+                const bad =
+                  brand.invalid_references?.includes(role) ||
+                  brand.missing_references?.includes(role);
+                return (
+                  <Chip key={role} tone={bad ? "danger" : "muted"}>
+                    <ImageIcon size={11} />
+                    {role}
+                    {brand.invalid_references?.includes(role)
+                      ? " (invalid)"
+                      : brand.missing_references?.includes(role)
+                        ? " (missing)"
+                        : ""}
+                  </Chip>
+                );
+              })}
             </div>
             <p className="mt-2 text-xs text-text-faint">
-              These reference roles guide generation. The API lists the roles; it
-              does not serve the image files.
+              These reference roles guide generation. Agent avatars prefer the
+              character set under <code className="font-mono">refs/</code> over
+              logo references.
             </p>
           </>
         ) : (

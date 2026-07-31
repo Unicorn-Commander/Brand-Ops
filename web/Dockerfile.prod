@@ -15,6 +15,11 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+# Absolute site origin for Open Graph / Twitter card meta (substituted into
+# index.html at build). Dogfood: https://brand-ops.magicunicorn.dev
+# Prod: https://brand-ops.unicorncommander.ai (the vite default).
+ARG BRAND_OPS_SITE_URL=https://brand-ops.unicorncommander.ai
+ENV BRAND_OPS_SITE_URL=$BRAND_OPS_SITE_URL
 RUN npm run build
 
 # Production stage

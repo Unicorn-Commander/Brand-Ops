@@ -68,10 +68,12 @@ DEFAULT_PROMPTS: dict[str, AssetPrompt] = {
     ),
     "avatar": AssetPrompt(
         base=(
-            "Generate an avatar for {brand_context}. {style_keywords}. {topic} A clean, "
-            "recognizable {variant} avatar that reads well as a small circular profile "
-            "image, with the subject centered and a simple uncluttered background. "
-            "{ref_block}"
+            "Create a character avatar matching the EXACT illustration style of the "
+            "reference images when provided. {brand_context}. {topic} A clean, "
+            "recognizable {variant} character avatar (not a logo emblem) that reads well "
+            "as a small circular profile image, subject centered, simple uncluttered "
+            "background. Secondary style cues only if they do not conflict with the "
+            "references: {style_keywords}. {ref_block}"
         ),
         variants=["portrait", "headshot", "mascot", "abstract"],
     ),

@@ -40,6 +40,11 @@ class BrandVisual(BaseModel):
     colors: BrandColors
     typography: BrandTypography = Field(default_factory=BrandTypography)
     style_keywords: list[str] = Field(default_factory=list)
+    # Character / mascot style for agent-avatar generation. Distinct from
+    # ``style_keywords`` (logos, OG chrome, dark-UI product language). When set,
+    # agent avatars lead with this descriptor + character refs so graphic
+    # keywords like "neon glow" cannot overpower the mascot recipe.
+    mascot_style: str | None = None
 
 
 class BrandVoice(BaseModel):

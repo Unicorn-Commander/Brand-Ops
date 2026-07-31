@@ -89,6 +89,7 @@ function VoiceControl({
         value={current}
         disabled={setVoice.isPending || !catalog}
         onChange={(e) => setVoice.mutate(e.target.value)}
+        aria-label={`Spoken voice for ${agent.name}`}
       >
         <option value="">No voice</option>
         {custom.length > 0 ? (

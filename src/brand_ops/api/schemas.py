@@ -32,6 +32,8 @@ class BrandVisualOut(BaseModel):
     colors: BrandColorsOut
     typography: BrandTypographyOut
     style_keywords: list[str] = Field(default_factory=list)
+    # Character / mascot style for agent avatars (distinct from graphic style_keywords).
+    mascot_style: str | None = None
 
 
 class BrandVoiceOut(BaseModel):
@@ -69,6 +71,14 @@ class BrandDetail(BrandSummary):
     voice: BrandVoiceOut
     prompt_assets: list[str] = Field(default_factory=list)
     reference_roles: list[str] = Field(default_factory=list)
+    # Reference path audit so Studio can surface misconfiguration loudly.
+    # ``missing_references``: kit-relative paths that do not exist on disk.
+    # ``invalid_references``: absolute host paths or paths that escape the kit
+    # (never used for generation; always a configuration error).
+    missing_references: list[str] = Field(default_factory=list)
+    invalid_references: list[str] = Field(default_factory=list)
+    # role -> path string as declared in brand.yaml (for the identity panel).
+    reference_paths: dict[str, str] = Field(default_factory=dict)
 
 
 class BrandList(BaseModel):

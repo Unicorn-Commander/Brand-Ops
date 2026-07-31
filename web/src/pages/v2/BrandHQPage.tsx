@@ -156,8 +156,55 @@ export default function BrandHQPage() {
   const team = teamQ.data;
   const parentName = brand.parent ? brandsQ.data?.find((item) => item.slug === brand.parent)?.display_name ?? brand.parent : null;
 
+  const invalidRefs = brand.invalid_references ?? [];
+  const missingRefs = brand.missing_references ?? [];
+  const refPaths = brand.reference_paths ?? {};
+
   return (
     <>
+      {(invalidRefs.length > 0 || missingRefs.length > 0) && (
+        <section
+          role="alert"
+          className="block rise"
+          style={{
+            marginBottom: 18,
+            border: `1px solid ${invalidRefs.length ? "rgba(248,113,113,0.45)" : "rgba(251,191,36,0.45)"}`,
+            background: invalidRefs.length ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.08)",
+            borderRadius: 14,
+            padding: "14px 18px",
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>
+            {invalidRefs.length > 0
+              ? "Reference paths misconfigured"
+              : "Reference files missing"}
+          </div>
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--b-ink-2)", lineHeight: 1.45 }}>
+            {invalidRefs.length > 0 && (
+              <>
+                Absolute host paths or kit escapes are never used for generation:{" "}
+                <code style={{ fontFamily: "var(--c-font-mono)" }}>
+                  {invalidRefs.map((r) => `${r}${refPaths[r] ? `→${refPaths[r]}` : ""}`).join("; ")}
+                </code>
+                . Use kit-relative paths only (e.g.{" "}
+                <code style={{ fontFamily: "var(--c-font-mono)" }}>imported/logo/mark.png</code>
+                ).
+                {missingRefs.length > 0 ? " " : ""}
+              </>
+            )}
+            {missingRefs.length > 0 && (
+              <>
+                Declared but not found on disk:{" "}
+                <code style={{ fontFamily: "var(--c-font-mono)" }}>
+                  {missingRefs.map((r) => `${r}${refPaths[r] ? `→${refPaths[r]}` : ""}`).join("; ")}
+                </code>
+                .
+              </>
+            )}
+          </p>
+        </section>
+      )}
+
       <section className="hq-hero">
         <div className="rise">
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 26 }}>
@@ -268,6 +315,18 @@ export default function BrandHQPage() {
           </div>
         </div>
       </section>
+
+      {brand.visual.mascot_style && (
+        <section className="block">
+          <div className="sec-head rise">
+            <h2>Mascot style</h2>
+            <span className="annotation">Agent-avatar character recipe (refs/ preferred over logos).</span>
+          </div>
+          <p className="rise d1" style={{ margin: 0, maxWidth: 720, color: "var(--b-ink-2)", lineHeight: 1.5, fontSize: 13.5 }}>
+            {brand.visual.mascot_style}
+          </p>
+        </section>
+      )}
 
       <section className="block">
         <div className="sec-head rise">

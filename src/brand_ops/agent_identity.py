@@ -24,7 +24,12 @@ from urllib.parse import quote
 from . import cost, governance
 from .atomic_write import atomic_write_bytes, atomic_write_text
 from .backends.base import GenRequest
-from .brand_loader import current_kits_dir, get_current_workspace_id, load_brand
+from .brand_loader import (
+    current_kits_dir,
+    get_current_workspace_id,
+    load_brand,
+    resolve_character_references,
+)
 from .compliance.evaluator import check_image_colors
 from .compliance.rules import build_rules
 from .engine import resolve_image_backend
@@ -334,16 +339,34 @@ def update_agent(
 
 
 def _avatar_prompt(brand: Brand, name: str, role: str) -> str:
+    """Build the agent-avatar prompt with references dominant over graphic style.
+
+    When the brand declares ``visual.mascot_style``, that character recipe leads
+    and graphic ``style_keywords`` (dark UI, neon glow, etc.) are deliberately
+    omitted so they cannot overpower the reference images into an emblem. Without
+    a mascot descriptor we still instruct the model to match references first
+    and only then apply a short palette + style cue.
+    """
     v = brand.visual
     palette = f"{v.colors.primary} and {v.colors.accent}"
-    keywords = ", ".join(list(v.style_keywords)[:6])
     display = brand.brand.display_name
+    mascot = (v.mascot_style or "").strip()
+    if mascot:
+        return (
+            f"Create a new character avatar in the EXACT same illustration style as the "
+            f"reference images. {mascot} This character is {name}, {role} for the brand "
+            f"{display}. Match the reference character design language first; brand palette "
+            f"({palette}) may tint costume accents only. Square avatar, character centered, "
+            f"reads clearly at small sizes. No text and no watermark."
+        )
+    keywords = ", ".join(list(v.style_keywords)[:4])
+    style_cue = f" Secondary style cues (never override the references): {keywords}." if keywords else ""
     return (
-        f"A clean, recognizable circular profile avatar for an AI agent named {name}, "
-        f"the {role} for the brand {display}. On-brand for {display}: use the brand palette "
-        f"{palette}; {keywords}. A single centered character or emblem on a simple "
-        f"uncluttered background, high contrast, reads clearly at small sizes. "
-        f"No text and no watermark."
+        f"Create a new character avatar matching the EXACT illustration style of the "
+        f"reference images when provided. This character is {name}, the {role} for the "
+        f"brand {display}. Brand palette {palette}.{style_cue} Single centered character "
+        f"(not a logo emblem) on a simple uncluttered background, high contrast, square "
+        f"avatar. No text and no watermark."
     )
 
 
@@ -376,11 +399,13 @@ def generate_avatar(
     data = json.loads(meta_path.read_text())
 
     _, backend_impl, _ = resolve_image_backend(_AVATAR_DEFAULT_BACKEND, None, settings)
+    char_refs = resolve_character_references(brand_slug, brand, kits_dir)
     req = GenRequest(
         prompt=_avatar_prompt(brand, data.get("name", agent_slug), data.get("role", "agent")),
         width=_AVATAR_SIZE[0],
         height=_AVATAR_SIZE[1],
         count=1,
+        reference_images=list(char_refs),
         extra={"colors": [brand.visual.colors.primary, brand.visual.colors.accent]},
     )
     # Avatar generation is image generation on the shared key, so it goes through
@@ -447,6 +472,7 @@ def generate_variants(
     primary_compliance = data.get("compliance")
     _ws = get_current_workspace_id()
 
+    char_refs = resolve_character_references(brand_slug, brand, kits_dir)
     for state in STATES:
         _, backend_impl, _ = resolve_image_backend(_AVATAR_DEFAULT_BACKEND, None, settings)
         cost.enforce_image_quota_sync(_ws)
@@ -455,6 +481,7 @@ def generate_variants(
             width=_AVATAR_SIZE[0],
             height=_AVATAR_SIZE[1],
             count=1,
+            reference_images=list(char_refs),
             extra={"colors": colors},
         )
         result = backend_impl.generate(req)

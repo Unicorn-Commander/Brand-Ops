@@ -1,0 +1,8 @@
+# Public share assets only. The app itself requires SSO.
+User-agent: *
+Allow: /og.png
+Allow: /favicon.png
+Allow: /iris-director.png
+Allow: /share.html
+Allow: /robots.txt
+Disallow: /

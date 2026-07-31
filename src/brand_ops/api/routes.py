@@ -336,8 +336,12 @@ def _brand_summary(brand: Brand) -> BrandSummary:
 
 
 def _brand_detail(brand: Brand) -> BrandDetail:
+    from ..brand_loader import audit_reference_images
+
     meta = brand.brand
     visual = brand.visual
+    audit = audit_reference_images(meta.slug, brand)
+    invalid = list(audit["invalid_absolute"]) + list(audit["invalid_escape"])
     return BrandDetail(
         slug=meta.slug,
         display_name=meta.display_name,
@@ -349,6 +353,7 @@ def _brand_detail(brand: Brand) -> BrandDetail:
             colors=BrandColorsOut(**visual.colors.model_dump()),
             typography=BrandTypographyOut(**visual.typography.model_dump()),
             style_keywords=list(visual.style_keywords),
+            mascot_style=visual.mascot_style,
         ),
         voice=BrandVoiceOut(
             tone=list(brand.voice.tone),
@@ -358,6 +363,9 @@ def _brand_detail(brand: Brand) -> BrandDetail:
         ),
         prompt_assets=sorted(brand.prompts),
         reference_roles=sorted(brand.reference_images),
+        missing_references=list(audit["missing"]),
+        invalid_references=invalid,
+        reference_paths=dict(audit["declared"]),
     )
 
 
