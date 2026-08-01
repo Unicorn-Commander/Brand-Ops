@@ -41,19 +41,22 @@ def kits(tmp_path: Path) -> Path:
     d = tmp_path / "magic-unicorn"
     d.mkdir()
     shutil.copy(src, d / "brand.yaml")
-    # Materialize the kit-relative logo refs declared in brand.yaml so "ok"
-    # paths resolve in the audit.
-    logo = d / "imported" / "logo"
-    logo.mkdir(parents=True)
-    for name in (
-        "magic_unicorn_logo.png",
-        "unicorn_subdued_black_logo.png",
-        "magic-unicorn-logo.svg",
-    ):
-        if name.endswith(".svg"):
-            (logo / name).write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+    # Materialize the kit-relative refs the real brand.yaml declares, READ FROM
+    # that file rather than hardcoded: a hardcoded list silently rots the moment
+    # a ref is repointed (it did -- vector moved off .svg because the image
+    # gateway rejects image/svg+xml), and the test then fails for a reason that
+    # has nothing to do with what it is checking.
+    declared = yaml.safe_load((d / "brand.yaml").read_text()).get("reference_images") or {}
+    for value in declared.values():
+        rel = Path(str(value))
+        if rel.is_absolute():
+            continue  # the "missing absolute path" cases are the point elsewhere
+        target = d / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.suffix.lower() == ".svg":
+            target.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
         else:
-            (logo / name).write_bytes(_png())
+            target.write_bytes(_png())
     return tmp_path
 
 

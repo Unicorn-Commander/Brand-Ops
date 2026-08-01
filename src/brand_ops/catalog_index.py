@@ -27,6 +27,10 @@ from typing import Any
 
 _log = logging.getLogger("brand_ops.catalog_index")
 
+# How long an async caller will wait for the dual-write worker thread. One upsert
+# is milliseconds; this is only a guard so a wedged DB cannot pin a request.
+_DUAL_WRITE_TIMEOUT_S = 15.0
+
 # The two on-disk catalog subtrees, which are also the AssetRecord ``kind`` values.
 STORAGE_KINDS: tuple[str, ...] = ("generated", "imported")
 
@@ -163,28 +167,23 @@ def index_sidecar_sync(
 ) -> None:
     """Best-effort dual-write: index one just-written sidecar into the catalog.
 
-    Called from the synchronous generation/upload chokepoints after the sidecar is
-    written. A complete no-op when there is no active workspace (the CLI / stdio
-    MCP / tests / AUTH off, where there is no tenant to index against) or no
-    ``DATABASE_URL``. Every failure -- no DB, an RLS or transport error, an
-    unreadable sidecar -- is logged at debug and swallowed: a broken catalog index
-    is never allowed to undo a generation or upload whose bytes already landed,
-    exactly the posture of the cost-metering bridge next to it. Reads are
-    unaffected regardless; they stay on the sidecars until the SoR flag flips.
+    Called from the generation/upload chokepoints after the sidecar is written. A
+    complete no-op when there is no active workspace (the CLI / stdio MCP / tests
+    / AUTH off, where there is no tenant to index against) or no ``DATABASE_URL``.
+    A failure -- no DB, an RLS or transport error, an unreadable sidecar -- is
+    swallowed: a broken catalog index is never allowed to undo a generation or
+    upload whose bytes already landed, exactly the posture of the cost-metering
+    bridge next to it.
+
+    It is swallowed LOUDLY, at warning. Once ``BRAND_OPS_CATALOG_SOT=db`` the
+    index is not a bonus, it is what the Library reads: an asset that misses it
+    has landed on disk and is invisible in the product. This previously logged at
+    debug, and when the async callers below stopped reaching the write the whole
+    catalog silently stopped growing for three weeks with nothing in the logs.
     """
     if not workspace_id:
         return
     import asyncio
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        pass  # the expected path: a sync chokepoint with no running loop
-    else:
-        # Already inside a running loop (a future async caller): can't drive our
-        # own run; skip the best-effort index rather than risk the event loop.
-        _log.debug("catalog dual-write skipped (running loop)")
-        return
 
     async def _run() -> None:
         # The NullPool bridge sessionmaker: this runs on a throwaway asyncio.run
@@ -205,6 +204,41 @@ def index_sidecar_sync(
                 )
 
     try:
-        asyncio.run(_run())
-    except Exception:  # noqa: BLE001 - the dual-write is best-effort; never fatal
-        _log.debug("catalog dual-write skipped", exc_info=True)
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # The plain path: a sync chokepoint with no running loop (CLI, or a sync
+        # route FastAPI already offloaded to a threadpool worker).
+        try:
+            asyncio.run(_run())
+        except Exception:  # noqa: BLE001 - best-effort; never fatal to the caller
+            _log.warning("catalog dual-write FAILED for %s", sidecar_path, exc_info=True)
+        return
+
+    # An async caller (the REST routes and the HTTP MCP server both run their
+    # handlers on the event loop). asyncio.run cannot drive a second loop on this
+    # thread, so run the index on its own loop in a worker thread and wait for it.
+    # This used to just return, which meant every asset created through the async
+    # surfaces skipped the catalog entirely -- the bytes landed, the sidecar
+    # landed, and the Library never showed it. The bridge sessionmaker is NullPool
+    # precisely so it can be driven from a throwaway loop like this one.
+    failure: list[BaseException] = []
+
+    def _worker() -> None:
+        try:
+            asyncio.run(_run())
+        except BaseException as exc:  # noqa: BLE001 - reported, never re-raised here
+            failure.append(exc)
+
+    import threading
+
+    thread = threading.Thread(target=_worker, name="catalog-dual-write", daemon=True)
+    thread.start()
+    thread.join(timeout=_DUAL_WRITE_TIMEOUT_S)
+    if thread.is_alive():
+        _log.warning(
+            "catalog dual-write TIMED OUT after %ss for %s", _DUAL_WRITE_TIMEOUT_S, sidecar_path
+        )
+    elif failure:
+        _log.warning(
+            "catalog dual-write FAILED for %s", sidecar_path, exc_info=failure[0]
+        )
