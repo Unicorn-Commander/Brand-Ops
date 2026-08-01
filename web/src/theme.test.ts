@@ -4,6 +4,7 @@ import {
   resolveAccent,
   BRAND_ACCENTS,
   DEFAULT_ACCENT,
+  animateAccentTo,
   chrome,
 } from "./theme";
 import { apcaContrast } from "./lib/contrast";
@@ -70,5 +71,24 @@ describe("resolveAccent", () => {
     const out = resolveAccent(colors);
     expect(out.primary).toBe(colors.primary);
     expect(out.secondary).toBe(colors.accent);
+  });
+});
+
+describe("animateAccentTo (the channels-format tween)", () => {
+  // Regression: the tween's targets come from BRAND_ACCENTS as HEXES, but
+  // --accent is a "channels" var. When the parser rejected the hex the engine
+  // fell into its snap branch and wrote the raw string, leaving
+  // `--accent: #8b5cf6`. Tailwind reads that var as rgb(var(--accent) / alpha),
+  // so every accent fill, ring, border, and text color in the app silently
+  // resolved to transparent -- including the Library's primary Download button.
+  it("lands --accent on r g b channels, never a hex", async () => {
+    const root = document.documentElement;
+    root.style.setProperty("--accent", "182 110 255");
+    animateAccentTo(BRAND_ACCENTS["unicorn-commander"], { duration: 0 });
+    // The engine writes each frame from a rAF callback, so let it settle.
+    await new Promise((r) => setTimeout(r, 60));
+    const landed = root.style.getPropertyValue("--accent").trim();
+    expect(landed).not.toContain("#");
+    expect(landed).toBe("139 92 246");
   });
 });

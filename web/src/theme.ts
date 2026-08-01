@@ -244,8 +244,17 @@ export function animateColorVars(
     from: Rgba | null;
     to: Rgba;
   }
+  // A "channels" var reads back as "r g b", but a CALLER may hand its target in
+  // any color form -- animateAccentTo passes the BRAND_ACCENTS hexes straight
+  // through. Accepting both matters: an unparseable target falls into the snap
+  // branch below, which writes the raw string, and `--accent: #8b5cf6` makes
+  // every Tailwind accent utility (rgb(var(--accent) / <alpha>)) resolve to
+  // transparent. That silently emptied every accent fill, ring, and border in
+  // the app after the first brand switch.
   const parse = (value: string, format: ChannelVarFormat) =>
-    format === "channels" ? parseChannels(value) : parseRgbOrRgba(value);
+    format === "channels"
+      ? (parseChannels(value) ?? parseRgbOrRgba(value))
+      : parseRgbOrRgba(value);
 
   const resolved: Resolved[] = [];
   for (const t of targets) {
