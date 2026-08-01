@@ -6,6 +6,7 @@ import {
   Archive,
   CheckCheck,
   X,
+  Download,
 } from "lucide-react";
 import { Spinner } from "../../../components/Spinner";
 
@@ -16,6 +17,9 @@ interface BulkActionBarProps {
   allSelected: boolean;
   /** A bulk transition is in flight; disables actions and shows a spinner. */
   busy: boolean;
+  /** Human-readable progress line while a zip is being built, else null. */
+  progress?: string | null;
+  onDownload: () => void;
   onApprove: () => void;
   onRequestChanges: () => void;
   onArchive: () => void;
@@ -23,9 +27,10 @@ interface BulkActionBarProps {
   onCancel: () => void;
 }
 
-type Tone = "emerald" | "amber" | "muted";
+type Tone = "accent" | "emerald" | "amber" | "muted";
 
 const TONE_CLASS: Record<Tone, string> = {
+  accent: "text-accent hover:bg-accent/10",
   emerald: "text-emerald-300 hover:bg-emerald-400/10 hover:text-emerald-200",
   amber: "text-amber-300 hover:bg-amber-400/10 hover:text-amber-200",
   muted: "text-text-muted hover:bg-white/5 hover:text-text",
@@ -69,6 +74,8 @@ export function BulkActionBar({
   count,
   allSelected,
   busy,
+  progress = null,
+  onDownload,
   onApprove,
   onRequestChanges,
   onArchive,
@@ -88,7 +95,7 @@ export function BulkActionBar({
         <span className="flex items-center gap-2 px-2.5 text-sm font-medium tabular-nums text-text">
           {busy ? (
             <>
-              <Spinner size={14} /> Working
+              <Spinner size={14} /> {progress ?? "Working"}
             </>
           ) : (
             <>
@@ -96,6 +103,14 @@ export function BulkActionBar({
             </>
           )}
         </span>
+        <span className="h-5 w-px bg-white/10" />
+        <BarButton
+          onClick={onDownload}
+          disabled={busy || noneSelected}
+          icon={<Download size={15} />}
+          label="Download"
+          tone="accent"
+        />
         <span className="h-5 w-px bg-white/10" />
         <BarButton
           onClick={onApprove}

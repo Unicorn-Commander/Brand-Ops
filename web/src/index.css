@@ -654,7 +654,13 @@
     padding: 16px 20px;
   }
   .gradeboard .big { font-family: var(--b-font-display); font-size: 40px; font-weight: 800; letter-spacing: -0.03em; color: #c4e08a; line-height: 1; }
-  .block { padding: 44px 0 10px; }
+  /* Brand HQ's vertical section rhythm. NOT called `.block`: that collides with
+     Tailwind's `block` display utility, and since the two set different
+     properties both applied — every `className="... block ..."` in the app
+     silently grew 44px of top padding. That put 88px of dead space above each
+     Library card (the card wrapper and its button both use `block`) and floated
+     the status badge off its thumbnail. Design-system classes get a namespace. */
+  .hq-section { padding: 44px 0 10px; }
   .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 20px; }
   .sec-head h2 { margin: 0; font-family: var(--b-font-display); font-weight: 700; font-size: 24px; letter-spacing: -0.02em; }
   .sec-head .discuss { margin-left: auto; }

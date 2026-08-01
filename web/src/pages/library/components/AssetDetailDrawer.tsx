@@ -13,6 +13,8 @@ import {
   Archive,
   Undo2,
   ClipboardCheck,
+  Download,
+  Maximize2,
 } from "lucide-react";
 import { Button } from "../../../components/Button";
 import { useLightbox } from "../../../components/ImageLightbox";
@@ -25,6 +27,7 @@ import type {
 import type { AssetGroup } from "./catalog";
 import { spring, easeExpo } from "../../../lib/motion";
 import { assetMorphId } from "./AssetGrid";
+import { downloadNameFor } from "../../../lib/download";
 import {
   assetTitle,
   formatCost,
@@ -51,6 +54,93 @@ interface AssetDetailDrawerProps {
   ) => void;
   /** True while a transition for the shown record is in flight. */
   transitioning?: boolean;
+  /**
+   * Save the shown record's file. Resolves once the browser has the file;
+   * rejects with a message the caller has already surfaced. Omitted only where
+   * downloading is not wired.
+   */
+  onDownload?: (record: AssetRecord) => Promise<void>;
+  /** Save every render in the open group as one zip. */
+  onDownloadAll?: (records: AssetRecord[]) => Promise<void>;
+}
+
+/**
+ * The drawer's primary action: get this file.
+ *
+ * Sits directly under the hero, above the metadata, because retrieving an asset
+ * is the most common reason anyone opens this panel — reading the prompt that
+ * made it is the rarer, secondary job. The exact saved file name is printed
+ * beneath so there is no surprise in ~/Downloads.
+ */
+function GetTheFile({
+  record,
+  versionCount,
+  onDownload,
+  onDownloadAll,
+}: {
+  record: AssetRecord;
+  versionCount: number;
+  onDownload?: (record: AssetRecord) => Promise<void>;
+  onDownloadAll?: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<"one" | "all" | null>(null);
+  const run = async (which: "one" | "all", fn: () => Promise<void>) => {
+    setBusy(which);
+    try {
+      await fn();
+    } finally {
+      setBusy(null);
+    }
+  };
+  const servable = Boolean(record.url);
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          icon={<Download size={16} />}
+          loading={busy === "one"}
+          disabled={!servable || !onDownload || busy !== null}
+          onClick={() => onDownload && run("one", () => onDownload(record))}
+        >
+          Download
+        </Button>
+        {record.url && (
+          <Button
+            variant="secondary"
+            icon={<Maximize2 size={15} />}
+            onClick={() => window.open(record.url as string, "_blank", "noopener")}
+          >
+            Open full size
+          </Button>
+        )}
+        {versionCount > 1 && onDownloadAll && (
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Layers size={14} />}
+            loading={busy === "all"}
+            disabled={busy !== null}
+            onClick={() => run("all", onDownloadAll)}
+          >
+            All {versionCount} renders (.zip)
+          </Button>
+        )}
+      </div>
+      {servable ? (
+        <p className="break-all text-xs text-text-faint">
+          Saves as{" "}
+          <span className="font-mono text-text-muted">
+            {downloadNameFor(record)}
+          </span>
+        </p>
+      ) : (
+        <p className="text-xs text-text-muted">
+          This record has no served file, so there is nothing to download.
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** One label/value row in the metadata list. Omitted by the caller when empty. */
@@ -100,7 +190,10 @@ function ReferenceList({ refs }: { refs: string[] }) {
           className="flex items-center gap-2 rounded-xl border border-white/8 bg-chrome-raised/60 px-3 py-1.5"
         >
           <Link2 size={14} className="shrink-0 text-text-faint" />
-          <span className="min-w-0 truncate font-mono text-xs text-text" title={ref}>
+          <span
+            className="min-w-0 break-all font-mono text-xs text-text"
+            title={ref}
+          >
             {ref}
           </span>
         </li>
@@ -447,6 +540,8 @@ export function AssetDetailDrawer({
   onClose,
   onTransition,
   transitioning = false,
+  onDownload,
+  onDownloadAll,
 }: AssetDetailDrawerProps) {
   const open = group !== null;
   const reduce = useReducedMotion();
@@ -504,7 +599,10 @@ export function AssetDetailDrawer({
             animate={morphing || reduce ? { opacity: 1 } : { x: 0 }}
             exit={morphing || reduce ? { opacity: 0 } : { x: "100%" }}
             transition={morphing ? easeExpo : spring.panel}
-            className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-white/8 bg-chrome-panel/95 shadow-float backdrop-blur-xl"
+            // Widen with the viewport instead of pinning to one narrow column:
+            // at 1280px+ a 28rem panel forced long file names, prompts, and the
+            // review controls to wrap into an unreadable ribbon.
+            className="absolute right-0 top-0 flex h-full w-full flex-col border-l border-white/8 bg-chrome-panel/95 shadow-float backdrop-blur-xl sm:max-w-md lg:max-w-lg xl:max-w-xl"
           >
             <header className="flex items-start justify-between gap-3 border-b border-white/8 px-5 py-4">
           <div className="min-w-0">
@@ -536,8 +634,14 @@ export function AssetDetailDrawer({
               the morph and the older-version hero just cross-fades. */}
           <div className="px-5 pt-4">
             <div
+              // Clamp the hero: a 1024x4096 poster at panel width would be over
+              // 1600px tall, pushing the prompt, the metadata, and every review
+              // control below the fold with no hint they were there.
               className="relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-white/8 bg-chrome-raised text-text-faint"
-              style={{ aspectRatio: aspectFor(record.size) }}
+              style={{
+                aspectRatio: aspectFor(record.size),
+                maxHeight: "min(52vh, 460px)",
+              }}
             >
               {record.url ? (
                 morphing ? (
@@ -580,13 +684,26 @@ export function AssetDetailDrawer({
               ) : (
                 <>
                   <ImageIcon size={26} />
-                  <span className="px-3 text-center text-xs leading-tight">
+                  <span className="w-full break-all px-3 text-center text-xs leading-tight">
                     {shownFile}
                   </span>
                 </>
               )}
             </div>
           </div>
+
+          <Section icon={<Download size={14} />} title="Get the file">
+            <GetTheFile
+              record={record}
+              versionCount={group.versions.length}
+              onDownload={onDownload}
+              onDownloadAll={
+                onDownloadAll
+                  ? () => onDownloadAll(group.versions)
+                  : undefined
+              }
+            />
+          </Section>
 
           <Section icon={<FileText size={14} />} title="Prompt">
             {record.prompt ? (
@@ -621,7 +738,9 @@ export function AssetDetailDrawer({
               <MetaRow
                 label="File"
                 value={
-                  <span className="font-mono text-xs">{shownFile}</span>
+                  <span className="break-all font-mono text-xs">
+                    {shownFile}
+                  </span>
                 }
               />
             </dl>

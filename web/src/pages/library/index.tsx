@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, LayoutGroup } from "framer-motion";
-import { LibraryBig, AlertTriangle, UploadCloud, ListChecks } from "lucide-react";
+import {
+  LibraryBig,
+  AlertTriangle,
+  UploadCloud,
+  ListChecks,
+  Download,
+  SearchX,
+} from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "../../components/EmptyState";
 import { Spinner } from "../../components/Spinner";
@@ -10,6 +17,11 @@ import { Button } from "../../components/Button";
 import { api } from "../../api/client";
 import type { AssetLifecycleStatus, AssetRecord } from "../../lib/types";
 import { useActiveBrand } from "../../brand-context";
+import {
+  downloadAsset,
+  downloadAssetsAsZip,
+  zipNameFor,
+} from "../../lib/download";
 import { FilterBar } from "./components/FilterBar";
 import { AssetGrid } from "./components/AssetGrid";
 import { AssetDetailDrawer } from "./components/AssetDetailDrawer";
@@ -25,10 +37,33 @@ import {
   type CatalogFilters,
 } from "./components/catalog";
 
+/**
+ * Display names for the asset types the catalog actually carries. Mechanical
+ * title-casing turns "og_image" into "Og image", which reads like a typo in a
+ * section heading, so the known keys get written-out names and anything new
+ * falls back to the humanized key.
+ */
+const ASSET_TYPE_LABELS: Record<string, string> = {
+  og_image: "OG image",
+  app_icon: "App icon",
+  social_card: "Social card",
+  launcher_tile: "Launcher tile",
+  podcast_cover: "Podcast cover",
+  avatar: "Avatar",
+  logo: "Logo",
+  favicon: "Favicon",
+  banner: "Banner",
+};
+
 /** Title-case an asset_type key like "og_image" -> "Og image" as a fallback. */
 function humanizeKey(key: string): string {
   const s = key.replace(/_/g, " ");
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/** The written-out name for an asset type, else a humanized key. */
+function assetTypeLabel(key: string): string {
+  return ASSET_TYPE_LABELS[key] ?? humanizeKey(key);
 }
 
 /**
@@ -76,46 +111,46 @@ function readStatusHandoff(): AssetLifecycleStatus | null {
   return HANDOFF_STATUS_VALUES.has(raw) ? (raw as AssetLifecycleStatus) : null;
 }
 
+/** Turn a thrown value into something worth putting in a toast. */
+function reason(err: unknown, fallback: string): string {
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
 /**
- * Library: the catalog of generated assets.
+ * Library: the catalog of every asset, across every brand.
  *
- * A filter bar (brand / asset type / backend) sits over a responsive grid of
- * thumbnails read from GET /api/assets. The brand filter drives the server
- * query; asset type and backend filter the loaded set so their dropdowns offer
- * exactly what is present. Clicking a thumbnail opens a detail drawer with the
- * prompt that made it, the backend and model, size, cost, references, and the
- * version history of every render that shares the asset's identity.
+ * Search + four filters sit over a responsive grid grouped into sections. Brand
+ * and review status drive the server query; asset type, backend, and the search
+ * text filter the loaded set so their dropdowns offer exactly what is present.
+ * Every card can be saved straight from the grid; clicking one opens a detail
+ * drawer with the download, the prompt that made it, the backend and model,
+ * size, cost, references, and the version history of every render that shares
+ * the asset's identity. Multi-select packs a selection into a single zip.
  */
 export default function LibraryPage() {
   const { brands, activeSlug } = useActiveBrand();
   const queryClient = useQueryClient();
 
-  // The library has its own brand filter, seeded from the app's active brand
-  // but independent after that (a user may browse one brand, or all of them).
+  // The Library opens across ALL brands. It is the portfolio-wide lens (the
+  // per-brand view is Brand HQ), and seeding it to the active brand made 180 of
+  // 206 assets look like they did not exist. The brand select narrows it.
   // The review-status filter can be pre-set by a one-shot sessionStorage
   // handoff (the "Review queue" command lands here filtered to needs_review).
   const [filters, setFilters] = useState<CatalogFilters>(() => ({
     ...EMPTY_FILTERS,
     status: readStatusHandoff(),
   }));
-  const [seeded, setSeeded] = useState(false);
-  useEffect(() => {
-    if (!seeded && activeSlug) {
-      setFilters((f) => ({ ...f, brand: activeSlug }));
-      setSeeded(true);
-    }
-  }, [seeded, activeSlug]);
 
   // Drawer state: which logical asset is open, and which of its versions.
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [activeFile, setActiveFile] = useState<string | null>(null);
 
-  // Multi-select (bulk review) mode and the set of selected group keys.
+  // Multi-select (bulk review / bulk download) mode and the selected keys.
   const [selecting, setSelecting] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
 
-  // Server query, keyed on the brand and review-status filters. Asset type and
-  // backend are applied client-side, so changing them does not refetch.
+  // Server query, keyed on the brand and review-status filters. Asset type,
+  // backend, and search text are applied client-side, so they never refetch.
   const assetsKey = useMemo(
     () => ["assets", filters.brand, filters.status] as const,
     [filters.brand, filters.status],
@@ -152,33 +187,55 @@ export default function LibraryPage() {
   });
   const needsReviewCount = needsReview?.length ?? 0;
 
+  // Resolve a brand slug to its display name for the per-card label. Falls back
+  // to the slug if the brand list has not loaded the entry yet.
+  const brandName = useCallback(
+    (slug: string) => brands.find((b) => b.slug === slug)?.display_name ?? slug,
+    [brands],
+  );
+
   const all = useMemo(() => records ?? [], [records]);
   const facets = useMemo(() => facetsOf(all), [all]);
   const filtered = useMemo(
-    () => applyFilters(all, filters),
-    [all, filters],
+    () => applyFilters(all, filters, brandName),
+    [all, filters, brandName],
   );
-  const groups = useMemo(() => groupAssets(filtered), [filtered]);
+  const groups = useMemo(
+    () => groupAssets(filtered, filters.collapseVersions),
+    [filtered, filters.collapseVersions],
+  );
 
-  // The vault reads as editorial sections per asset type, each with its own
-  // header and approved count, instead of one flat grid.
+  // Sections. Grouped by asset type (the default), by brand, or not at all.
+  // Each carries the records behind it so the header can offer a zip of exactly
+  // what is under it.
   const sections = useMemo(() => {
+    if (filters.groupBy === "none") {
+      return [
+        { key: "all", label: "Newest first", items: groups, sub: null as string | null },
+      ];
+    }
     const by = new Map<string, AssetGroup[]>();
     for (const g of groups) {
-      const key = g.current.asset_type;
+      const key =
+        filters.groupBy === "brand" ? g.current.brand : g.current.asset_type;
       const bucket = by.get(key);
       if (bucket) bucket.push(g);
       else by.set(key, [g]);
     }
-    return [...by.entries()].map(([key, items]) => ({
-      key,
-      label: humanizeKey(key),
-      items,
-      approved: items.filter(
-        (i) => (i.current.lifecycle_status ?? "approved") === "approved",
-      ).length,
-    }));
-  }, [groups]);
+    return [...by.entries()]
+      .map(([key, items]) => ({
+        key,
+        label:
+          filters.groupBy === "brand" ? brandName(key) : assetTypeLabel(key),
+        items,
+        sub: `${items.filter((i) => (i.current.lifecycle_status ?? "approved") === "approved").length} approved`,
+      }))
+      .sort((a, b) =>
+        filters.groupBy === "brand"
+          ? a.label.localeCompare(b.label)
+          : b.items.length - a.items.length,
+      );
+  }, [groups, filters.groupBy, brandName]);
 
   // Filter options. Brand comes from the brand list (the active brand may have
   // no assets yet); asset type and backend come from the loaded records.
@@ -187,19 +244,16 @@ export default function LibraryPage() {
     [brands],
   );
 
-  // Resolve a brand slug to its display name for the per-card label. Falls back
-  // to the slug if the brand list has not loaded the entry yet.
-  const brandName = useCallback(
-    (slug: string) => brands.find((b) => b.slug === slug)?.display_name ?? slug,
-    [brands],
-  );
   // The Library is the cross-brand view; the brand label on each card is only
   // useful when more than one brand is in view. Filtered to one brand, it is
   // redundant, so suppress it.
   const showBrand = filters.brand === null;
   const assetOptions: SelectOption[] = useMemo(
     () =>
-      facets.assetTypes.map((key) => ({ value: key, label: humanizeKey(key) })),
+      facets.assetTypes.map((key) => ({
+        value: key,
+        label: assetTypeLabel(key),
+      })),
     [facets.assetTypes],
   );
   const backendOptions: SelectOption[] = useMemo(
@@ -243,6 +297,48 @@ export default function LibraryPage() {
     void refetch();
   }
 
+  // ── Download ──────────────────────────────────────────────────────────────
+  // Everything routes through /api/assets/file, the same URL the thumbnails
+  // already render, so a save carries the same session and tenancy checks. The
+  // handlers own the toasts; the callers only await.
+  const [zipProgress, setZipProgress] = useState<string | null>(null);
+
+  const handleDownload = useCallback(async (record: AssetRecord) => {
+    try {
+      await downloadAsset(record);
+    } catch (err) {
+      toast.error(reason(err, "Download failed"));
+    }
+  }, []);
+
+  const handleDownloadMany = useCallback(
+    async (records: AssetRecord[], label?: string) => {
+      if (records.length === 0) return;
+      if (records.length === 1) {
+        await handleDownload(records[0]);
+        return;
+      }
+      setZipProgress(`Packing 0/${records.length}`);
+      try {
+        const { packed, failed } = await downloadAssetsAsZip(
+          records,
+          zipNameFor(records, label),
+          ({ done, total }) => setZipProgress(`Packing ${done}/${total}`),
+        );
+        if (failed === 0) toast.success(`Downloaded ${packed} files as a zip`);
+        else
+          toast.warning(
+            `Downloaded ${packed} files; ${failed} could not be read`,
+          );
+      } catch (err) {
+        toast.error(reason(err, "Could not build the zip"));
+      } finally {
+        setZipProgress(null);
+      }
+    },
+    [handleDownload],
+  );
+
   // Move an asset through review (approve / request changes / archive / re-flag).
   // On success swap the returned (now restamped) record into the active list
   // cache so its badge and pill update instantly, then invalidate every assets
@@ -285,7 +381,7 @@ export default function LibraryPage() {
     [transitionMutation],
   );
 
-  // ── Multi-select (bulk review) ────────────────────────────────────────────
+  // ── Multi-select (bulk review + bulk download) ────────────────────────────
   // Which selected keys are actually in the current view (filters may have
   // dropped some). The bar count and the bulk action both work off this, so a
   // stale key from a prior filter never acts.
@@ -362,11 +458,15 @@ export default function LibraryPage() {
     onError: () => toast.error("Bulk update failed"),
   });
 
+  const brandCount = new Set(all.map((r) => r.brand)).size;
+
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-end gap-5 pt-3">
-        <div>
-          <span className="microlabel">Library · every brand</span>
+        <div className="min-w-0">
+          <span className="microlabel">
+            {filters.brand ? brandName(filters.brand) : "Library · every brand"}
+          </span>
           <h1
             className="mt-1 font-bold"
             style={{
@@ -378,11 +478,11 @@ export default function LibraryPage() {
             The vault
           </h1>
           <p className="annotation mt-2">
-            Each asset lives with its brand; this is the lens across all of
-            them. Neutral mats — judge the work, not the wall.
+            Every file this workspace has made or imported. Search it, open it,
+            download it. The button on each card saves that file straight away.
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-3 pb-1">
+        <div className="ml-auto flex flex-wrap items-center gap-3 pb-1">
           {needsReviewCount > 0 && (
             <button
               type="button"
@@ -410,10 +510,10 @@ export default function LibraryPage() {
                   ? "border-accent/50 bg-accent/10 text-accent"
                   : "border-white/12 text-text-muted hover:border-white/25 hover:text-text"
               }`}
-              title="Select multiple assets to review in bulk"
+              title="Pick several assets to download or review together"
             >
               <ListChecks size={14} />
-              {selecting ? "Done" : "Select"}
+              {selecting ? "Done selecting" : "Select several"}
             </button>
           )}
         </div>
@@ -454,6 +554,7 @@ export default function LibraryPage() {
             backendOptions={backendOptions}
             shownCount={filtered.length}
             totalCount={all.length}
+            cardCount={groups.length}
           />
 
           {isLoading ? (
@@ -486,16 +587,24 @@ export default function LibraryPage() {
             />
           ) : groups.length === 0 ? (
             <EmptyState
-              icon={<LibraryBig size={28} />}
+              icon={
+                all.length === 0 ? (
+                  <LibraryBig size={28} />
+                ) : (
+                  <SearchX size={28} />
+                )
+              }
               title={
                 all.length === 0
-                  ? "No assets yet"
-                  : "No assets match these filters"
+                  ? filters.brand
+                    ? `${brandName(filters.brand)} has no assets yet`
+                    : "No assets yet"
+                  : "Nothing matches what you asked for"
               }
               description={
                 all.length === 0
-                  ? "Generated assets appear here once a generation run completes. Head to Studio to create the first one."
-                  : "Adjust the asset type or backend filters to see more."
+                  ? "Generated assets appear here once a generation run completes, and dropping images into the panel above imports them. Head to Studio to make the first one."
+                  : "Widen the search, or clear the type, backend, and review filters."
               }
               action={
                 all.length > 0 ? (
@@ -506,42 +615,73 @@ export default function LibraryPage() {
                         ...f,
                         asset: null,
                         backend: null,
+                        status: null,
+                        query: "",
                       }))
                     }
                   >
-                    Clear type and backend
+                    Clear the filters
+                  </Button>
+                ) : filters.brand ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setFilters((f) => ({ ...f, brand: null }))}
+                  >
+                    Show every brand
                   </Button>
                 ) : undefined
               }
             />
           ) : (
             <div className="space-y-8">
-              {sections.map((section) => (
-                <section key={section.key}>
-                  <div className="mb-3 flex items-baseline gap-3">
-                    <h2
-                      className="text-lg font-semibold tracking-tight"
-                      style={{ fontFamily: "var(--c-font-display)" }}
-                    >
-                      {section.label}
-                    </h2>
-                    <span className="font-mono text-[11px] text-text-faint">
-                      {section.items.length} · {section.approved} approved
-                    </span>
-                    <span className="h-px flex-1 bg-white/8" />
-                  </div>
-                  <AssetGrid
-                    groups={section.items}
-                    selectedKey={openKey}
-                    onSelect={openAsset}
-                    showBrand={showBrand}
-                    brandName={brandName}
-                    selecting={selecting}
-                    selectedKeys={selectedKeys}
-                    onToggleSelect={toggleSelect}
-                  />
-                </section>
-              ))}
+              {sections.map((section) => {
+                const sectionRecords = section.items.map((i) => i.current);
+                return (
+                  <section key={section.key}>
+                    <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h2
+                        className="text-lg font-semibold tracking-tight"
+                        style={{ fontFamily: "var(--c-font-display)" }}
+                      >
+                        {section.label}
+                      </h2>
+                      <span className="font-mono text-[11px] text-text-faint">
+                        {section.items.length}
+                        {section.sub ? ` · ${section.sub}` : ""}
+                      </span>
+                      <span className="h-px flex-1 bg-white/8" />
+                      <button
+                        type="button"
+                        disabled={zipProgress !== null}
+                        onClick={() =>
+                          void handleDownloadMany(
+                            sectionRecords,
+                            filters.groupBy === "brand"
+                              ? section.key
+                              : `${section.key}s`,
+                          )
+                        }
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-[11px] font-medium text-text-muted transition-colors hover:border-accent/50 hover:text-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+                        title={`Download all ${section.items.length} as a zip`}
+                      >
+                        <Download size={12} />
+                        Download all
+                      </button>
+                    </div>
+                    <AssetGrid
+                      groups={section.items}
+                      selectedKey={openKey}
+                      onSelect={openAsset}
+                      showBrand={showBrand && filters.groupBy !== "brand"}
+                      brandName={brandName}
+                      selecting={selecting}
+                      selectedKeys={selectedKeys}
+                      onToggleSelect={toggleSelect}
+                      onDownload={handleDownload}
+                    />
+                  </section>
+                );
+              })}
             </div>
           )}
         </div>
@@ -555,6 +695,8 @@ export default function LibraryPage() {
         transitioning={
           activeFile !== null && transitioningFile === activeFile
         }
+        onDownload={handleDownload}
+        onDownloadAll={(versions) => handleDownloadMany(versions)}
       />
       </LayoutGroup>
 
@@ -563,7 +705,11 @@ export default function LibraryPage() {
           <BulkActionBar
             count={selectedInView.length}
             allSelected={allInViewSelected}
-            busy={bulkMutation.isPending}
+            busy={bulkMutation.isPending || zipProgress !== null}
+            progress={zipProgress}
+            onDownload={() =>
+              void handleDownloadMany(selectedInView.map((g) => g.current))
+            }
             onApprove={() => bulkMutation.mutate("approved")}
             onRequestChanges={() => bulkMutation.mutate("changes_requested")}
             onArchive={() => bulkMutation.mutate("archived")}
@@ -572,6 +718,12 @@ export default function LibraryPage() {
           />
         )}
       </AnimatePresence>
+
+      {brandCount > 1 && !isLoading && !isError && (
+        <p className="pb-2 text-center text-xs text-text-faint">
+          {all.length} files across {brandCount} brands.
+        </p>
+      )}
     </div>
   );
 }

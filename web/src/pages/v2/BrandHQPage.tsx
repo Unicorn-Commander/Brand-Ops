@@ -80,7 +80,7 @@ function BrandHQSkeleton() {
         </div>
       </section>
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head">
           <Skeleton width={120} height={26} radius={6} />
         </div>
@@ -91,7 +91,7 @@ function BrandHQSkeleton() {
         </div>
       </section>
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head">
           <Skeleton width={90} height={26} radius={6} />
         </div>
@@ -165,7 +165,7 @@ export default function BrandHQPage() {
       {(invalidRefs.length > 0 || missingRefs.length > 0) && (
         <section
           role="alert"
-          className="block rise"
+          className="hq-section rise"
           style={{
             marginBottom: 18,
             border: `1px solid ${invalidRefs.length ? "rgba(248,113,113,0.45)" : "rgba(251,191,36,0.45)"}`,
@@ -272,7 +272,7 @@ export default function BrandHQPage() {
         </div>
       </section>
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head rise">
           <h2>Color</h2>
           <span className="annotation">Live tokens from the brand API.</span>
@@ -291,7 +291,7 @@ export default function BrandHQPage() {
         </div>
       </section>
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head rise">
           <h2>Typography</h2>
           <span className="annotation">Declared families with fallback when not bundled.</span>
@@ -317,7 +317,7 @@ export default function BrandHQPage() {
       </section>
 
       {brand.visual.mascot_style && (
-        <section className="block">
+        <section className="hq-section">
           <div className="sec-head rise">
             <h2>Mascot style</h2>
             <span className="annotation">Agent-avatar character recipe (refs/ preferred over logos).</span>
@@ -328,7 +328,7 @@ export default function BrandHQPage() {
         </section>
       )}
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head rise">
           <h2>The mark</h2>
           <span className="annotation">Canonical mark from the brand record.</span>
@@ -354,7 +354,7 @@ export default function BrandHQPage() {
         </div>
       </section>
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head rise">
           <h2>The kit</h2>
           <span className="annotation">Coverage counts approved or legacy ungated assets only.</span>
@@ -379,7 +379,7 @@ export default function BrandHQPage() {
         </div>
       </section>
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head rise">
           <h2>Voice</h2>
           <span className="annotation">Tone and banned phrases from the brand record.</span>
@@ -403,7 +403,7 @@ export default function BrandHQPage() {
         </div>
       </section>
 
-      <section className="block">
+      <section className="hq-section">
         <div className="sec-head rise">
           <h2>The team on this brand</h2>
           <span className="annotation">Agents from the registry, steward scoped to this brand.</span>
@@ -424,7 +424,7 @@ export default function BrandHQPage() {
         </div>
       </section>
 
-      <section className="block" style={{ paddingBottom: 64 }}>
+      <section className="hq-section" style={{ paddingBottom: 64 }}>
         <div className="sec-head rise">
           <h2>Recent on this brand</h2>
         </div>

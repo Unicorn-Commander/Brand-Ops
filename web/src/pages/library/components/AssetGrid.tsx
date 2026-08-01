@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   ImageIcon,
@@ -6,8 +6,10 @@ import {
   Check,
   MessageSquareWarning,
   Archive,
+  Download,
 } from "lucide-react";
 import { SpotlightCard } from "../../../components";
+import { Spinner } from "../../../components/Spinner";
 import { staggerContainer, staggerItem, spring } from "../../../lib/motion";
 import type { AssetGroup } from "./catalog";
 import type { AssetRecord } from "../../../lib/types";
@@ -51,6 +53,13 @@ interface AssetGridProps {
   selecting?: boolean;
   selectedKeys?: Set<string>;
   onToggleSelect?: (group: AssetGroup) => void;
+  /**
+   * Save one asset's file. Rendered as a always-visible corner button on every
+   * card: retrieval is the Library's primary job, so it must not hide behind a
+   * hover state or a drawer. Resolves when the file has been handed to the
+   * browser; rejects with a message worth showing.
+   */
+  onDownload?: (record: AssetRecord) => Promise<void>;
 }
 
 /** Aspect ratio string from a [w, h] size; squares fall back when unknown. */
@@ -68,6 +77,11 @@ function aspectFor(size: number[]): string {
  * image on load; without a URL (the API serves only basenames) a labeled
  * placeholder shows instead of a broken image.
  *
+ * The aspect ratio is clamped: an extreme banner or a very tall poster would
+ * otherwise make one masonry card taller than the viewport and push everything
+ * after it off the fold. Inside the clamp the image is still `object-contain`,
+ * so nothing is cropped — the frame is just letterboxed.
+ *
  * `morphId` ties the image to the detail drawer's hero via a shared `layoutId`:
  * every card carries its own unique id (derived from the asset file), so on open
  * framer morphs the clicked thumbnail INTO the drawer hero, and on close it
@@ -81,9 +95,12 @@ function aspectFor(size: number[]): string {
 function Preview({
   asset,
   morphId,
+  children,
 }: {
   asset: AssetRecord;
   morphId?: string;
+  /** Corner overlays (status badge, version chip) positioned on the frame. */
+  children?: ReactNode;
 }) {
   const src = asset.url ?? undefined;
   const reduce = useReducedMotion();
@@ -94,7 +111,7 @@ function Preview({
   return (
     <div
       className="relative w-full overflow-hidden rounded-2xl border border-white/8 bg-chrome-raised"
-      style={{ aspectRatio: aspectFor(asset.size) }}
+      style={{ aspectRatio: aspectFor(asset.size), maxHeight: "min(70vh, 460px)" }}
     >
       {showImage ? (
         <>
@@ -120,13 +137,14 @@ function Preview({
           />
         </>
       ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-text-faint transition-transform duration-500 ease-spring [@media(hover:hover)]:group-hover:scale-[1.03]">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-2 text-text-faint transition-transform duration-500 ease-spring [@media(hover:hover)]:group-hover:scale-[1.03]">
           <ImageIcon size={22} />
-          <span className="px-2 text-center text-xs leading-tight text-text-faint">
+          <span className="w-full break-all text-center text-xs leading-tight text-text-faint">
             {asset.file}
           </span>
         </div>
       )}
+      {children}
     </div>
   );
 }
@@ -181,10 +199,46 @@ function StatusBadge({ asset }: { asset: AssetRecord }) {
 }
 
 /**
- * A justified gallery of asset thumbnails, one card per logical asset (its
- * current version). A version count rides in the corner when an asset has more
- * than one render. Clicking opens the detail drawer for that asset. Cards lift
- * and light under the cursor; the image zooms slightly on hover.
+ * The per-card save control. A sibling of the card's open-button (never nested
+ * inside it: a button inside a button is invalid, and the click would open the
+ * drawer instead of saving). Always rendered, not hover-gated, so the affordance
+ * exists on touch and is findable without discovering hover.
+ */
+function DownloadButton({
+  record,
+  onDownload,
+}: {
+  record: AssetRecord;
+  onDownload: (record: AssetRecord) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const disabled = busy || !record.url;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setBusy(true);
+        try {
+          await onDownload(record);
+        } finally {
+          setBusy(false);
+        }
+      }}
+      aria-label={`Download ${record.asset_type} for ${record.brand}`}
+      title={record.url ? "Download this file" : "No file served for this asset"}
+      className="absolute right-2 top-2 z-[4] grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-chrome-bg/80 text-text-muted shadow-sm backdrop-blur transition-colors hover:border-accent/60 hover:bg-chrome-bg hover:text-accent disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+    >
+      {busy ? <Spinner size={14} /> : <Download size={15} />}
+    </button>
+  );
+}
+
+/**
+ * A justified gallery of asset thumbnails, one card per asset. Clicking opens
+ * the detail drawer; the corner button saves the file without opening anything.
+ * A version count rides the frame when an asset has more than one render.
  *
  * Layout is a CSS multi-column masonry so mixed aspect ratios pack tightly
  * without row gaps. Grouping is unaffected: each card is a self-contained
@@ -199,6 +253,7 @@ export function AssetGrid({
   selecting = false,
   selectedKeys,
   onToggleSelect,
+  onDownload,
 }: AssetGridProps) {
   const reduce = useReducedMotion();
   return (
@@ -258,32 +313,19 @@ export function AssetGrid({
                   <Preview
                     asset={group.current}
                     morphId={assetMorphId(group.current.file)}
-                  />
-                  <StatusBadge asset={group.current} />
-                  {/* Version count rides the top-right corner; yielded to the
-                      selection checkbox while selecting. */}
-                  {!selecting && versionCount > 1 && (
-                    <span
-                      className="pointer-events-none absolute right-2 top-2 rounded-md bg-chrome-bg/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-text-muted ring-1 ring-white/10 backdrop-blur"
-                      title={`${versionCount} versions`}
-                    >
-                      v{versionCount}
-                    </span>
-                  )}
-                  {/* Selection checkbox: empty ring → filled accent check. Only
-                      present in select mode; mirrors the AssetThumb affordance. */}
-                  {selecting && (
-                    <span
-                      aria-hidden="true"
-                      className={`absolute right-2 top-2 z-[3] grid h-6 w-6 place-items-center rounded-full border-2 transition-colors duration-150 ${
-                        isSelected
-                          ? "border-accent bg-accent text-white"
-                          : "border-white/50 bg-chrome-bg/60 text-transparent backdrop-blur [@media(hover:hover)]:group-hover:border-white/80"
-                      }`}
-                    >
-                      {isSelected && <Check size={14} strokeWidth={3} />}
-                    </span>
-                  )}
+                  >
+                    <StatusBadge asset={group.current} />
+                    {/* Version count rides the frame's bottom-left, clear of the
+                        save button and the selection checkbox above it. */}
+                    {versionCount > 1 && (
+                      <span
+                        className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-chrome-bg/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-text-muted ring-1 ring-white/10 backdrop-blur"
+                        title={`${versionCount} renders of this asset`}
+                      >
+                        v{versionCount}
+                      </span>
+                    )}
+                  </Preview>
                   <div className="space-y-0.5 px-1 pb-1 pt-2">
                     {showBrand && (
                       <p
@@ -307,6 +349,29 @@ export function AssetGrid({
                     </p>
                   </div>
                 </button>
+
+                {/* Selection checkbox: empty ring → filled accent check. Only
+                    present in select mode; otherwise the corner holds the save
+                    button. Both are siblings of the card button, not children. */}
+                {selecting ? (
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute right-2 top-2 z-[4] grid h-6 w-6 place-items-center rounded-full border-2 transition-colors duration-150 ${
+                      isSelected
+                        ? "border-accent bg-accent text-white"
+                        : "border-white/50 bg-chrome-bg/60 text-transparent backdrop-blur [@media(hover:hover)]:group-hover:border-white/80"
+                    }`}
+                  >
+                    {isSelected && <Check size={14} strokeWidth={3} />}
+                  </span>
+                ) : (
+                  onDownload && (
+                    <DownloadButton
+                      record={group.current}
+                      onDownload={onDownload}
+                    />
+                  )
+                )}
               </SpotlightCard>
             </motion.div>
           </motion.div>
