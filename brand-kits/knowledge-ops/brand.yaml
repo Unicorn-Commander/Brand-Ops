@@ -4,6 +4,10 @@
 brand:
   slug: knowledge-ops
   display_name: Knowledge-Ops
+  mark:
+    asset_type: app_icon
+    file: 2026-08-01-22-56-02-app_icon-1.png
+    kind: generated
   tagline: Innovation That Doesn't Apologize
   parent: magic-unicorn
   description: |
@@ -103,6 +107,6 @@ prompts:
     variants: [instagram, twitter, linkedin]
 
 reference_images:
-  canonical: /Users/aaronstransky/Pictures/magic_unicorn_logo.png
-  subdued: /Users/aaronstransky/Pictures/unicorn_subdued_black_logo.png
-  vector: /Users/aaronstransky/AI-Software/MagiCode_sync/public/magic-unicorn-logo.svg
+  canonical: refs/canonical-unicorn.png
+  subdued: refs/unicorn-subdued.png
+  vector: refs/magic-unicorn-logo.png

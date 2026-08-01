@@ -105,4 +105,4 @@ prompts:
 reference_images:
   canonical: imported/logo/magic_unicorn_logo.png
   subdued: imported/logo/unicorn_subdued_black_logo.png
-  vector: imported/logo/magic-unicorn-logo.svg
+  vector: imported/logo/magic-unicorn-logo.png

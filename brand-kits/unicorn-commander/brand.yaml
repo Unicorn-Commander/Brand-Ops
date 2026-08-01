@@ -84,5 +84,5 @@ prompts:
     variants: [instagram, twitter, linkedin]
 
 reference_images:
-  logo: /Volumes/Studio Storage/Development/UC-1/Unicorn-Commander-Themes/unicorn-icons/apps/unicorn-commander-logo.svg
-  colonel: /Volumes/Studio Storage/Development/UC-1/Unicorn-Commander-Themes/unicorn-icons/apps/unicorn-colonel.svg
+  logo: imported/logo/unicorn-brigade-logo.png
+  colonel: imported/logo/The_Colonel_logo.png

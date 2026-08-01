@@ -1,6 +1,10 @@
 brand:
   slug: stable
   display_name: Stable
+  mark:
+    asset_type: logo
+    file: stable-mark.png
+    kind: imported
   parent: unicorn-commander
   workspace_id: null
   tagline: Where your team and your AI agents live

@@ -1,0 +1,22 @@
+brand:
+  slug: veteran-ops
+  display_name: Veteran-Ops
+  parent: rating-raider
+  workspace_id: 019e50a3-d995-723f-ab66-0f765f92c0f4
+  tagline: The claim organizer with a game plan
+  mark:
+    asset_type: logo
+    file: veteran-ops-sarge.png
+    kind: imported
+  description: 'Veteran-Ops is free, open-source, educational self-help software for
+    U.S. veterans organizing a VA disability compensation claim. Rating Raider is
+    the in-product agent inside Veteran-Ops — the app is Veteran-Ops, the agent is
+    Rating Raider, and the two names are never used interchangeably. The software
+    helps a veteran read their own records, understand the rating criteria, and build
+    a plan to take to a provider or a free VA-accredited VSO. It organizes and guides;
+    it never files a claim, never represents the veteran, never diagnoses, and never
+    promises an outcome. A Magic Unicorn sub-brand with a legal-lane voice. The mark
+    is Sarge, an Army-Ranger unicorn in tactical kit: a camo boonie hat with a gold
+    spiral horn, a rainbow mane used only as a signature accent, a camo-patched face,
+    tactical headset, shemagh scarf, and plate carrier. Serious, tactical, and earned,
+    with a unicorn wink.'
