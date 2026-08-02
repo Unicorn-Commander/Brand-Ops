@@ -144,7 +144,14 @@ export default function StandardsPage() {
               alignItems: "center",
               padding: "14px 22px",
               borderTop: "1px solid rgba(255,255,255,0.05)",
-              background: row.slug === activeSlug ? "var(--c-bg-2)" : "transparent",
+              // Brand-aware, not chrome-aware: `var(--c-bg-2)` is the DARK
+              // chrome surface, and on a light brand's /b/:slug/grade it painted
+              // a near-black band across the highlighted row and swallowed the
+              // brand name sitting on it.
+              background:
+                row.slug === (routeSlug ?? activeSlug)
+                  ? "color-mix(in srgb, var(--b-accent) 12%, transparent)"
+                  : "transparent",
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
