@@ -23,7 +23,13 @@ from typing import Any
 
 from ..activity import append_event
 from ..atomic_write import atomic_write_text
-from ..brand_loader import BrandNotFound, current_kits_dir, load_brand
+from ..brand_loader import (
+    BrandNotFound,
+    current_kits_dir,
+    get_current_workspace_id,
+    load_brand,
+)
+from ..catalog_index import index_sidecar_sync
 from .evaluator import _resolve_image_path, check_asset
 from .rules import build_rules
 
@@ -207,6 +213,21 @@ def transition(
 
     data["lifecycle_status"] = to
     atomic_write_text(sidecar, json.dumps(data, indent=2))
+
+    # Dual-write the new status into Postgres, the same SoR transition the
+    # generation and upload chokepoints do. Under BRAND_OPS_CATALOG_SOT=db the
+    # Library reads the catalog ROW, not the sidecar, so a transition that only
+    # touched disk was invisible: approving a flagged asset returned
+    # lifecycle_status="approved" while the product kept showing it as
+    # needs_review forever. Best-effort and loud-on-failure, exactly like the
+    # other two call sites -- a broken index must not undo a transition whose
+    # sidecar already landed.
+    index_sidecar_sync(
+        get_current_workspace_id(),
+        sidecar_path=sidecar,
+        workspace_root=root,
+        kind=kind,
+    )
 
     # One feed event per transition. The action reads like a verb in the feed:
     # "approved", "requested changes", "archived", "reopened".
