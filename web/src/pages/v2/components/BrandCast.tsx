@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Download, Layers, Sparkles, Volume2 } from "lucide-react";
+import { Download, FileJson, Layers, Sparkles, Volume2 } from "lucide-react";
 
 import {
   agentManifestUrl,
@@ -15,6 +15,7 @@ import {
 } from "../../../api/client";
 import { AgentAvatar } from "../../../components/AgentAvatar";
 import { Spinner } from "../../../components/Spinner";
+import { downloadFile, fileNameFor } from "../../../lib/download";
 import type { AgentIdentity, GovernanceStatus } from "../../../lib/types";
 
 // ---------------------------------------------------------------------------
@@ -86,6 +87,48 @@ const GOVERNANCE_BADGE: Record<GovernanceStatus, { label: string; color: string;
   needs_review: { label: "Needs review", color: "#9a6a1f", background: "rgba(220,160,40,0.14)" },
   unrated: { label: "Unrated", color: "var(--c-ink-3)", background: "var(--c-surface-2, transparent)" },
 };
+
+/**
+ * Save one agent image (the avatar, or one of its state variants) to disk.
+ * Goes through lib/download so an expired oauth2-proxy session raises instead of
+ * saving an HTML login page named `iris-avatar.png`.
+ */
+function AvatarDownload({
+  url,
+  stem,
+  label,
+  text,
+}: {
+  url: string | null | undefined;
+  stem: string;
+  label: string;
+  text: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (!url) return null;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      aria-label={label}
+      title={label}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await downloadFile(url, fileNameFor(stem, url));
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : "Download failed.");
+        } finally {
+          setBusy(false);
+        }
+      }}
+      style={{ ...ghostButtonStyle(busy), textTransform: "capitalize" }}
+    >
+      {busy ? <Spinner size={13} /> : <Download size={14} />}
+      {text}
+    </button>
+  );
+}
 
 function GovernanceBadge({ status }: { status: GovernanceStatus }) {
   const badge = GOVERNANCE_BADGE[status];
@@ -333,13 +376,31 @@ export function BrandCast({ slug, brandName }: { slug: string; brandName: string
                     <Layers size={14} />
                     {generatingVariants ? "Generating…" : "Generate variant set"}
                   </button>
+                  {/* Retrieval: the card showed the avatar (and its variant
+                      set) with no way to save any of them. "Manifest" was the
+                      only Download-icon button here, and it links to JSON. */}
+                  <AvatarDownload
+                    url={a.avatar_url}
+                    stem={`${slug}-${a.slug}-avatar`}
+                    label={`Download ${a.name}'s avatar`}
+                    text="Avatar"
+                  />
+                  {variantStates.map(([state, url]) => (
+                    <AvatarDownload
+                      key={`dl-${state}`}
+                      url={url}
+                      stem={`${slug}-${a.slug}-${state}`}
+                      label={`Download ${a.name}'s ${state} avatar`}
+                      text={state}
+                    />
+                  ))}
                   <a
                     href={agentManifestUrl(slug, a.slug)}
                     target="_blank"
                     rel="noreferrer"
                     style={ghostButtonStyle(false)}
                   >
-                    <Download size={14} />
+                    <FileJson size={14} />
                     Manifest
                   </a>
                 </div>

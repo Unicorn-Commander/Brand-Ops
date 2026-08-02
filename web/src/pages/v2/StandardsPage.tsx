@@ -1,11 +1,18 @@
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getBrandCompliance, listActivity, listAssets, listAssetTypes, listBrands } from "../../api/client";
 import { useActiveBrand } from "../../brand-context";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
-import { assetsFor, brandGrade, flaggedCount, coverageFor, relativeTime } from "../../v2/metrics";
+import { assetsFor, brandGrade, flaggedCount, coverageFor, plural, relativeTime } from "../../v2/metrics";
+
+/** The score band a grade sits in, as the same three signal colors the bars use. */
+function gradeColorFor(score: number): string {
+  if (score >= 80) return "var(--c-go)";
+  if (score >= 60) return "var(--c-warn)";
+  return "var(--c-stop)";
+}
 
 function latest(values: Array<string | null | undefined>): string | null {
   const dates = values
@@ -18,6 +25,12 @@ function latest(values: Array<string | null | undefined>): string | null {
 
 export default function StandardsPage() {
   const { activeSlug } = useActiveBrand();
+  // This same page answers two routes: the portfolio-wide /standards, and the
+  // brand-scoped /b/:slug/grade that the Brand HQ "Full report →" points at.
+  // Under a brand it used to render an unchanged, unsorted 29-row portfolio
+  // board with that brand's row somewhere below the fold; now the brand it was
+  // opened for is named in the header and sorted to the top.
+  const { slug: routeSlug } = useParams();
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const assetsQ = useQuery({ queryKey: ["assets", "all"], queryFn: ({ signal }) => listAssets({}, signal) });
   const typesQ = useQuery({ queryKey: ["asset-types"], queryFn: ({ signal }) => listAssetTypes(signal) });
@@ -53,11 +66,19 @@ export default function StandardsPage() {
   const activity = activityQ.data;
   const compliances = compliancesQ.data;
   const brandNameBySlug = new Map(brandsQ.data.map((brand) => [brand.slug, brand.display_name]));
-  const selected = compliances.find((row) => row.slug === activeSlug) ?? compliances[0];
+  const focusSlug = routeSlug ?? activeSlug;
+  const selected = compliances.find((row) => row.slug === focusSlug) ?? compliances[0];
   const selectedAssets = assetsFor(assets, selected.slug);
   const selectedCoverage = coverageFor(selectedAssets, types);
   const selectedGrade = brandGrade(selectedAssets, types, selected.compliance);
   const selectedDimensions = selectedGrade.dimensions;
+  // The actual lowest-scoring dimension, not the hardcoded assumption that it is
+  // always coverage.
+  const weakest = {
+    ...[...selectedDimensions].sort((a, b) => a.score - b.score)[0],
+    missing: selectedCoverage.missing,
+  };
+  const gradeColor = gradeColorFor(selectedGrade.score);
   const board = compliances.map((row) => {
     const rowAssets = assetsFor(assets, row.slug);
     const coverage = coverageFor(rowAssets, types);
@@ -69,25 +90,31 @@ export default function StandardsPage() {
     const lastAudit = newestAssetStamp ?? newestActivityStamp;
     return { ...row, coverage, flagged, dimensions, grade, lastAudit };
   });
+  // Under /b/:slug/grade, put the brand you asked about first.
+  if (routeSlug) {
+    board.sort((a, b) => Number(b.slug === routeSlug) - Number(a.slug === routeSlug));
+  }
 
   return (
     <div className="rise" style={{ padding: "40px 0 60px" }}>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 18, flexWrap: "wrap" }}>
         <div>
-          <span className="microlabel">Standards</span>
+          <span className="microlabel">{routeSlug ? `Report card · ${selected.brand.display_name}` : "Brand rules · standards"}</span>
           <h1 style={{ margin: "8px 0 0", fontFamily: "var(--b-font-display)", fontSize: 38, letterSpacing: "-0.025em" }}>
-            Graded like it ships.
+            {routeSlug ? `${selected.brand.display_name}, graded.` : "Graded like it ships."}
           </h1>
           <p className="annotation" style={{ marginTop: 8, maxWidth: 760 }}>
-            Weighted from live data only. Coverage comes from the catalog, compliance from the gate, and the report card is honest about what is still missing.
+            Weighted from live data only. Coverage comes from the catalog, compliance from the gate, and the report card is honest about what is still missing. A dimension marked * is not measured yet and carries a conservative default.
           </p>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Link className="btn btn-ghost" to="/library">
-            Audit history
+          {/* Was labelled "Audit history" and went to the asset Library, which
+              is not an audit history. Say where it actually goes. */}
+          <Link className="btn btn-ghost" to="/library?status=needs_review">
+            Review flagged assets
           </Link>
-          <Link className="btn btn-accent" to={`/b/${selected.slug}/studio`}>
-            Fix the biggest lever
+          <Link className="btn btn-accent" to={`/b/${selected.slug}/studio?asset=${weakest.missing[0] ?? ""}`}>
+            Fix {selected.brand.display_name}
           </Link>
         </div>
       </div>
@@ -166,22 +193,27 @@ export default function StandardsPage() {
           }}
         >
           <span className="microlabel">Report card</span>
+          {/* The ring and letter were painted var(--c-go) unconditionally, so a
+              D-grade brand still showed a full green ring. Track the score. */}
           <div style={{ marginTop: 14, display: "grid", placeItems: "center" }}>
-            <div style={{ width: 150, height: 150, borderRadius: 999, border: "9px solid var(--c-go)", display: "grid", placeItems: "center" }}>
+            <div style={{ width: 150, height: 150, borderRadius: 999, border: `9px solid ${gradeColor}`, display: "grid", placeItems: "center" }}>
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 38, fontFamily: "var(--b-font-display)", fontWeight: 800, color: "var(--c-go)" }}>{selectedGrade.letter}</div>
+                <div style={{ fontSize: 38, fontFamily: "var(--b-font-display)", fontWeight: 800, color: gradeColor }}>{selectedGrade.letter}</div>
                 <div style={{ fontSize: 11, color: "var(--b-ink-3)" }}>{selectedGrade.score} / 100</div>
               </div>
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10 }}>
-            <span className="chip">{selected.brand.display_name}</span>
+            <Link className="chip" to={`/b/${selected.slug}/overview`}>{selected.brand.display_name}</Link>
           </div>
           <p style={{ color: "var(--b-ink-3)", fontSize: 12.5, marginTop: 12 }}>
-            Biggest lever: coverage. {selectedCoverage.pct}% of the required set is accounted for.
+            Biggest lever: {weakest.label}, scoring {weakest.score} of 100.
+            {selectedCoverage.missing.length > 0
+              ? ` Still missing: ${selectedCoverage.missing.join(", ")}.`
+              : " Every required asset type is covered."}
           </p>
-          <Link className="btn btn-ink" to={`/b/${selected.slug}/studio`} style={{ marginTop: 14 }}>
-            Fix the biggest lever
+          <Link className="btn btn-ink" to={`/b/${selected.slug}/studio?asset=${selectedCoverage.missing[0] ?? ""}`} style={{ marginTop: 14 }}>
+            Open the Studio
           </Link>
         </aside>
 
@@ -215,12 +247,29 @@ export default function StandardsPage() {
           <div className="voice-card">
             <span className="microlabel">Issues</span>
             <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
-              {board.filter((row) => row.flagged > 0).slice(0, 3).map((row) => (
-                <div key={row.slug} style={{ border: "1px solid var(--b-hairline)", borderRadius: "var(--radius-sm)", padding: 16 }}>
-                  <b>{row.brand.display_name}</b>
-                  <p style={{ color: "var(--b-ink-3)", margin: "4px 0 0" }}>{row.flagged} open review item(s) and {Math.max(0, 6 - row.coverage.pct)} missing coverage points.</p>
-                </div>
-              ))}
+              {/* `6 - coverage.pct` subtracted a count from a PERCENTAGE and
+                  clamped at zero, so every brand above 6% coverage read "0
+                  missing coverage points" — a number that meant nothing. Say how
+                  many required types are actually absent, and name them. */}
+              {board.filter((row) => row.flagged > 0).slice(0, 3).map((row) => {
+                const missing = row.coverage.total - row.coverage.present;
+                return (
+                  <Link
+                    key={row.slug}
+                    to={`/b/${row.slug}/overview`}
+                    style={{ border: "1px solid var(--b-hairline)", borderRadius: "var(--radius-sm)", padding: 16, display: "block", color: "inherit", textDecoration: "none" }}
+                  >
+                    <b>{row.brand.display_name}</b>
+                    <p style={{ color: "var(--b-ink-3)", margin: "4px 0 0" }}>
+                      {plural(row.flagged, "open review item")}
+                      {missing > 0 ? `, and ${plural(missing, "asset type")} not yet covered (${row.coverage.missing.join(", ")}).` : ", and every required asset type covered."}
+                    </p>
+                  </Link>
+                );
+              })}
+              {board.every((row) => row.flagged === 0) && (
+                <p style={{ color: "var(--b-ink-3)", margin: 0 }}>Nothing is flagged across the portfolio.</p>
+              )}
             </div>
           </div>
 

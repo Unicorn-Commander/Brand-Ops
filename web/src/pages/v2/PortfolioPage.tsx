@@ -6,14 +6,20 @@ import { getAgentTeam, getBrand, getBrandCompliance, listActivity, listAgents, l
 import type { AssetRecord, AssetType, BrandComplianceRollup, BrandDetail, BrandSummary } from "../../lib/types";
 import { MarkImg } from "../../components/MarkImg";
 import { Skeleton } from "../../components/Skeleton";
+import { useActiveBrand } from "../../brand-context";
 import FrontDoor from "../../v2/FrontDoor";
 import {
+  activityDetail,
+  activityTarget,
   assetsFor,
   brandColors,
   brandGrade,
+  buildArchitecture,
   coverageFor,
   displayActivity,
   flaggedCount,
+  inkAlpha,
+  plural,
   relativeTime,
 } from "../../v2/metrics";
 import { fontStack } from "../../v2/EnvProvider";
@@ -48,9 +54,12 @@ function Cover({
           "--g1": colors.primary,
           "--g2": colors.accent,
           "--ink": colors.ink,
-          "--ink-2": "rgba(255,255,255,0.66)",
-          "--ink-3": "rgba(255,255,255,0.44)",
-          "--ink-3a": "rgba(255,255,255,0.22)",
+          // Derived from the brand's OWN ink, never hardcoded white: a brand
+          // with a light background (#fafaf9) painted its tagline, parent chip
+          // and asset counts white-on-white and they disappeared entirely.
+          "--ink-2": inkAlpha(colors.ink, 0.66),
+          "--ink-3": inkAlpha(colors.ink, 0.5),
+          "--ink-3a": inkAlpha(colors.ink, 0.24),
           "--glowc": colors.accent,
           "--brand-font": font,
         } as CSSProperties
@@ -71,7 +80,7 @@ function Cover({
         <h2 className="cover-name">{brand.display_name}</h2>
         <p className="cover-tag">{brand.tagline || "Brand record loaded from the system."}</p>
         <div className="cover-meta">
-          <span>{assets.length} assets</span>
+          <span>{plural(assets.length, "asset")}</span>
           <span>·</span>
           <span>
             {coverage.present} of {coverage.total} types covered
@@ -130,7 +139,12 @@ function PortfolioSkeleton() {
 
 export default function PortfolioPage() {
   const navigate = useNavigate();
-  const [command, setCommand] = useState("Stand up a brand for the Crisis-Ops launch");
+  const { activeSlug } = useActiveBrand();
+  // Empty, not a canned sentence. The box shipped pre-filled with "Stand up a
+  // brand for the Crisis-Ops launch", which reads as something the operator
+  // typed and sends a prompt nobody wrote if they just hit the button. The
+  // input already carries a placeholder that says what to do.
+  const [command, setCommand] = useState("");
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const assetsQ = useQuery({ queryKey: ["assets", "all"], queryFn: ({ signal }) => listAssets({}, signal) });
   const typesQ = useQuery({ queryKey: ["asset-types"], queryFn: ({ signal }) => listAssetTypes(signal) });
@@ -200,8 +214,11 @@ export default function PortfolioPage() {
   }
 
   function submitCommand() {
-    const params = new URLSearchParams({ prompt: command });
-    navigate(`/b/${brands[0]?.slug ?? "magic-unicorn"}/studio?${params.toString()}`);
+    const slug = jumpSlug;
+    const typed = command.trim();
+    // An empty box opens the Studio rather than seeding a blank turn.
+    const qs = typed ? `?${new URLSearchParams({ prompt: typed }).toString()}` : "";
+    navigate(`/b/${slug}/studio${qs}`);
   }
 
   const ticker = activity.length ? activity : [];
@@ -211,8 +228,15 @@ export default function PortfolioPage() {
   const reviewItems = assets.filter((asset) => asset.lifecycle_status === "needs_review").slice(0, 2);
   const createdAgentCount = teams.reduce((sum, team) => sum + (team?.governance.total ?? 0), 0);
   const onDuty = agents.length + teams.length + createdAgentCount;
-  const roots = detailedBrands.filter((brand) => !brand.parent);
-  const children = detailedBrands.filter((brand) => brand.parent);
+  // A REAL tree, not "roots then everything else at one indent". The old flat
+  // pass rendered "Majik's DJ · Part of Majik's Music Studio" above its own
+  // parent and gave a grandchild the same indent as a child, so the section
+  // titled "Brand architecture" showed no architecture.
+  const architecture = buildArchitecture(detailedBrands);
+  // The brand the brand-scoped shortcuts act on: the one you were last in, else
+  // the first in the portfolio. Named in the chip labels so it is never a guess.
+  const jumpSlug = (activeSlug && brandNameBySlug.has(activeSlug) ? activeSlug : brands[0]?.slug) ?? "magic-unicorn";
+  const jumpName = brandNameBySlug.get(jumpSlug) ?? jumpSlug;
 
   return (
     <>
@@ -267,19 +291,25 @@ export default function PortfolioPage() {
             Studio
           </button>
         </form>
-        <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
+        {/* Say WHICH brand the brand-scoped jumps land on. They previously went
+            to whatever brand sorted first (Accounting-Ops) with a label that
+            promised nothing in particular. */}
+        <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
           <span className="microlabel">Or jump</span>
           <Link className="chip" to="/brands/new">
             New brand
           </Link>
-          <Link className="chip" to={`/b/${brands[0]?.slug ?? "magic-unicorn"}/studio?pack=core`}>
-            Generate a kit
+          <Link className="chip" to="/library">
+            Browse every asset
           </Link>
           <Link className="chip" to="/standards">
             Audit the portfolio
           </Link>
-          <Link className="chip" to={`/b/${brands[0]?.slug ?? "magic-unicorn"}/book`}>
-            Draft a book
+          <Link className="chip" to={`/b/${jumpSlug}/studio?pack=core`}>
+            Generate a kit for {jumpName}
+          </Link>
+          <Link className="chip" to={`/b/${jumpSlug}/book`}>
+            {jumpName} brand book
           </Link>
         </div>
       </section>
@@ -290,7 +320,7 @@ export default function PortfolioPage() {
             {[...ticker, ...ticker].slice(0, Math.max(8, ticker.length * 2)).map((event, index) => (
               <span className="tick-item" key={`${event.id}-${index}`}>
                 <span className="dot" style={{ background: event.actor_kind === "system" ? "var(--c-warn)" : "var(--c-go)" }} />
-                <b>{event.actor}</b> {displayActivity(event)} · {relativeTime(event.ts)}
+                <b>{event.actor}</b> {activityDetail(event)} · {relativeTime(event.ts)}
               </span>
             ))}
           </div>
@@ -370,7 +400,8 @@ export default function PortfolioPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1, minWidth: 0 }}>
             {reviewItems.map((asset) => (
               <Link key={asset.file} to="/library?status=needs_review" style={{ fontSize: 11, color: "var(--c-ink-2)", textDecoration: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                <b style={{ color: "var(--c-ink)" }}>{brandNameBySlug.get(asset.brand) ?? asset.brand}</b> · {asset.asset_type}/{asset.variant ?? asset.file}
+                <b style={{ color: "var(--c-ink)" }}>{brandNameBySlug.get(asset.brand) ?? asset.brand}</b> ·{" "}
+                {activityTarget(`${asset.asset_type}/${asset.variant ?? asset.file}`)}
               </Link>
             ))}
             {pendingIntake > 0 && (
@@ -419,12 +450,28 @@ export default function PortfolioPage() {
       <section className="rise d4" style={{ margin: "44px 0 60px" }}>
         <span className="microlabel">Brand architecture</span>
         <div style={{ marginTop: 18, border: "1px solid var(--c-hairline-soft)", background: "var(--c-surface)", borderRadius: "var(--radius)", padding: "26px 30px", boxShadow: "var(--shadow-paper)" }}>
-          {[...roots, ...children].map((brand) => (
-            <div key={brand.slug} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0 8px", marginLeft: brand.parent ? 34 : 0 }}>
+          {architecture.map(({ brand, depth }) => (
+            <Link
+              key={brand.slug}
+              to={`/b/${brand.slug}/overview`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "8px 0",
+                marginLeft: depth * 30,
+                color: "inherit",
+                textDecoration: "none",
+                borderLeft: depth > 0 ? "1px solid var(--c-hairline-soft)" : undefined,
+                paddingLeft: depth > 0 ? 14 : 0,
+              }}
+            >
               <MarkImg brand={brand} style={{ width: 30, height: 30, borderRadius: 8 }} imgStyle={{ width: 30, height: 30, objectFit: "contain", borderRadius: 8 }} />
               <b>{brand.display_name}</b>
-              <span style={{ color: "var(--c-ink-3)", fontSize: 11 }}>{brand.parent ? `Part of ${brandNameBySlug.get(brand.parent) ?? brand.parent}` : "Root"}</span>
-            </div>
+              <span style={{ color: "var(--c-ink-3)", fontSize: 11 }}>
+                {depth === 0 ? "Root" : `Part of ${brandNameBySlug.get(brand.parent ?? "") ?? brand.parent}`}
+              </span>
+            </Link>
           ))}
         </div>
       </section>

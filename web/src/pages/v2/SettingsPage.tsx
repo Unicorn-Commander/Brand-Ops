@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
 import { ambientEnabled, setAmbientEnabled, applyAmbient } from "../../lib/ambient";
+import { fetchMcpManifest, mcpManifestUrl, toolCount } from "../../lib/mcp";
 
 function Card(props: { title: string; sub?: string; children: React.ReactNode }) {
   return (
@@ -49,6 +50,13 @@ function Row(props: { k: string; v: React.ReactNode }) {
  */
 export default function SettingsPage() {
   const { data: who } = useQuery({ queryKey: ["me"], queryFn: ({ signal }) => api.me(signal) });
+  // The manifest, read rather than asserted: this page used to print a hardcoded
+  // "manifest · 21 tools" and a hardcoded "App version 0.3.0" next to a live
+  // link, with nothing keeping either true (the deployed manifest reports 0.29.x).
+  const manifestQ = useQuery({
+    queryKey: ["mcp-manifest"],
+    queryFn: ({ signal }) => fetchMcpManifest(signal),
+  });
   const [ambient, setAmbient] = useState(ambientEnabled());
 
   useEffect(() => {
@@ -62,12 +70,9 @@ export default function SettingsPage() {
       )}`
     : null;
 
-  // The MCP surface lives on the mcp.-prefixed sibling host in deployments;
-  // local dev serves the manifest on the same origin.
-  const host = window.location.hostname;
-  const manifestUrl = host.startsWith("brand-ops.")
-    ? `https://mcp.${host}/.well-known/mcps.json`
-    : "/.well-known/mcps.json";
+  const manifestUrl = mcpManifestUrl(window.location.hostname);
+  const tools = toolCount(manifestQ.data);
+  const manifestVersion = manifestQ.data?.version ?? null;
 
   return (
     <div style={{ maxWidth: 880 }}>
@@ -115,8 +120,11 @@ export default function SettingsPage() {
         </Card>
 
         <Card title="Workspace" sub="The tenant this console is operating.">
-          <Row k="Workspace" v="Magic Unicorn" />
-          <Row k="App version" v="0.3.0" />
+          <Row k="Workspace" v={who?.org ?? "…"} />
+          <Row
+            k="Service version"
+            v={manifestVersion ?? (manifestQ.isLoading ? "reading…" : "not reported")}
+          />
           <Row
             k="Chrome brand"
             v={
@@ -132,8 +140,8 @@ export default function SettingsPage() {
           <Row
             k="MCP"
             v={
-              <a href={manifestUrl} style={{ color: "var(--c-ink)" }}>
-                manifest · 21 tools
+              <a href={manifestUrl} target="_blank" rel="noreferrer" style={{ color: "var(--c-ink)" }}>
+                manifest{tools == null ? (manifestQ.isLoading ? " · reading…" : " · not reachable") : ` · ${tools} tools`}
               </a>
             }
           />

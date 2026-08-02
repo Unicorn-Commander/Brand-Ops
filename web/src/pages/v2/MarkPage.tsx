@@ -1,9 +1,11 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { getBrand, listAssets } from "../../api/client";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
+import { downloadAsset, downloadFile, fileNameFor } from "../../lib/download";
 import type { AssetRecord } from "../../lib/types";
 import { relativeTime } from "../../v2/metrics";
 
@@ -36,11 +38,25 @@ export default function MarkPage() {
   const brand = brandQ.data;
   const assets = assetsQ.data ?? [];
   const markAssets = assets.filter((asset) => /logo|mark|icon|avatar|seal/i.test(asset.asset_type));
+  // Prefer the catalogued logo record (it downloads under a descriptive name);
+  // fall back to whatever file the brand record points its mark at.
+  const logoRecord = assets.find((asset) => asset.asset_type === "logo" && asset.url) ?? null;
+  const markFile = logoRecord
+    ? { record: logoRecord, url: logoRecord.url }
+    : brand.mark_url
+      ? { record: null, url: brand.mark_url }
+      : null;
   const seal = assets.find((asset) => /seal/i.test(`${asset.asset_type} ${asset.variant ?? ""}`));
   const lineage = buildLineage(markAssets);
-  const callouts = CALLOUTS.map(([fallbackTitle, body], index) => ({
-    title: brand.visual.style_keywords[index] ?? fallbackTitle,
-    body,
+  // Title = the anatomy point the leader line actually points at. Body = this
+  // brand's own style note where it has one, else the generic caption. They were
+  // swapped: the brand's style keyword was used as the TITLE and paired with a
+  // fixed caption about a different concept, so each callout read as two
+  // unrelated sentences ("calm professional chrome; the mascot carries the
+  // rainbow" over "The primary silhouette that must remain recognizable.").
+  const callouts = CALLOUTS.map(([title, fallbackBody], index) => ({
+    title,
+    body: brand.visual.style_keywords[index] ?? fallbackBody,
     side: index < 3 ? "left" : "right",
     top: [96, 230, 374, 110, 248, 380][index],
   }));
@@ -57,7 +73,24 @@ export default function MarkPage() {
             Canonical construction, usage, and lineage from the brand record and catalog.
           </p>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          {/* A whole page about the mark, with no way to take the mark. */}
+          {markFile ? (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={async () => {
+                try {
+                  if (markFile.record) await downloadAsset(markFile.record);
+                  else await downloadFile(markFile.url, fileNameFor(`${slug}-mark`, markFile.url));
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Download failed.");
+                }
+              }}
+            >
+              Download the mark
+            </button>
+          ) : null}
           <Link className="btn btn-ghost" to={`/b/${slug}/studio?context=mark`}>
             Ask why it looks this way
           </Link>

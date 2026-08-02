@@ -19,22 +19,42 @@ import { useNavigate } from "react-router-dom";
 import {
   Sparkles,
   LibraryBig,
-  LayoutTemplate,
   Palette,
   Check,
   Plus,
   BookOpen,
   ClipboardCheck,
+  Download,
   History,
+  Settings,
+  Users,
 } from "lucide-react";
 import { useActiveBrand } from "../brand-context";
 import { spring } from "../lib/motion";
+import { NAV_LABELS, pick } from "../lib/labels";
 import { getRecents, pushRecent, type RecentEntry } from "../lib/recents";
+import { useViewMode } from "../view-mode";
 
+// Every top-level section, not just two of the four. The palette listed only
+// Brands and Library, so Standards, Crew and Settings were unreachable from it
+// even though they sit in the nav. Labels come from the SAME label map the nav
+// renders, so the palette never calls a page something the nav does not.
 const SECTIONS = [
-  { to: "/", label: "Brands", icon: Palette },
+  { to: "/", label: "Portfolio", icon: Palette },
   { to: "/library", label: "Library", icon: LibraryBig },
+  { to: "/standards", label: "Standards", icon: ClipboardCheck },
+  { to: "/crew", label: "Crew", icon: Users },
+  { to: "/settings", label: "Settings", icon: Settings },
 ] as const;
+
+/** Extra words a section should still match on when its label differs by mode. */
+const SECTION_ALIASES: Record<string, string> = {
+  "/": "brands portfolio home",
+  "/library": "library assets vault files download",
+  "/standards": "standards brand rules grade score compliance audit",
+  "/crew": "crew agents staff steward director",
+  "/settings": "settings account workspace preferences sign out",
+};
 
 // Shared row classes, so the Recent rows match the rest exactly.
 const ITEM_CLASS =
@@ -52,7 +72,10 @@ export function CommandPalette() {
   const [recents, setRecents] = useState<RecentEntry[]>([]);
   const navigate = useNavigate();
   const { brands, activeSlug, activeBrand, setActiveSlug } = useActiveBrand();
+  const { mode } = useViewMode();
   const currentBrand = activeSlug ?? brands[0]?.slug ?? "magic-unicorn";
+  const sectionLabel = (to: string, fallback: string) =>
+    NAV_LABELS[to] ? pick(NAV_LABELS[to], mode) : fallback;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -93,9 +116,14 @@ export function CommandPalette() {
     pushRecent({ kind: "action", id: "open-studio", label: "Open Studio" });
     go(`/b/${currentBrand}/studio`);
   }
-  function newFromTemplate() {
-    pushRecent({ kind: "action", id: "new-from-template", label: "New from template" });
-    go(`/b/${currentBrand}/studio?template=1`);
+  // Replaces "New from template", which navigated to `/b/:slug/studio?template=1`
+  // — a parameter the Studio never read and a templates surface that is not
+  // routed, so the action opened a generic Studio and did nothing else. This
+  // one goes somewhere real, and serves the job this console is mostly used for.
+  function brandAssets() {
+    if (!activeSlug) return;
+    pushRecent({ kind: "action", id: "brand-assets", label: "Get this brand's files", to: `/b/${activeSlug}/assets` });
+    go(`/b/${activeSlug}/assets`);
   }
   function goSection(to: string, label: string) {
     pushRecent({ kind: "action", id: `go:${to}`, label, to });
@@ -143,8 +171,8 @@ export function CommandPalette() {
         return openStudio();
       case "review-queue":
         return reviewQueue();
-      case "new-from-template":
-        return newFromTemplate();
+      case "brand-assets":
+        return brandAssets();
       default:
         // A "go:<route>" section nav, or any future plain-navigation action.
         if (entry.to) goSection(entry.to, entry.label);
@@ -238,28 +266,31 @@ export function CommandPalette() {
                     <ClipboardCheck size={15} />
                     Review queue
                   </Command.Item>
-                  <Command.Item
-                    value="action new from template"
-                    onSelect={newFromTemplate}
-                    className={ITEM_CLASS}
-                  >
-                    <LayoutTemplate size={15} />
-                    New from template
-                  </Command.Item>
+                  {activeSlug && (
+                    <Command.Item
+                      value="action download assets files for this brand"
+                      onSelect={brandAssets}
+                      className={ITEM_CLASS}
+                    >
+                      <Download size={15} />
+                      {activeBrand ? `Get ${activeBrand.display_name}'s files` : "Get this brand's files"}
+                    </Command.Item>
+                  )}
                 </Command.Group>
 
                 <Command.Group heading="Go to" className={GROUP_CLASS}>
                   {SECTIONS.map((s) => {
                     const Icon = s.icon;
+                    const label = sectionLabel(s.to, s.label);
                     return (
                       <Command.Item
                         key={s.to}
-                        value={`go ${s.label}`}
-                        onSelect={() => goSection(s.to, s.label)}
+                        value={`go ${label} ${SECTION_ALIASES[s.to] ?? ""}`}
+                        onSelect={() => goSection(s.to, label)}
                         className={ITEM_CLASS}
                       >
                         <Icon size={15} />
-                        {s.label}
+                        {label}
                       </Command.Item>
                     );
                   })}

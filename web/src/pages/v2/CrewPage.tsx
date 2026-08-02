@@ -16,8 +16,10 @@ import { BrandCast } from "./components/BrandCast";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Spinner } from "../../components/Spinner";
-import { assetsFor, relativeTime } from "../../v2/metrics";
+import { fetchMcpManifest, mcpManifestUrl, resourceCount, toolCount } from "../../lib/mcp";
+import { activityDetail, assetsFor, plural, relativeTime } from "../../v2/metrics";
 import type {
+  ActivityEvent,
   AgentGovernance,
   AgentGovernanceUpdate,
   AgentKind,
@@ -83,7 +85,7 @@ function autonomyLabel(level: AutonomyLevel): string {
 }
 
 export default function CrewPage() {
-  const { activeSlug } = useActiveBrand();
+  const { activeSlug, setActiveSlug } = useActiveBrand();
   const brandsQ = useQuery({ queryKey: ["brands"], queryFn: ({ signal }) => listBrands(signal) });
   const agentsQ = useQuery({ queryKey: ["agents"], queryFn: ({ signal }) => listAgents(signal) });
   const assetsQ = useQuery({ queryKey: ["assets", "crew"], queryFn: ({ signal }) => listAssets({}, signal) });
@@ -94,11 +96,7 @@ export default function CrewPage() {
   });
   const mcpQ = useQuery({
     queryKey: ["mcp-manifest"],
-    queryFn: async ({ signal }) => {
-      const res = await fetch("/.well-known/mcps.json", { signal });
-      if (!res.ok) return null;
-      return (await res.json()) as { tools?: unknown[]; resources?: unknown[] };
-    },
+    queryFn: ({ signal }) => fetchMcpManifest(signal),
   });
   const teamsQ = useQuery({
     queryKey: ["agent-teams", "all"],
@@ -146,7 +144,9 @@ export default function CrewPage() {
   const weekCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const weeklyActions = activity.filter((event) => new Date(event.ts).getTime() >= weekCutoff).length;
   const reviewItems = assets.filter((asset) => asset.lifecycle_status === "needs_review").length;
-  const toolCount = mcpQ.data?.tools?.length ?? 0;
+  const tools = toolCount(mcpQ.data);
+  const resources = resourceCount(mcpQ.data);
+  const mcpUrl = mcpManifestUrl(window.location.hostname);
 
   return (
     <div className="rise" style={{ padding: "40px 0 60px" }}>
@@ -176,14 +176,41 @@ export default function CrewPage() {
         recentActivity={dedupedActivity.slice(0, 4)}
       />
 
-      <SectionTitle title="Cast" note="The brand's own agents: avatars, voices, and on-brand identity." />
+      {/* This section is scoped to ONE brand (the last brand you were in, else
+          the first). It used to be titled a bare "Cast" with a body that said
+          "No agents yet for Veteran-Ops" — a brand the visitor never chose and
+          could not change from here. Name the brand in the title, and give a
+          picker so it is a control rather than a surprise. */}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "30px 0 14px", flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0, fontFamily: "var(--c-font-display)", fontSize: 19, fontWeight: 650, letterSpacing: "-0.015em" }}>
+          Cast · {selected.brand.display_name}
+        </h2>
+        <span className="annotation">Agents that belong to this brand: avatars, voices, and on-brand identity.</span>
+        <label style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="microlabel">Brand</span>
+          <select
+            value={selected.brand.slug}
+            onChange={(e) => setActiveSlug(e.target.value)}
+            style={selectStyle}
+          >
+            {teams.map(({ brand }) => (
+              <option key={brand.slug} value={brand.slug}>{brand.display_name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
       <BrandCast slug={selected.brand.slug} brandName={selected.brand.display_name} />
 
       <SectionTitle title="Brand stewards" note="One per brand. Standing orders and posture are editable; spend is metered." />
       <div className="crew-stewards" style={{ display: "grid", gap: 18 }}>
         {teams.map(({ brand, team }) => {
           const brandAssets = assetsFor(assets, brand.slug);
-          const brandActivity = activity.filter((event) => event.brand === brand.slug);
+          // The strip label says "actions/wk", so count a WEEK — this counted
+          // every event for the brand inside the last 80 records, with no time
+          // window at all.
+          const brandActivity = activity.filter(
+            (event) => event.brand === brand.slug && new Date(event.ts).getTime() >= weekCutoff,
+          );
           const approved = brandAssets.filter((asset) => asset.lifecycle_status === "approved").length;
           const approvedPct = brandAssets.length ? Math.round((approved / brandAssets.length) * 100) : null;
           return (
@@ -200,7 +227,14 @@ export default function CrewPage() {
         })}
       </div>
 
-      <SectionTitle title="Specialists" note="Shared skills from /api/agents. Posture and 7-day spend per agent." />
+      <SectionTitle
+        title="Specialists"
+        note={
+          agents.length > 6
+            ? `Shared skills, available to every brand. Showing 6 of ${agents.length}.`
+            : "Shared skills, available to every brand. Posture and 7-day spend per agent."
+        }
+      />
       <div className="crew-specs" style={{ display: "grid", gap: 12 }}>
         {agents.slice(0, 6).map((agent) => {
           const gov = governanceFor("specialist", agent.name);
@@ -223,7 +257,18 @@ export default function CrewPage() {
       <SectionTitle title="Doors" note="Console and MCP/API access use the same gates." />
       <div className="crew-doors" style={{ display: "grid", gap: 18 }}>
         <Door title="Console" chip="you" stats={[["1", "human"], [String(reviewItems), "awaiting sign-off"]]} body="This GUI: approvals and human gates." />
-        <Door title="MCP" chip={`${toolCount || "—"} tools`} glow stats={[[String(toolCount || "—"), "tools"], [String(mcpQ.data?.resources?.length ?? "—"), "resources"]]} body="Agent door: /.well-known/mcps.json." />
+        <Door
+          title="MCP"
+          chip={tools == null ? (mcpQ.isLoading ? "reading…" : "not reachable") : plural(tools, "tool")}
+          glow
+          stats={[
+            [tools == null ? "—" : String(tools), "tools"],
+            [resources == null ? "—" : String(resources), "resources"],
+          ]}
+          body="Agent door. The manifest every agent reads."
+          href={mcpUrl}
+          linkLabel="Open the manifest"
+        />
         <Door title="API" chip="REST" stats={[[String(activity.length), "recent actions"], [String(teams.length), "brands"]]} body="Service door: suite apps reading brand truth." />
       </div>
       <div className="voice-card" style={{ marginTop: 18, padding: "6px 0" }}>
@@ -232,7 +277,7 @@ export default function CrewPage() {
           <div key={event.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 20px", fontFamily: "var(--c-font-mono)", fontSize: 10.5, color: "var(--c-ink-2)", borderTop: "1px solid var(--c-hairline-soft)" }}>
             <span style={{ color: "var(--c-ink)", fontWeight: 600 }}>{event.actor}</span>
             <span className="chip">{event.actor_kind}</span>
-            <span>{event.action}{event.target ? ` · ${event.target}` : ""}</span>
+            <span>{activityDetail(event)}</span>
             <span style={{ marginLeft: "auto", color: "var(--c-ink-3)" }}>{relativeTime(event.ts)}</span>
           </div>
         ))}
@@ -302,7 +347,7 @@ function DirectorCard({
   directorRole: string;
   brandCount: number;
   governance: AgentGovernance;
-  recentActivity: Array<{ id: string; actor: string; action: string; target: string | null; ts: string }>;
+  recentActivity: ActivityEvent[];
 }) {
   const save = useSaveGovernance("director", "iris", directorName);
   const [autonomy, setAutonomy] = useState<AutonomyLevel>(governance.autonomy);
@@ -391,7 +436,7 @@ function DirectorCard({
         <div style={{ display: "grid", gap: 0, marginTop: 8 }}>
           {recentActivity.map((event) => (
             <div key={event.id} style={{ padding: "9px 0", borderBottom: "1px solid var(--c-hairline-soft)", fontSize: 12.5, color: "var(--c-ink-2)", display: "flex", gap: 10, alignItems: "baseline" }}>
-              <span><b style={{ color: "var(--c-ink)" }}>{event.actor}</b> {event.action}{event.target ? ` · ${event.target}` : ""}</span>
+              <span><b style={{ color: "var(--c-ink)" }}>{event.actor}</b> {activityDetail(event)}</span>
               <span style={{ marginLeft: "auto", fontFamily: "var(--c-font-mono)", fontSize: 10, color: "var(--c-ink-3)", whiteSpace: "nowrap" }}>{relativeTime(event.ts)}</span>
             </div>
           ))}
@@ -588,12 +633,17 @@ function Door({
   stats,
   body,
   glow = false,
+  href,
+  linkLabel,
 }: {
   title: string;
   chip: string;
   stats: Array<[string, string]>;
   body: string;
   glow?: boolean;
+  /** When a door is an actual reachable URL, let a human open it. */
+  href?: string;
+  linkLabel?: string;
 }) {
   return (
     <div
@@ -608,13 +658,23 @@ function Door({
         <span className="chip" style={{ marginLeft: "auto" }}>{chip}</span>
       </div>
       <div style={{ fontSize: 11.5, color: "var(--c-ink-3)", marginTop: 3 }}>{body}</div>
-      <div style={{ marginTop: 12, display: "flex", gap: 16 }}>
+      <div style={{ marginTop: 12, display: "flex", gap: 16, alignItems: "flex-end" }}>
         {stats.map(([value, label]) => (
           <div key={label}>
             <b style={{ display: "block", fontFamily: "var(--c-font-mono)", fontSize: 14 }}>{value}</b>
             <span style={{ fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--c-ink-3)" }}>{label}</span>
           </div>
         ))}
+        {href && (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            style={{ marginLeft: "auto", fontSize: 11.5, fontWeight: 600, color: "var(--c-ink)", textDecoration: "none", whiteSpace: "nowrap" }}
+          >
+            {linkLabel ?? "Open"} ↗
+          </a>
+        )}
       </div>
     </div>
   );

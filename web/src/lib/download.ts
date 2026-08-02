@@ -127,13 +127,13 @@ function saveBlob(blob: Blob, filename: string): void {
  * called `brand-logo.png` containing HTML, so we check the content type and
  * raise instead — a wrong file is worse than an honest error.
  */
-async function fetchAsset(record: AssetRecord): Promise<Response> {
-  if (!record.url) {
+async function fetchServed(url: string | null | undefined): Promise<Response> {
+  if (!url) {
     throw new Error("This asset has no served file.");
   }
   let res: Response;
   try {
-    res = await fetch(record.url, { credentials: "same-origin" });
+    res = await fetch(url, { credentials: "same-origin" });
   } catch {
     throw new Error("Could not reach the server. Reload and try again.");
   }
@@ -151,10 +151,42 @@ async function fetchAsset(record: AssetRecord): Promise<Response> {
   return res;
 }
 
+async function fetchAsset(record: AssetRecord): Promise<Response> {
+  return fetchServed(record.url);
+}
+
 /** Download one asset under its human-readable name. Throws on failure. */
 export async function downloadAsset(record: AssetRecord): Promise<void> {
   const res = await fetchAsset(record);
   saveBlob(await res.blob(), downloadNameFor(record));
+}
+
+/**
+ * Download any served file under a caller-chosen name.
+ *
+ * For the images that are NOT catalog records — a brand mark, an agent avatar —
+ * so those surfaces get the same "give me the file" affordance, through the same
+ * expired-session and 404 guards rather than a bare `<a download>` (which would
+ * happily save a login page as a .png).
+ */
+export async function downloadFile(
+  url: string | null | undefined,
+  filename: string,
+): Promise<void> {
+  const res = await fetchServed(url);
+  saveBlob(await res.blob(), filename);
+}
+
+/**
+ * A safe download file name: `<stem>.<ext>`, where the extension is taken from
+ * the served URL when it has a plausible one and defaults to png otherwise.
+ */
+export function fileNameFor(stem: string, url: string | null | undefined): string {
+  const clean = slugSegment(stem) || "file";
+  const path = (url ?? "").split(/[?#]/)[0];
+  const dot = path.lastIndexOf(".");
+  const ext = dot > 0 ? path.slice(dot + 1).toLowerCase() : "";
+  return `${clean}.${/^[a-z0-9]{1,5}$/.test(ext) ? ext : "png"}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -177,11 +177,87 @@ export function brandColors(brand: (Partial<BrandDetail> | BrandSummary) & { vis
   };
 }
 
+/**
+ * Humanize an activity target.
+ *
+ * The API reports a target as the catalog path `<asset_type>/<stored file>`, and
+ * the stored file is a generation timestamp: `og_image/2026-08-01-22-53-57-og_image.png`.
+ * Shown raw (as every activity surface did) that is 45 characters of machine
+ * detail in which the only human-legible token is repeated twice. Rewrite it as
+ * `<asset type, spaced> · <file without its timestamp>`, and leave anything that
+ * is not a catalog path exactly as it came so a non-asset target is never mangled.
+ */
+export function activityTarget(target: string | null | undefined): string {
+  if (!target) return "";
+  const slash = target.indexOf("/");
+  if (slash <= 0) return target;
+  const type = target.slice(0, slash);
+  const file = target.slice(slash + 1);
+  // A catalog asset type is a lowercase snake_case key; anything else (a URL, a
+  // nested path) is left alone.
+  if (!/^[a-z][a-z0-9_]*$/.test(type)) return target;
+  // Strip a leading `YYYY-MM-DD-HH-MM-SS-` generation stamp from the file name.
+  const named = file.replace(/^\d{4}(?:-\d{2}){5}-/, "");
+  return `${type.replace(/_/g, " ")} · ${named}`;
+}
+
+/**
+ * What HAPPENED, without naming the actor.
+ *
+ * Surfaces that already render the actor themselves (the Portfolio ticker, the
+ * Brand HQ activity list) must use this; `displayActivity` below prefixes the
+ * actor and is only for the one surface that shows the line on its own. Using
+ * the actor-prefixed form next to a separately rendered actor is what produced
+ * "iris  iris generated · …" on every activity row in the app.
+ */
+export function activityDetail(event: ActivityEvent): string {
+  const action = event.action || "updated";
+  const target = activityTarget(event.target);
+  return target ? `${action} · ${target}` : action;
+}
+
+/** `activityDetail` with the actor in front, for standalone one-line summaries. */
 export function displayActivity(event: ActivityEvent): string {
   const actor = event.actor || "System";
-  const action = event.action || "updated";
-  const target = event.target ? ` · ${event.target}` : "";
-  return `${actor} ${action}${target}`;
+  return `${actor} ${activityDetail(event)}`;
+}
+
+/**
+ * "1 asset" / "2 assets". English pluralization for the counted nouns these
+ * surfaces show; the brand covers read "1 assets" without it.
+ */
+export function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * A brand's own foreground color at `alpha`, as an rgba() string.
+ *
+ * The brand covers set `--ink` from the brand record but hardcoded their
+ * secondary/tertiary inks to `rgba(255,255,255,·)`. On a brand whose background
+ * is light (Project Ops and Retirement Leads both ship `#fafaf9`) that painted
+ * white text on a white card: the tagline, the "Part of …" chip, the asset
+ * counts and the word "grade" all vanished. Deriving them from the brand's own
+ * ink keeps the same visual hierarchy on dark brands and makes them legible on
+ * light ones. Falls back to white for an unparseable ink so a bad brand record
+ * degrades to the old behavior rather than to `rgba(NaN…)`.
+ */
+export function inkAlpha(ink: string, alpha: number): string {
+  const hex = ink.trim().replace(/^#/, "");
+  const full =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : hex;
+  if (full.length !== 6 || /[^0-9a-fA-F]/.test(full)) {
+    return `rgba(255,255,255,${alpha})`;
+  }
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 export function relativeTime(value: string | null | undefined): string {
@@ -198,4 +274,44 @@ export function relativeTime(value: string | null | undefined): string {
 
 export function complianceScore(rollup: BrandComplianceRollup | undefined): number | null {
   return rollup?.summary.score ?? null;
+}
+
+/**
+ * Flatten a brand list into a depth-first tree walk: every brand appears once,
+ * directly under its parent, carrying its nesting depth.
+ *
+ * Guarantees, because the previous flat "roots then children" pass broke all
+ * three: a child never precedes its parent; a grandchild indents further than a
+ * child; and NOTHING is dropped — a brand whose declared parent is not in the
+ * list (filtered out, or not yet loaded) is emitted as a root rather than
+ * silently disappearing. A parent cycle terminates instead of recursing forever.
+ */
+export function buildArchitecture<T extends { slug: string; parent?: string | null }>(
+  brands: T[],
+): Array<{ brand: T; depth: number }> {
+  const known = new Set(brands.map((brand) => brand.slug));
+  const childrenOf = new Map<string, T[]>();
+  const roots: T[] = [];
+  for (const brand of brands) {
+    const parent = brand.parent;
+    if (parent && parent !== brand.slug && known.has(parent)) {
+      const bucket = childrenOf.get(parent);
+      if (bucket) bucket.push(brand);
+      else childrenOf.set(parent, [brand]);
+    } else {
+      roots.push(brand);
+    }
+  }
+  const out: Array<{ brand: T; depth: number }> = [];
+  const seen = new Set<string>();
+  const walk = (brand: T, depth: number) => {
+    if (seen.has(brand.slug)) return; // cycle guard
+    seen.add(brand.slug);
+    out.push({ brand, depth });
+    for (const child of childrenOf.get(brand.slug) ?? []) walk(child, depth + 1);
+  };
+  for (const root of roots) walk(root, 0);
+  // Anything left unvisited sat in a parent cycle; emit it rather than lose it.
+  for (const brand of brands) if (!seen.has(brand.slug)) walk(brand, 0);
+  return out;
 }

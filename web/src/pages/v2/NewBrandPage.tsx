@@ -171,12 +171,22 @@ export default function NewBrandPage() {
               type="button"
               onClick={() => setMode(id)}
               aria-pressed={selected}
-              className={`voice-card ${selected ? "btn-ink" : ""}`}
+              className="voice-card"
               style={{
                 position: "relative",
                 textAlign: "left",
                 cursor: "pointer",
+                // The selected card set `color: #0a0a0e` and relied on the
+                // `btn-ink` CLASS to supply the light background. `.voice-card`
+                // is declared later in the same cascade layer at equal
+                // specificity, so its `background: rgba(255,255,255,0.025)` won
+                // and the chosen card rendered near-black text on a near-black
+                // card — measured `rgb(10,10,14)` on `rgba(255,255,255,0.024)`,
+                // i.e. the default-selected journey was unreadable. Paint the
+                // background inline so the pairing cannot come apart again.
                 color: selected ? "#0a0a0e" : "var(--c-ink)",
+                background: selected ? "var(--c-ink)" : undefined,
+                borderColor: selected ? "var(--c-ink)" : undefined,
                 ...(invite
                   ? {
                       borderColor: "rgb(var(--accent) / 0.5)",

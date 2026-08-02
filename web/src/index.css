@@ -981,6 +981,26 @@ body.no-ambient .aura::after { display: none; }
 }
 .vm-toggle-label { position: relative; }
 
+/* On a brand page the topbar repaints in the BRAND's palette, so the toggle has
+   to follow it. Without this it kept the chrome inks (--c-ink* is near-white) and
+   went white-on-white on any brand with a light background: on Project Ops
+   (#fafaf9) "Simple" measured #f2f1ee on #fafaf9 and "Advanced" was 38% white —
+   invisible. Every other control in the topbar (.v2-nav a, .chip, .kbd, .btn-*)
+   already had a body[data-env="brand"] override; the toggle was the one omission. */
+body[data-env="brand"] .vm-toggle {
+  border-color: var(--b-hairline);
+  background: color-mix(in srgb, var(--b-ink) 5%, transparent);
+}
+body[data-env="brand"] .vm-toggle-opt { color: var(--b-ink-3); }
+body[data-env="brand"] .vm-toggle-opt:hover { color: var(--b-ink-2); }
+body[data-env="brand"] .vm-toggle-opt.on { color: var(--b-ink); }
+body[data-env="brand"] .vm-toggle-pill {
+  background: color-mix(in srgb, var(--b-ink) 10%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--b-ink) 14%, transparent),
+    0 1px 2px color-mix(in srgb, var(--b-bg) 55%, transparent);
+}
+
 @media (max-width: 640px) {
   /* On phones the topbar is tight; the toggle hides (mode still settable in
      Settings) so the nav keeps room. */

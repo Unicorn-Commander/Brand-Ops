@@ -22,6 +22,7 @@ import {
   type TurnSpeaker,
 } from "./lib/transcript";
 import { planFromRequest, type AgentPlan } from "./lib/agent";
+import { readStudioDeepLink, strippedSearch } from "./lib/deeplink";
 import {
   inferPack,
   readPlannedItems,
@@ -635,11 +636,14 @@ export default function StudioPage() {
     ],
   );
 
-  // Front-door handoff: when the Studio is opened with a ?prompt=... (the
-  // first-run front door's natural-language entry and starter chips route here
-  // with the operator's words), send it once as the opening turn, then strip it
-  // from the URL so a refresh does not resend. A ref keeps the send pointed at
-  // the latest handleSend; a short delay lets the conversation mount first.
+  // Deep-link handoff: the Studio is opened from all over the app with an
+  // intent in the query string — the front door's own words (?prompt=), a
+  // brand-record topic to discuss (?context=), an asset type to make (?asset=),
+  // or a pack to run (?pack=). Every one of them is mapped to a single opening
+  // turn (see lib/deeplink), the named asset type preselects the control, and
+  // the consumed parameters are stripped so a refresh does not resend. A ref
+  // keeps the send pointed at the latest handleSend; a short delay lets the
+  // conversation mount first.
   const handleSendRef = useRef(handleSend);
   useEffect(() => {
     handleSendRef.current = handleSend;
@@ -647,18 +651,20 @@ export default function StudioPage() {
   const promptSeeded = useRef(false);
   useEffect(() => {
     if (promptSeeded.current) return;
-    const params = new URLSearchParams(window.location.search);
-    const seed = params.get("prompt");
-    if (!seed || !seed.trim()) return;
+    const link = readStudioDeepLink(window.location.search);
+    if (!link.prompt && !link.asset) return;
     promptSeeded.current = true;
-    params.delete("prompt");
-    const qs = params.toString();
+    if (link.asset) {
+      setControls((c) => ({ ...c, asset: link.asset }));
+    }
     window.history.replaceState(
       {},
       "",
-      window.location.pathname + (qs ? `?${qs}` : ""),
+      window.location.pathname + strippedSearch(window.location.search),
     );
-    const id = window.setTimeout(() => handleSendRef.current(seed.trim()), 80);
+    if (!link.prompt) return;
+    const seed = link.prompt;
+    const id = window.setTimeout(() => handleSendRef.current(seed), 80);
     return () => window.clearTimeout(id);
   }, []);
 

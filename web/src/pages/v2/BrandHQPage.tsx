@@ -10,16 +10,19 @@ import {
   listAssetTypes,
   listBrands,
 } from "../../api/client";
+import { AssetDownloadButton, FileDownloadButton } from "../../components/AssetDownloadButton";
 import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Skeleton } from "../../components/Skeleton";
+import { fileNameFor } from "../../lib/download";
 import { fontNote } from "../../v2/EnvProvider";
 import {
+  activityDetail,
   assetsFor,
   brandGrade,
   coverageFor,
-  displayActivity,
   flaggedCount,
+  plural,
   relativeTime,
 } from "../../v2/metrics";
 
@@ -152,6 +155,15 @@ export default function BrandHQPage() {
   const note = fontNote(brand);
   const byType = new Map(assets.map((asset) => [asset.asset_type, asset]));
   const required = types.length ? types.map((type) => type.key) : Object.keys(REQUIRED_LABELS);
+  // Label from the LIVE asset-type registry first. The hardcoded map here only
+  // knew six keys, so the seventh type in the kit rendered as the raw catalog
+  // key ("launcher_tile") next to six properly cased labels.
+  const typeLabelBy = new Map(types.map((type) => [type.key, type.label]));
+  const typeLabel = (key: string) =>
+    typeLabelBy.get(key) ||
+    REQUIRED_LABELS[key] ||
+    key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  const markAsset = assets.find((asset) => asset.asset_type === "logo") ?? null;
   const activity = activityQ.data ?? [];
   const team = teamQ.data;
   const parentName = brand.parent ? brandsQ.data?.find((item) => item.slug === brand.parent)?.display_name ?? brand.parent : null;
@@ -248,8 +260,27 @@ export default function BrandHQPage() {
               />
             ))}
             <MarkImg brand={brand} />
-            <span style={{ position: "absolute", right: -10, bottom: 12, fontFamily: "var(--c-font-mono)", fontSize: 10, color: "var(--b-ink-3)", background: "rgba(0,0,0,0.38)", border: "1px solid var(--b-hairline)", borderRadius: 8, padding: "5px 7px" }}>
-              {coverage.present}/{coverage.total} kit · {flagged} flags
+            {/* Below the mark, centered, on its own line. It used to be pinned
+                at right:-10 / bottom:12, which laid it half over the artwork
+                (unreadable) and pushed its right edge ~10px past the hero, and
+                it said "flags" without saying flagged what. */}
+            <span
+              style={{
+                position: "absolute",
+                left: "50%",
+                transform: "translateX(-50%)",
+                bottom: -14,
+                whiteSpace: "nowrap",
+                fontFamily: "var(--c-font-mono)",
+                fontSize: 10,
+                color: "var(--b-ink-2)",
+                background: "color-mix(in srgb, var(--b-bg) 82%, transparent)",
+                border: "1px solid var(--b-hairline)",
+                borderRadius: 8,
+                padding: "5px 9px",
+              }}
+            >
+              {coverage.present}/{coverage.total} kit · {plural(flagged, "flagged asset")}
             </span>
           </div>
           <div className="gradeboard">
@@ -338,7 +369,20 @@ export default function BrandHQPage() {
         </div>
         <div className="mark-row rise d1">
           <div className="mark-cell">
-            <div className="mat"><MarkImg brand={brand} /></div>
+            <div className="mat" style={{ position: "relative" }}>
+              <MarkImg brand={brand} />
+              {/* The canonical mark is the single most-asked-for file on this
+                  page and had no way out of it. */}
+              {markAsset ? (
+                <AssetDownloadButton asset={markAsset} />
+              ) : (
+                <FileDownloadButton
+                  url={brand.mark_url}
+                  filename={fileNameFor(`${slug}-mark`, brand.mark_url)}
+                  label={`Download the ${brand.display_name} mark`}
+                />
+              )}
+            </div>
             <span className="microlabel">On light</span>
           </div>
           <div className="mark-cell">
@@ -364,8 +408,13 @@ export default function BrandHQPage() {
             const asset = byType.get(key);
             return (
               <div key={key} className={`kit-cell ${asset ? "" : "missing"}`}>
-                <div className="thumb">{asset?.url ? <img src={asset.url} alt="" /> : "＋"}</div>
-                <span style={{ fontSize: 11.5, fontWeight: 600 }}>{REQUIRED_LABELS[key] || key}</span>
+                <div className="thumb" style={{ position: "relative" }}>
+                  {asset?.url ? <img src={asset.url} alt="" /> : "＋"}
+                  {/* Retrieval, not just display: the Library puts a download on
+                      every card, and the kit shows the SAME files. */}
+                  {asset && <AssetDownloadButton asset={asset} />}
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 600 }}>{typeLabel(key)}</span>
                 {asset ? (
                   <span style={{ fontSize: 10.5, color: "var(--b-ink-3)" }}>{asset.lifecycle_status || "catalogued"}</span>
                 ) : (
@@ -438,7 +487,7 @@ export default function BrandHQPage() {
                   {event.actor_kind}
                 </span>
                 <span style={{ fontWeight: 600 }}>{event.actor}</span>
-                <span style={{ color: "var(--b-ink-2)" }}>{displayActivity(event)}</span>
+                <span style={{ color: "var(--b-ink-2)" }}>{activityDetail(event)}</span>
                 <span style={{ marginLeft: "auto", fontFamily: "var(--c-font-mono)", fontSize: 10.5, color: "var(--b-ink-3)" }}>
                   {relativeTime(event.ts)}
                 </span>
