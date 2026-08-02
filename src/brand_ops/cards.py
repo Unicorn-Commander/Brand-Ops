@@ -48,6 +48,32 @@ def supported(asset_type: str) -> bool:
     return asset_type in _SIZES
 
 
+def compositable(mark_path: Path | str | None) -> bool:
+    """True when Pillow can actually decode ``mark_path`` onto a card.
+
+    Compositing is raster-only: Pillow cannot open an SVG, so a vector mark makes
+    ``_paste_mark`` bail and the card renders markless. That failure used to be
+    invisible -- the caller still recorded ``composited with mark unicorn.svg``
+    and stamped the mark path into the sidecar, so a brand whose declared mark
+    was an SVG shipped blank cards that claimed to carry the logo. Callers use
+    this to decide BEFORE they claim anything, so a mark that cannot be drawn is
+    never reported as drawn.
+
+    Cheap by design: opens the header only (no ``load()``), which is enough to
+    prove the format is decodable.
+    """
+    if not mark_path:
+        return False
+    path = Path(mark_path)
+    if not path.is_file():
+        return False
+    try:
+        with Image.open(path):
+            return True
+    except Exception:  # noqa: BLE001 - any unopenable mark is simply not compositable
+        return False
+
+
 def _hex_to_rgb(value: str | None, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
     if not value:
         return fallback

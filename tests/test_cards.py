@@ -113,3 +113,37 @@ def test_launcher_tile_is_a_registered_asset_type():
     spec = get_asset_spec("launcher_tile")
     assert spec.size == (512, 512)
     assert spec.transparent is False
+
+
+def test_compositable_rejects_vector_and_missing():
+    # Compositing is raster-only. An SVG opens fine in a browser but Pillow cannot
+    # decode it, so it must never be reported as a usable mark.
+    kits = Path("brand-kits")
+    assert cards.compositable(kits / "magic-unicorn/imported/logo/unicorn.svg") is False
+    assert cards.compositable(Path("/no/such/mark.png")) is False
+    assert cards.compositable(None) is False
+    assert cards.compositable(kits / "brand-ops/imported/logo/brand-ops-mark.png") is True
+
+
+def test_declared_svg_mark_falls_through_to_a_raster():
+    # magic-unicorn declares unicorn.svg as its mark. Before this guard the
+    # resolver handed that path straight to the compositor, which silently drew
+    # nothing while the caller still recorded "composited with mark unicorn.svg"
+    # -- a blank card that claimed to carry the logo. The resolver must now skip
+    # the undrawable mark and fall through to a raster logo.
+    kits = Path("brand-kits")
+    brand = load_brand("magic-unicorn", kits)
+    assert brand.brand.mark.file.endswith(".svg"), "fixture: the declared mark is vector"
+
+    resolved = engine._resolve_mark("magic-unicorn", brand, None, kits)
+
+    assert resolved is not None
+    assert resolved.suffix == ".png"
+    assert cards.compositable(resolved)
+
+
+def test_render_card_never_reports_an_undrawable_mark():
+    # The end-to-end property: whatever render_card hands back as the mark is a
+    # mark the card actually carries.
+    _png, mark_path = engine.render_card("magic-unicorn", "og_image", message="x")
+    assert cards.compositable(mark_path)

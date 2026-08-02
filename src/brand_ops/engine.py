@@ -195,7 +195,16 @@ def generate_asset(
 def _resolve_mark(brand_slug, brand, mark, kits_dir):
     """Find the brand mark to composite: an explicit one, the brand's declared
     mark, else the most recent generated (then imported) logo. None if there is
-    no logo yet (the card still renders, just without a mark)."""
+    no logo yet (the card still renders, just without a mark).
+
+    Every candidate must be one Pillow can actually decode. Compositing is
+    raster-only, and an SVG mark (magic-unicorn declares ``unicorn.svg``) made
+    ``cards._paste_mark`` bail silently while the caller still wrote
+    ``composited with mark unicorn.svg`` into the notes and the sidecar -- a card
+    that shipped blank and claimed to carry the logo. Screening here means an
+    undrawable mark falls through to the raster fallback instead, and only a
+    genuinely markless brand returns None.
+    """
     base = (kits_dir or current_kits_dir()) / brand_slug
     if mark:
         # ``mark`` is caller-supplied. Resolve it ONLY as a filename under this
@@ -205,19 +214,19 @@ def _resolve_mark(brand_slug, brand, mark, kits_dir):
         # any absolute path, and base/sub/mark allowed ".." to escape.)
         for sub in ("generated", "imported"):
             cand = safe_subpath(base, sub, "logo", mark)
-            if cand is not None and cand.is_file():
+            if cards.compositable(cand):
                 return cand
     declared = getattr(brand.brand, "mark", None)
     if declared and getattr(declared, "file", None):
         kind = declared.kind or "imported"
         atype = declared.asset_type or "logo"
         cand = safe_subpath(base, kind, atype, declared.file)
-        if cand is not None and cand.is_file():
+        if cards.compositable(cand):
             return cand
     for sub in ("generated/logo", "imported/logo"):
         directory = base / sub
         if directory.is_dir():
-            pngs = sorted(directory.glob("*.png"))
+            pngs = [p for p in sorted(directory.glob("*.png")) if cards.compositable(p)]
             if pngs:
                 return pngs[-1]
     return None
