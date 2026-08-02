@@ -854,6 +854,12 @@
     .hero-mark-deco { display: none; }
     .hero-mark { max-width: 100%; }
     .hero-side { min-width: 0; }
+    /* A 124px "Aa" specimen renders ~587px wide and, with the alphabet line
+       beside it, made the Typography card 649px inside a 350px column — the
+       remaining cause of Brand HQ scrolling sideways on a phone. */
+    .specimen { min-width: 0; padding: 20px 18px; }
+    .specimen .ag { font-size: min(124px, 22vw); }
+    .specimen > div { min-width: 0; max-width: 100%; overflow: hidden; }
     /* The brand name in the topbar was clipped mid-word (114px of text in a
        56px box); truncate it honestly instead. */
     .v2-brand-id { min-width: 0; }
