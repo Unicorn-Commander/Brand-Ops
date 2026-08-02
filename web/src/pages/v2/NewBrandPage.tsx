@@ -366,10 +366,13 @@ function StageCard({
           }}
         />
       )}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontFamily: "var(--c-font-mono)", fontSize: 10, color: stage.hue, border: `1px solid ${stage.hue}66`, borderRadius: 6, padding: "2px 6px" }}>{stage.no}</span>
-        <b style={{ fontFamily: "var(--c-font-display)", fontSize: 14.5 }}>{stage.title}</b>
-        <span style={{ marginLeft: "auto", fontFamily: "var(--c-font-mono)", fontSize: 9.5, textTransform: "uppercase", color: done ? "var(--c-go)" : active ? "#b9a7ff" : "var(--c-ink-3)" }}>
+      {/* min-width:0 on the title, flex:none on the two chips: without it the
+          title could not shrink and pushed the status chip 33px past the card
+          (and past the viewport) at phone width. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <span style={{ flex: "none", fontFamily: "var(--c-font-mono)", fontSize: 10, color: stage.hue, border: `1px solid ${stage.hue}66`, borderRadius: 6, padding: "2px 6px" }}>{stage.no}</span>
+        <b style={{ fontFamily: "var(--c-font-display)", fontSize: 14.5, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stage.title}</b>
+        <span style={{ marginLeft: "auto", flex: "none", fontFamily: "var(--c-font-mono)", fontSize: 9.5, textTransform: "uppercase", color: done ? "var(--c-go)" : active ? "#b9a7ff" : "var(--c-ink-3)" }}>
           {done ? "done" : active ? "active" : waiting ? "queued" : "ready"}
         </span>
       </div>
