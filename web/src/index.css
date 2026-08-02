@@ -699,9 +699,10 @@
        clipped it; it must never be the thing that gives. */
     .v2-wordmark { flex: none; }
     .v2-wordmark b { white-space: nowrap; }
-    .brand-shelf, .hq-hero, .type-grid, .mark-row, .voice-grid, .team { grid-template-columns: 1fr; }
-    .kit { grid-template-columns: repeat(2, 1fr); }
-    .paint-wall { grid-template-columns: 1fr; }
+    .brand-shelf, .hq-hero, .type-grid, .mark-row, .voice-grid, .team { grid-template-columns: minmax(0, 1fr); }
+    .brand-shelf > *, .hq-hero > *, .type-grid > *, .mark-row > *, .voice-grid > *, .team > * { min-width: 0; }
+    .kit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .paint-wall { grid-template-columns: minmax(0, 1fr); }
     .statline { display: none; }
   }
   body[data-env="brand"] .spec-note {
@@ -807,7 +808,12 @@
     .crew-specs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .mk-row3 { grid-template-columns: 1fr; }
     .mk-row4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .nb-grid, .report-grid, .crew-iris, .duty-grid, .nb-direction { grid-template-columns: 1fr; }
+    /* minmax(0, 1fr), never a bare 1fr: a `1fr` track takes an AUTOMATIC MINIMUM
+       of min-content, so it refuses to shrink below its widest child. That is
+       what held the New brand page's single column at 678px inside a 350px
+       viewport — the column could not shrink, so the page scrolled sideways. */
+    .nb-grid, .report-grid, .crew-iris, .duty-grid, .nb-direction { grid-template-columns: minmax(0, 1fr); }
+    .nb-grid > *, .report-grid > *, .crew-iris > *, .duty-grid > *, .nb-direction > * { min-width: 0; }
     .nb-pipeline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .crew-iris > div:first-child { border-right: 0 !important; border-bottom: 1px solid var(--c-hairline-soft); }
   }
@@ -832,7 +838,8 @@
     .v2-topbar-right .btn { white-space: nowrap; font-size: 12px; padding: 7px 11px; }
     .omnibar { flex-wrap: wrap; }
     .omnibar .hint { display: none; }
-    .nb-modes, .nb-pipeline, .crew-stewards, .crew-doors, .crew-rules { grid-template-columns: 1fr; }
+    .nb-modes, .nb-pipeline, .crew-stewards, .crew-doors, .crew-rules { grid-template-columns: minmax(0, 1fr); }
+    .nb-modes > *, .nb-pipeline > *, .crew-stewards > *, .crew-doors > *, .crew-rules > * { min-width: 0; }
     .crew-specs, .kit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     /* serpentine connectors assume a 2-D grid; on a single column the flow
        is simply top-to-bottom, so the arrows go away. */
