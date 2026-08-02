@@ -266,32 +266,15 @@ export default function BrandHQPage() {
               ))}
             </span>
             <MarkImg brand={brand} />
-            {/* Below the mark, centered, on its own line. It used to be pinned
-                at right:-10 / bottom:12, which laid it half over the artwork
-                (unreadable) and pushed its right edge ~10px past the hero, and
-                it said "flags" without saying flagged what. */}
-            <span
-              style={{
-                position: "absolute",
-                left: "50%",
-                transform: "translateX(-50%)",
-                // Fully BELOW the artwork. `bottom: -14` still overlapped the
-                // 300px mark tile by 13px (measured), which is what made the
-                // caption unreadable in the first place.
-                top: "calc(100% + 10px)",
-                whiteSpace: "nowrap",
-                fontFamily: "var(--c-font-mono)",
-                fontSize: 10,
-                color: "var(--b-ink-2)",
-                background: "color-mix(in srgb, var(--b-bg) 82%, transparent)",
-                border: "1px solid var(--b-hairline)",
-                borderRadius: 8,
-                padding: "5px 9px",
-              }}
-            >
-              {coverage.present}/{coverage.total} kit · {plural(flagged, "flagged asset")}
-            </span>
           </div>
+          {/* A normal element in the hero column, not absolutely positioned.
+              Pinned at right:-10 / bottom:12 it lay half over the artwork and
+              10px past the hero; moved below the mark it then overlapped the
+              grade board. In the flow it can do neither, and it says what the
+              flags are. */}
+          <span className="chip" style={{ fontFamily: "var(--c-font-mono)", fontSize: 10 }}>
+            {coverage.present}/{coverage.total} kit · {plural(flagged, "flagged asset")}
+          </span>
           <div className="gradeboard">
             <div>
               <div className={`big ${grade.className}`}>{grade.letter}</div>
