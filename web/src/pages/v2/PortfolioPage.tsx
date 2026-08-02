@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { getAgentTeam, getBrand, getBrandCompliance, listActivity, listAgents, listAssets, listAssetTypes, listBrands } from "../../api/client";
 import type { AssetRecord, AssetType, BrandComplianceRollup, BrandDetail, BrandSummary } from "../../lib/types";
+import { EmptyState } from "../../components/EmptyState";
 import { MarkImg } from "../../components/MarkImg";
 import { Skeleton } from "../../components/Skeleton";
 import { useActiveBrand } from "../../brand-context";
@@ -200,6 +201,24 @@ export default function PortfolioPage() {
   // none, hand the newcomer a goal-first start instead of "No brands, standing
   // by". Placed after every hook above has run (the downstream queries over an
   // empty brand list are no-ops) so the rules of hooks hold as the list fills.
+  //
+  // An ERROR is not an empty workspace. Without the isError guard a failed
+  // /api/brands leaves `brands` at [] with isLoading false, so the console told
+  // an existing 29-brand customer "Let's set up your brand." — observed live
+  // during a backend restart. A read that did not succeed says so instead.
+  if (brandsQ.isError) {
+    return (
+      <EmptyState
+        title="Could not load your brands"
+        description="The brand list did not come back from the API. This is a read failure, not an empty workspace — nothing has been changed. Reload to try again."
+        action={
+          <button className="btn btn-ink" type="button" onClick={() => brandsQ.refetch()}>
+            Try again
+          </button>
+        }
+      />
+    );
+  }
   if (!brandsQ.isLoading && brands.length === 0) {
     return <FrontDoor />;
   }
@@ -328,7 +347,7 @@ export default function PortfolioPage() {
       </div>
 
       <section className="rise d3 duty-grid" style={{ display: "grid", gap: 18, marginTop: 20 }}>
-        <div className="voice-card" style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 18px" }}>
+        <div className="voice-card duty-card" style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 18px" }}>
           <div style={{ display: "flex", alignItems: "center" }}>
             <span className="orb" style={{ width: 32, height: 32, fontSize: 13, outline: "2.5px solid var(--c-surface)" }}>I</span>
             {detailedBrands.slice(0, 6).map((brand) => (
@@ -382,6 +401,7 @@ export default function PortfolioPage() {
           </Link>
         </div>
         <div
+          className="duty-card"
           style={{
             border: "1px solid rgba(232,181,74,0.35)",
             borderRadius: "var(--radius)",

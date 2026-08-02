@@ -694,7 +694,11 @@
   .act-row:last-child { border-bottom: 0; }
   @media (max-width: 900px) {
     .v2-topbar-inner, .v2-wrap { padding-left: 18px; padding-right: 18px; }
-    .v2-nav { overflow-x: auto; }
+    .v2-nav { min-width: 0; overflow-x: auto; }
+    /* At 768 the topbar squeezed the wordmark to 61px against 85px of text and
+       clipped it; it must never be the thing that gives. */
+    .v2-wordmark { flex: none; }
+    .v2-wordmark b { white-space: nowrap; }
     .brand-shelf, .hq-hero, .type-grid, .mark-row, .voice-grid, .team { grid-template-columns: 1fr; }
     .kit { grid-template-columns: repeat(2, 1fr); }
     .paint-wall { grid-template-columns: 1fr; }
@@ -806,8 +810,16 @@
   @media (max-width: 640px) {
     .workspace-chip, .kbd { display: none; }
     .v2-topbar-inner { gap: 10px; flex-wrap: nowrap; }
-    .wordmark { flex: none; }
-    .wordmark b { white-space: nowrap; }
+    /* The class is `v2-wordmark`; these two rules named `.wordmark` and matched
+       nothing, so the wordmark stayed shrinkable and its text clipped. */
+    .v2-wordmark { flex: none; }
+    .v2-wordmark b { white-space: nowrap; }
+    /* The "On duty" and "Your sign-off" cards are flex rows whose contents
+       (avatar stack + line of text + a nowrap action) could not shrink below
+       423px, which pushed the whole DOCUMENT to 441px on a 390px phone and made
+       the page scroll sideways. Let them wrap instead. */
+    .duty-card { flex-wrap: wrap; row-gap: 10px; }
+    .duty-card > * { min-width: 0; }
     .v2-nav { min-width: 0; flex: 1; overflow-x: auto; scrollbar-width: none; }
     .v2-nav::-webkit-scrollbar { display: none; }
     .v2-nav a { padding: 7px 9px; font-size: 13px; white-space: nowrap; }

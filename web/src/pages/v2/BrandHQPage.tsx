@@ -269,7 +269,10 @@ export default function BrandHQPage() {
                 position: "absolute",
                 left: "50%",
                 transform: "translateX(-50%)",
-                bottom: -14,
+                // Fully BELOW the artwork. `bottom: -14` still overlapped the
+                // 300px mark tile by 13px (measured), which is what made the
+                // caption unreadable in the first place.
+                top: "calc(100% + 10px)",
                 whiteSpace: "nowrap",
                 fontFamily: "var(--c-font-mono)",
                 fontSize: 10,
