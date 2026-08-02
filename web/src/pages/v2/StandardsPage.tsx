@@ -128,7 +128,7 @@ export default function StandardsPage() {
           background: "rgba(255,255,255,0.02)",
         }}
       >
-        <div className="board-head" style={{ display: "grid", gap: 18, padding: "12px 22px", color: "var(--b-ink-3)", fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase" }}>
+        <div className="board-head" style={{ gap: 18, padding: "12px 22px", color: "var(--b-ink-3)", fontSize: 10, letterSpacing: "0.13em", textTransform: "uppercase" }}>
           <span>Brand</span>
           <span>Grade</span>
           <span>Dimensions</span>
@@ -140,7 +140,6 @@ export default function StandardsPage() {
             key={row.slug}
             className="board-row"
             style={{
-              display: "grid",
               gap: 18,
               alignItems: "center",
               padding: "14px 22px",

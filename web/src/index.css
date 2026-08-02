@@ -793,7 +793,12 @@
   .crew-doors { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .crew-rules { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .duty-grid { grid-template-columns: 1.2fr 1fr; }
-  .board-head, .board-row { grid-template-columns: 240px 70px 1fr 110px 100px; }
+  /* `display` belongs here, not on the elements: an inline style beats a media
+     query, and the inline `display: grid` on .board-head made the
+     `@media (max-width: 640px) { .board-head { display: none } }` rule dead, so
+     on a phone the 5-column header stayed 691px wide inside a 348px clip and
+     its last two labels were chopped off above rows that no longer matched it. */
+  .board-head, .board-row { display: grid; grid-template-columns: 240px 70px 1fr 110px 100px; }
   .report-grid { grid-template-columns: 330px 1fr; }
   .dim-row { grid-template-columns: 150px 1fr 44px; }
 
@@ -843,6 +848,16 @@
        horizontal scroll on small screens */
     .aura::before { width: 100%; }
     .hq-hero .hero-mark img, .hero-mark img { max-width: 78vw; height: auto; }
+    /* The mark's decorative ring and tick marks sit outside its box and pushed
+       the document to 667px against a 386px viewport. Measured, then removed
+       here — they are ornament, not information. */
+    .hero-mark-deco { display: none; }
+    .hero-mark { max-width: 100%; }
+    .hero-side { min-width: 0; }
+    /* The brand name in the topbar was clipped mid-word (114px of text in a
+       56px box); truncate it honestly instead. */
+    .v2-brand-id { min-width: 0; }
+    .v2-brand-id b { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
     .tree .cov { display: none; }
     .paint-wall { height: auto; }
     .paint-wall > .paint-field { min-height: 86px; }

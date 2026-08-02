@@ -242,23 +242,29 @@ export default function BrandHQPage() {
         </div>
         <div className="hero-side rise d2">
           <div className="hero-mark aura" style={{ position: "relative" }}>
-            <span style={{ position: "absolute", inset: -18, border: "1px solid color-mix(in srgb, var(--b-accent) 35%, transparent)", borderRadius: 999, boxShadow: "0 0 54px color-mix(in srgb, var(--b-accent) 20%, transparent)" }} />
-            {[0, 1, 2, 3, 4, 5, 6, 7].map((tick) => (
-              <span
-                key={tick}
-                style={{
-                  position: "absolute",
-                  left: "50%",
-                  top: "50%",
-                  width: 2,
-                  height: 12,
-                  background: "var(--b-accent)",
-                  opacity: 0.45,
-                  transform: `rotate(${tick * 45}deg) translateY(-146px)`,
-                  transformOrigin: "0 146px",
-                }}
-              />
-            ))}
+            {/* Purely decorative: an accent ring inset -18px and eight ticks on a
+                292px radius. They are absolutely positioned OUTSIDE the 300px
+                mark box, so on a phone they dragged the document to 667px
+                against a 386px viewport. Grouped and hidden at phone width. */}
+            <span className="hero-mark-deco" aria-hidden="true">
+              <span style={{ position: "absolute", inset: -18, border: "1px solid color-mix(in srgb, var(--b-accent) 35%, transparent)", borderRadius: 999, boxShadow: "0 0 54px color-mix(in srgb, var(--b-accent) 20%, transparent)" }} />
+              {[0, 1, 2, 3, 4, 5, 6, 7].map((tick) => (
+                <span
+                  key={tick}
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    top: "50%",
+                    width: 2,
+                    height: 12,
+                    background: "var(--b-accent)",
+                    opacity: 0.45,
+                    transform: `rotate(${tick * 45}deg) translateY(-146px)`,
+                    transformOrigin: "0 146px",
+                  }}
+                />
+              ))}
+            </span>
             <MarkImg brand={brand} />
             {/* Below the mark, centered, on its own line. It used to be pinned
                 at right:-10 / bottom:12, which laid it half over the artwork
