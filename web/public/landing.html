@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Brand-Ops | Every brand, under command</title>
+  <meta name="description" content="Brand-Ops holds each brand as machine-readable truth, then you or an agent generate on-brand assets against that truth and check any asset for compliance. Multi-tenant, MCP and agent operable." />
+  <meta name="theme-color" content="#07070b" />
+  <link rel="canonical" href="https://brand-ops.unicorncommander.ai/" />
+
+  <!-- Open Graph / social preview. Replace the absolute origin per deploy host. -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Brand-Ops" />
+  <meta property="og:title" content="Brand-Ops | Every brand, under command" />
+  <meta property="og:description" content="Brands live as machine-readable truth. You or an agent generate on brand and grade for compliance. Multi-tenant, MCP and agent operable." />
+  <meta property="og:url" content="https://brand-ops.unicorncommander.ai/" />
+  <meta property="og:image" content="https://brand-ops.unicorncommander.ai/landing-assets/launcher-tile.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Brand-Ops | Every brand, under command" />
+  <meta name="twitter:description" content="Brands live as machine-readable truth. You or an agent generate on brand and grade for compliance." />
+
+  <script>
+    (function () {
+      var query = new URLSearchParams(window.location.search);
+      var fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      var callback = fragment.has("code") && fragment.has("state") ? fragment
+        : query.has("code") && query.has("state") ? query : null;
+      if (callback) {
+        window.location.replace("/oauth2/callback?" + callback.toString());
+        return;
+      }
+
+      var seen = query.has("app");
+      try {
+        for (var i = 0; i < window.localStorage.length && !seen; i += 1) {
+          var key = window.localStorage.key(i) || "";
+          seen = key === "brandops.workspace" || key.indexOf("brand-ops.") === 0;
+        }
+        if (query.has("app")) window.localStorage.setItem("brand-ops.landing.seen", "1");
+      } catch (_) {}
+      if (seen) window.location.replace("/brands");
+    })();
+  </script>
+
+  <style>
+    /* ----- Brand-Ops palette, read straight from brand-kits/brand-ops/brand.yaml ----- */
+    :root {
+      --bg: #07070b;          /* obsidian background */
+      --fg: #f2f1ee;          /* foreground */
+      --primary: #9b8cff;     /* iris violet */
+      --accent: #4cc9f0;      /* prism cyan */
+      --muted: #26262f;       /* muted surface */
+      --surface: #0e0e15;     /* card surface, derived between bg and muted */
+      --surface-2: #14141d;
+      --line: rgba(155, 140, 255, 0.14);
+      --line-soft: rgba(242, 241, 238, 0.08);
+      --text-dim: #a7a4b8;
+      --text-faint: #6f6c80;
+      --radius: 16px;
+      --maxw: 1140px;
+      /* No CDN: a tasteful sans stack that reads like Instrument Sans, JetBrains Mono fallback for code */
+      --font-sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-sans);
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      /* The prism signature: one quiet iridescent diffraction wash over obsidian */
+      background-image:
+        radial-gradient(1100px 520px at 78% -8%, rgba(155, 140, 255, 0.16), transparent 60%),
+        radial-gradient(900px 480px at 8% 4%, rgba(76, 201, 240, 0.10), transparent 58%);
+      background-attachment: fixed;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    img { max-width: 100%; display: block; }
+
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+    /* ----- prism hairline, the brand signature reused as a divider ----- */
+    .prism-line {
+      height: 2px;
+      border: 0;
+      margin: 0;
+      background: linear-gradient(90deg, transparent, var(--primary) 22%, var(--accent) 55%, #ff86c8 78%, transparent);
+      opacity: 0.55;
+    }
+
+    /* ----- top bar ----- */
+    header.site {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(10px);
+      background: rgba(7, 7, 11, 0.72);
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      font-weight: 650;
+      letter-spacing: -0.01em;
+    }
+    .brand .mark {
+      width: 26px;
+      height: 26px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      box-shadow: 0 0 0 1px var(--line), 0 6px 18px rgba(76, 201, 240, 0.18);
+      flex: none;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      font-size: 14px;
+      color: var(--text-dim);
+    }
+    .nav-links a:hover { color: var(--fg); }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 10px 18px;
+      border-radius: 11px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease;
+      white-space: nowrap;
+    }
+    .btn-primary {
+      color: #0a0a10;
+      background: linear-gradient(135deg, var(--primary), var(--accent));
+      box-shadow: 0 8px 24px rgba(155, 140, 255, 0.28);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(76, 201, 240, 0.34); }
+    .btn-ghost {
+      color: var(--fg);
+      border-color: var(--line);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .btn-ghost:hover { border-color: var(--primary); background: rgba(155, 140, 255, 0.07); }
+    .btn-lg { font-size: 15px; padding: 13px 24px; }
+
+    /* ----- hero ----- */
+    .hero { padding: 92px 0 64px; }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 13px;
+      margin-bottom: 26px;
+    }
+    .eyebrow .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+    }
+    .hero h1 {
+      font-size: clamp(40px, 6.2vw, 76px);
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+      font-weight: 700;
+      margin: 0 0 22px;
+      max-width: 16ch;
+    }
+    .hero h1 .grad {
+      background: linear-gradient(100deg, var(--primary), var(--accent) 60%, #ff86c8);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero p.lede {
+      font-size: clamp(17px, 2.1vw, 21px);
+      color: var(--text-dim);
+      max-width: 60ch;
+      margin: 0 0 36px;
+    }
+    .hero-cta { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+    .hero-note {
+      font-size: 13px;
+      color: var(--text-faint);
+      margin-top: 18px;
+      font-family: var(--font-mono);
+    }
+
+    /* ----- hero figure (the portfolio screenshot, framed) ----- */
+    .hero-figure {
+      margin-top: 56px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: 0 40px 90px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--line-soft) inset;
+      overflow: hidden;
+    }
+    .hero-figure .bar {
+      display: flex; align-items: center; gap: 7px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line-soft);
+      background: var(--surface-2);
+    }
+    .hero-figure .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--muted); }
+    .hero-figure .bar .url {
+      margin-left: 12px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-faint);
+    }
+    .hero-figure img { width: 100%; height: auto; }
+
+    /* ----- section scaffold ----- */
+    section { padding: 78px 0; }
+    .section-head { max-width: 64ch; margin-bottom: 48px; }
+    .kicker {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--primary);
+      margin: 0 0 14px;
+    }
+    h2 {
+      font-size: clamp(28px, 3.6vw, 40px);
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      margin: 0 0 16px;
+      font-weight: 680;
+    }
+    .section-head p { color: var(--text-dim); font-size: 17px; margin: 0; }
+
+    /* ----- how it works: the three image paths ----- */
+    .paths { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .path {
+      border: 1px solid var(--line-soft);
+      background: linear-gradient(180deg, var(--surface), var(--bg));
+      border-radius: var(--radius);
+      padding: 26px;
+      position: relative;
+      overflow: hidden;
+    }
+    .path::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      opacity: 0.5;
+    }
+    .path .num {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--accent);
+      letter-spacing: 0.1em;
+    }
+    .path h3 { margin: 12px 0 10px; font-size: 19px; letter-spacing: -0.01em; }
+    .path p { margin: 0; color: var(--text-dim); font-size: 14.5px; }
+    .path .tag {
+      display: inline-block;
+      margin-top: 16px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-faint);
+      border: 1px solid var(--line-soft);
+      border-radius: 7px;
+      padding: 4px 9px;
+    }
+
+    .interface-note {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 32px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .interface-note .copy { padding: 36px 38px; }
+    .interface-note h3 { margin: 0 0 12px; font-size: 24px; letter-spacing: -0.02em; }
+    .interface-note p { margin: 0; color: var(--text-dim); font-size: 15.5px; }
+    .interface-note .shot { align-self: stretch; border-left: 1px solid var(--line-soft); }
+    .interface-note .shot img { height: 100%; width: 100%; object-fit: cover; object-position: left top; }
+
+    /* ----- feature points ----- */
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .feature {
+      border: 1px solid var(--line-soft);
+      border-radius: 14px;
+      padding: 24px;
+      background: rgba(255, 255, 255, 0.015);
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+    .feature:hover { border-color: var(--line); background: rgba(155, 140, 255, 0.04); }
+    .feature .ic {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, rgba(155,140,255,0.18), rgba(76,201,240,0.14));
+      border: 1px solid var(--line);
+      margin-bottom: 16px;
+    }
+    .feature .ic svg { width: 19px; height: 19px; stroke: var(--accent); fill: none; stroke-width: 1.6; }
+    .feature h3 { margin: 0 0 9px; font-size: 17px; letter-spacing: -0.01em; }
+    .feature p { margin: 0; color: var(--text-dim); font-size: 14px; }
+
+    /* ----- screenshot strip ----- */
+    .strip-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    figure.shot-card {
+      margin: 0;
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    figure.shot-card img { width: 100%; height: auto; border-bottom: 1px solid var(--line-soft); }
+    figure.shot-card figcaption {
+      padding: 14px 18px;
+      font-size: 13.5px;
+      color: var(--text-dim);
+    }
+    figure.shot-card figcaption strong { color: var(--fg); font-weight: 600; }
+
+    /* ----- final CTA ----- */
+    .cta-band {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 56px 40px;
+      text-align: center;
+      background:
+        radial-gradient(700px 300px at 50% -20%, rgba(155,140,255,0.20), transparent 60%),
+        var(--surface);
+      box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+    }
+    .cta-band h2 { margin: 0 0 14px; }
+    .cta-band p { color: var(--text-dim); max-width: 56ch; margin: 0 auto 30px; font-size: 17px; }
+    .cta-band .hero-cta { justify-content: center; }
+    .cta-band .signin-note { margin-top: 18px; font-size: 13px; color: var(--text-faint); font-family: var(--font-mono); }
+
+    /* ----- footer ----- */
+    footer.site {
+      border-top: 1px solid var(--line-soft);
+      padding: 36px 0;
+      color: var(--text-faint);
+      font-size: 13.5px;
+    }
+    footer.site .row { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
+    footer.site a:hover { color: var(--fg); }
+
+    /* ----- responsive ----- */
+    @media (max-width: 880px) {
+      .paths { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+      .strip-grid { grid-template-columns: 1fr; }
+      .interface-note { grid-template-columns: 1fr; }
+      .interface-note .shot { border-left: 0; border-top: 1px solid var(--line-soft); }
+      .nav-links { display: none; }
+      .hero { padding: 64px 0 40px; }
+    }
+    @media (max-width: 560px) {
+      section { padding: 56px 0; }
+      .cta-band { padding: 40px 22px; }
+    }
+
+    /* Respect users who prefer no motion */
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto; }
+      .btn-primary:hover { transform: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===================== TOP BAR ===================== -->
+  <header class="site">
+    <div class="wrap nav">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <span>Brand-Ops</span>
+      </div>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#how">How it works</a>
+        <a href="#features">Features</a>
+        <a href="#screens">Inside</a>
+        <a href="#start">Get started</a>
+      </nav>
+      <a class="btn btn-primary" href="/?app=1">Sign in</a>
+    </div>
+  </header>
+
+  <hr class="prism-line" />
+
+  <!-- ===================== HERO ===================== -->
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <span class="eyebrow"><span class="dot" aria-hidden="true"></span> A Unicorn Commander suite app</span>
+        <h1>Every brand, <span class="grad">under command.</span></h1>
+        <p class="lede">
+          Brand-Ops holds each brand as machine-readable truth: its palette, type, voice, and rules.
+          Then you or an agent generate on-brand assets against that truth, and grade any asset or line of copy for compliance.
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary btn-lg" href="/?app=1">Sign in / Get started</a>
+          <a class="btn btn-ghost btn-lg" href="#how">See how it works</a>
+        </div>
+        <p class="hero-note">// One engine. A CLI, an MCP server, a REST API, and an agent-first studio over it.</p>
+
+        <div class="hero-figure">
+          <div class="bar" aria-hidden="true">
+            <i></i><i></i><i></i>
+            <span class="url">brand-ops</span>
+          </div>
+          <img src="./landing-assets/portfolio.png" alt="The Brand-Ops portfolio: every brand listed with its mark, coverage, the agents on watch, and a recent activity feed." loading="lazy" />
+        </div>
+      </div>
+    </section>
+
+    <hr class="prism-line" />
+
+    <!-- ===================== HOW IT WORKS ===================== -->
+    <section id="how">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">How it works</p>
+          <h2>The brand is the interface, and there are three ways an asset gets made.</h2>
+          <p>
+            Open a brand and the whole surface recolors to it: its palette, its fonts, its mark.
+            The brand book, the asset kit, the voice, and the agents on watch become one screen, themed to the brand you are in.
+            Underneath, every asset comes from one of three honest paths.
+          </p>
+        </div>
+
+        <div class="paths">
+          <article class="path">
+            <span class="num">PATH 01</span>
+            <h3>On-brand marks, reference conditioned</h3>
+            <p>
+              Logos, icons, podcast covers, and avatars are generated through a metered gateway, conditioned on the brand's own reference art so a new mark looks like it belongs to the house.
+            </p>
+            <span class="tag">metered gateway · no provider keys held</span>
+          </article>
+
+          <article class="path">
+            <span class="num">PATH 02</span>
+            <h3>Correct-copy cards, composed deterministically</h3>
+            <p>
+              Share images, social cards, and launcher tiles are composited from the brand's real fonts and exact colors. No model writes the text, so the copy is always right and the image is pixel-identical run to run.
+            </p>
+            <span class="tag">1200x630 · 1080x1080 · 512x512</span>
+          </article>
+
+          <article class="path">
+            <span class="num">PATH 03</span>
+            <h3>Existing assets, brought into the catalog</h3>
+            <p>
+              Already have a logo or a share image on disk? Ingest brings each brand's known assets into the managed catalog so they serve, grade, and live next to anything you generate.
+            </p>
+            <span class="tag">idempotent · catalog sidecar per asset</span>
+          </article>
+        </div>
+
+        <div class="interface-note">
+          <div class="copy">
+            <h3>A brand HQ, themed to itself.</h3>
+            <p>
+              Each brand carries a guidelines document rendered straight from its record: identity, color tokens, typography, voice, asset coverage, and a paste-able link-preview kit. The page wears the brand it describes, so the rules and the work share one surface.
+            </p>
+          </div>
+          <div class="shot">
+            <img src="./landing-assets/brand-hq.png" alt="A brand HQ recolored to the brand's own palette, showing the mark, a brand grade, and the color tokens." loading="lazy" />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="prism-line" />
+
+    <!-- ===================== FEATURES ===================== -->
+    <section id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">What you get</p>
+          <h2>Built for many brands, many tenants, and agents that do the work.</h2>
+        </div>
+
+        <div class="features">
+          <div class="feature">
+            <div class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            </div>
+            <h3>Multi-tenant isolation</h3>
+            <p>
+              Every tenant is fenced in the database with Postgres row level security and on disk under its own per-workspace subtree. One workspace never sees another's brands or files.
+            </p>
+          </div>
+
+          <div class="feature">
+            <div class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M3 12h4M17 12h4M12 3v4M12 17v4"/></svg>
+            </div>
+            <h3>On-brand by reference</h3>
+            <p>
+              Marks are conditioned on the brand's own reference images, so a generated logo or avatar reads as part of the house instead of a stock guess.
+            </p>
+          </div>
+
+          <div class="feature">
+            <div class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 5h16v11H4z"/><path d="M8 20h8M4 16l4-5 3 3 4-6 5 8"/></svg>
+            </div>
+            <h3>Correct copy, every time</h3>
+            <p>
+              Link-preview and social cards are composited deterministically. The headline is set in the brand's real font, so what unfurls on social, iMessage, Slack, and Discord is exact and repeatable.
+            </p>
+          </div>
+
+          <div class="feature">
+            <div class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg>
+            </div>
+            <h3>Agents as a brand's cast</h3>
+            <p>
+              Each brand has a Steward that knows its identity, with Iris directing cross-brand work and intake. Ask in plain language and the asset lands in the catalog with a compliance stamp.
+            </p>
+          </div>
+
+          <div class="feature">
+            <div class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9 3v6l-5 4 5 4v4M15 3v6l5 4-5 4v4"/></svg>
+            </div>
+            <h3>MCP and agent operable</h3>
+            <p>
+              One engine drives a CLI, a REST API, and an MCP server at full parity with the studio. Your own agents can list brands, dry-run a prompt, generate, and grade, all over MCP.
+            </p>
+          </div>
+
+          <div class="feature">
+            <div class="ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg>
+            </div>
+            <h3>Metered, no keys held</h3>
+            <p>
+              Generation runs through a metered gateway, so usage is measured cleanly and Brand-Ops holds no provider keys in production. Spend and plan caps live upstream in the suite.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="prism-line" />
+
+    <!-- ===================== SCREENSHOT STRIP ===================== -->
+    <section id="screens">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="kicker">Inside Brand-Ops</p>
+          <h2>The studio, the brand book, and the launcher tile.</h2>
+          <p>Real surfaces from the app, each one themed to the brand it is working in.</p>
+        </div>
+
+        <div class="strip-grid">
+          <figure class="shot-card">
+            <img src="./landing-assets/studio.png" alt="The Studio: a brand Steward ready to build the launch kit, make an OG image, or check the latest assets against the rules." loading="lazy" />
+            <figcaption><strong>Studio.</strong> Ask the brand's Steward to build the kit, make a card, or grade work. Each run returns several versions to pick from.</figcaption>
+          </figure>
+
+          <figure class="shot-card">
+            <img src="./landing-assets/brand-book.png" alt="The brand book: brand guidelines rendered from the machine-readable brand record, with an export action." loading="lazy" />
+            <figcaption><strong>Brand book.</strong> Guidelines rendered straight from the brand record: identity, tokens, type, voice, and a paste-able link-preview kit.</figcaption>
+          </figure>
+
+          <figure class="shot-card">
+            <img src="./landing-assets/portfolio.png" alt="The portfolio: every brand under command, with coverage, recent activity, and the agents on watch." loading="lazy" />
+            <figcaption><strong>Portfolio.</strong> Every brand under command, with coverage, a live activity feed, and the agents on watch.</figcaption>
+          </figure>
+
+          <figure class="shot-card">
+            <img src="./landing-assets/launcher-tile.png" alt="The Brand-Ops Ops-Center launcher tile: the quartermaster mascot holding a fanned deck of color swatch cards." loading="lazy" />
+            <figcaption><strong>Launcher tile.</strong> The Ops-Center tile is itself a Brand-Ops asset, composed from the mark and palette so the icon is on brand too.</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <hr class="prism-line" />
+
+    <!-- ===================== FINAL CTA ===================== -->
+    <section id="start">
+      <div class="wrap">
+        <div class="cta-band">
+          <p class="kicker">Get started</p>
+          <h2>Bring your brands under command.</h2>
+          <p>
+            Sign in with your suite account to open your workspace. New here? The same button takes you to sign-in, where you can request access and set up a workspace.
+          </p>
+          <div class="hero-cta">
+            <a class="btn btn-primary btn-lg" href="/?app=1">Sign in / Get started</a>
+            <a class="btn btn-ghost btn-lg" href="#how">How it works</a>
+          </div>
+          <p class="signin-note">// Sign-in is handled by suite single sign-on.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== FOOTER ===================== -->
+  <hr class="prism-line" />
+  <footer class="site">
+    <div class="wrap row">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <span>Brand-Ops</span>
+        <span style="color: var(--text-faint); font-weight: 400; margin-left: 6px;">a Unicorn Commander suite app</span>
+      </div>
+      <nav aria-label="Footer">
+        <a href="/?app=1">Sign in</a>
+      </nav>
+    </div>
+  </footer>
+
+</body>
+</html>
