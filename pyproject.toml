@@ -16,7 +16,11 @@ dependencies = [
   "httpx>=0.27",
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
-  "mcp>=1.12",
+  # <2: mcp 2.0.0 deleted mcp/server/fastmcp/ (renamed to mcp.server.mcpserver).
+  # brand_ops/mcp_server.py imports `from mcp.server.fastmcp import FastMCP,
+  # Image` at module scope, and api/app.py imports mcp_http -> mcp_server at
+  # module scope, so an unbounded resolve boot-loops the whole backend.
+  "mcp>=1.12,<2",
   "sqlalchemy[asyncio]>=2.0",
   "alembic>=1.13",
   "asyncpg>=0.29",
