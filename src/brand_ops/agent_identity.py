@@ -338,7 +338,7 @@ def update_agent(
     return _identity_dict(brand_slug, agent_slug, data, kits_dir)
 
 
-def _avatar_prompt(brand: Brand, name: str, role: str) -> str:
+def _avatar_prompt(brand: Brand, name: str, role: str, bio: str = "") -> str:
     """Build the agent-avatar prompt with references dominant over graphic style.
 
     When the brand declares ``visual.mascot_style``, that character recipe leads
@@ -351,11 +351,20 @@ def _avatar_prompt(brand: Brand, name: str, role: str) -> str:
     palette = f"{v.colors.primary} and {v.colors.accent}"
     display = brand.brand.display_name
     mascot = (v.mascot_style or "").strip()
+    # The agent's own bio IS its art direction — it is the only per-agent
+    # description an operator can write. Until 2026-08-14 it was stored,
+    # served in manifests, and then dropped on the floor here, so every
+    # avatar was generated from name + role + references alone. That is why
+    # bios carrying exact hex codes and explicit costume notes changed
+    # nothing: the model never saw them.
+    character = (bio or "").strip()
+    character_clause = f" {character}" if character else ""
     if mascot:
         return (
             f"Create a new character avatar in the EXACT same illustration style as the "
             f"reference images. {mascot} This character is {name}, {role} for the brand "
-            f"{display}. Match the reference character design language first; brand palette "
+            f"{display}.{character_clause} Match the reference character design language "
+            f"first; brand palette "
             f"({palette}) may tint costume accents only. Square avatar, character centered, "
             f"reads clearly at small sizes. No text and no watermark."
         )
@@ -364,20 +373,21 @@ def _avatar_prompt(brand: Brand, name: str, role: str) -> str:
     return (
         f"Create a new character avatar matching the EXACT illustration style of the "
         f"reference images when provided. This character is {name}, the {role} for the "
-        f"brand {display}. Brand palette {palette}.{style_cue} Single centered character "
+        f"brand {display}.{character_clause} Brand palette {palette}.{style_cue} "
+        f"Single centered character "
         f"(not a logo emblem) on a simple uncluttered background, high contrast, square "
         f"avatar. No text and no watermark."
     )
 
 
-def _variant_prompt(brand: Brand, name: str, role: str, state: str) -> str:
+def _variant_prompt(brand: Brand, name: str, role: str, state: str, bio: str = "") -> str:
     """The primary on-brand avatar prompt plus this state's expression modifier.
 
     Every variant reuses the exact primary prompt (same palette and style
     language) and only appends the state's expression, so the whole set is one
     recognizable character on brand by construction. ``primary`` appends nothing.
     """
-    base = _avatar_prompt(brand, name, role)
+    base = _avatar_prompt(brand, name, role, bio)
     modifier = _STATE_MODIFIERS.get(state, "")
     return f"{base} {modifier}".rstrip() if modifier else base
 
@@ -401,7 +411,12 @@ def generate_avatar(
     _, backend_impl, _ = resolve_image_backend(_AVATAR_DEFAULT_BACKEND, None, settings)
     char_refs = resolve_character_references(brand_slug, brand, kits_dir)
     req = GenRequest(
-        prompt=_avatar_prompt(brand, data.get("name", agent_slug), data.get("role", "agent")),
+        prompt=_avatar_prompt(
+            brand,
+            data.get("name", agent_slug),
+            data.get("role", "agent"),
+            data.get("bio", ""),
+        ),
         width=_AVATAR_SIZE[0],
         height=_AVATAR_SIZE[1],
         count=1,
@@ -466,6 +481,7 @@ def generate_variants(
 
     name = data.get("name", agent_slug)
     role = data.get("role", "agent")
+    bio = data.get("bio", "")
     colors = [brand.visual.colors.primary, brand.visual.colors.accent]
     rules = build_rules(brand)
     variants: dict[str, str] = {}
@@ -477,7 +493,7 @@ def generate_variants(
         _, backend_impl, _ = resolve_image_backend(_AVATAR_DEFAULT_BACKEND, None, settings)
         cost.enforce_image_quota_sync(_ws)
         req = GenRequest(
-            prompt=_variant_prompt(brand, name, role, state),
+            prompt=_variant_prompt(brand, name, role, state, bio),
             width=_AVATAR_SIZE[0],
             height=_AVATAR_SIZE[1],
             count=1,
