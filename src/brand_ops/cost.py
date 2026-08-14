@@ -25,6 +25,13 @@ to null (no cap), so a deploy that sets neither behaves exactly as before: the
 gate is a no-op and metering only adds rows. No new migration: both halves reuse
 ``agent_spend_event`` and ``agent_governance``.
 
+Both halves are async (they open asyncpg sessions), and every caller is sync, so
+they are reached through the ``_sync`` bridges below. Those bridges are the
+delicate part of this module: read their section note before changing them. A
+bridge that fails to reach its coroutine cannot fail loudly -- metering is
+best-effort by contract -- so it fails as an unenforced cap and a missing ledger
+row, which looks exactly like a workspace that simply had nothing to bill.
+
 Attribution. An image generation is the work of the brand director persona Iris,
 which is also what the activity feed records for a generation and the governance
 row the Crew page synthesizes. So image spend attributes to
@@ -37,7 +44,8 @@ import asyncio
 import contextlib
 import logging
 import os
-from collections.abc import Iterator
+import threading
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 
 from . import governance
@@ -192,7 +200,15 @@ async def enforce_image_quota(workspace_id: str | None) -> None:
         # this.
         raise
     except Exception:  # noqa: BLE001 - the gate is soft; a store outage never blocks
-        _log.debug("image quota gate skipped (metering store unavailable)", exc_info=True)
+        # WARNING, not debug: the soft path is indistinguishable from "under the
+        # cap" at every other level, so debug meant an unenforced cap left no
+        # trace anyone would find.
+        _log.warning(
+            "image quota gate skipped for workspace %s (metering store unavailable); "
+            "generation proceeds unchecked",
+            workspace_id,
+            exc_info=True,
+        )
 
 
 async def meter_image_spend(
@@ -238,42 +254,126 @@ async def meter_image_spend(
                     cost_cents=governance.estimate_image_cost_cents(cost_cents, count),
                 )
     except Exception:  # noqa: BLE001 - metering is best-effort; never break a run
-        _log.debug("image spend metering skipped", exc_info=True)
+        # WARNING, not debug: a dropped spend row is money the provider charged
+        # and the ledger will never show. Best-effort means "do not raise", not
+        # "do not tell anyone".
+        _log.warning(
+            "image spend NOT RECORDED for workspace %s (%s/%s, %s cents x%s)",
+            workspace_id,
+            backend,
+            model,
+            cost_cents,
+            count,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
 # Sync bridges for the synchronous generation chokepoint
 # ---------------------------------------------------------------------------
 #
-# ``engine.generate_asset`` is synchronous, and so are both of its callers that
-# carry a workspace: the REST ``/generate`` route (a sync ``def``, which FastAPI
-# runs in a threadpool worker with no event loop in that thread) and the MCP
-# ``generate_asset`` tool (also sync, no live loop). So ``asyncio.run`` is the
-# correct bridge in every workspace-scoped context here -- the same pattern the
-# MCP server already uses for its DB writes. An unscoped run (CLI / stdio MCP /
-# tests / AUTH off) has no workspace, so both bridges return before touching a
-# loop at all.
+# ``engine.generate_asset`` is synchronous, and so is every caller that carries a
+# workspace -- but they do not all run on the same kind of thread:
+#
+#   * NO running loop: the CLI, the stdio MCP server, and the sync ``def`` REST
+#     routes (``/generate``, the avatar routes), which FastAPI offloads to a
+#     threadpool worker. ``asyncio.run`` is the right bridge here.
+#   * A LIVE running loop: the HTTP MCP transport. ``api/mcp_http.py`` mounts the
+#     same FastMCP instance over Streamable HTTP and FastMCP invokes the tools on
+#     the ASGI event loop, so a tool body runs *inside* a loop.
+#
+# This section used to assume the first shape only and call ``asyncio.run``
+# unconditionally. On the second shape -- which is what production serves,
+# ``MCP_HTTP_ENABLED=true`` -- ``asyncio.run`` raises "cannot be called from a
+# running event loop" the moment it is entered, i.e. AFTER the coroutine argument
+# has been constructed but before anything awaits it. The coroutine was then
+# dropped unawaited ("RuntimeWarning: coroutine 'meter_image_spend' was never
+# awaited") and the broad ``except Exception`` swallowed the RuntimeError at
+# DEBUG. Nothing raised, nothing was logged above debug, and every generation on
+# that transport ran with the cap unenforced and the spend unrecorded.
+#
+# So the bridge PROBES for a running loop instead of assuming, exactly like the
+# catalog dual-write in ``catalog_index.py`` already does after the same failure
+# mode hid a broken write for three weeks. Two properties keep it honest:
+#
+#   * callers pass a zero-argument FACTORY, never a coroutine. The awaitable is
+#     created on the thread that will drive it, so there is no window in which a
+#     live coroutine exists without something already committed to awaiting it.
+#     The bug above is not reachable through this helper.
+#   * the failure paths log at WARNING, not debug. Metering is best-effort by
+#     contract and must never raise, which leaves the log as the only channel a
+#     silent money hole can announce itself on; debug is not a channel.
+#
+# An unscoped run (CLI / stdio MCP / tests / AUTH off) has no workspace, so both
+# bridges still return before touching a loop or the database at all.
+
+# How long a bridged DB touch may block the synchronous generation path. The gate
+# runs immediately before the paid backend call and the meter immediately after
+# it, so a wedged metering store must not pin the request forever: it degrades to
+# "no cap" / "unrecorded, logged loudly". Matches the catalog dual-write budget.
+_BRIDGE_TIMEOUT_S = 15.0
+
+
+def _run_blocking[T](factory: Callable[[], Awaitable[T]], *, name: str) -> T:
+    """Drive ``factory()`` to completion from sync code, whatever thread we are on.
+
+    ``factory`` is invoked on the thread that owns the loop which will await it,
+    so a coroutine is never built on one thread and abandoned on another.
+
+    With no running loop, ``asyncio.run`` on this thread. With one (the HTTP MCP
+    tools on the ASGI loop), a private loop on a worker thread, because
+    ``asyncio.run`` cannot nest. Re-raises whatever the awaitable raised on the
+    calling thread, or ``TimeoutError`` past ``_BRIDGE_TIMEOUT_S``.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(factory())
+
+    result: list[T] = []
+    failure: list[BaseException] = []
+
+    def _worker() -> None:
+        try:
+            result.append(asyncio.run(factory()))
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the calling thread
+            failure.append(exc)
+
+    thread = threading.Thread(target=_worker, name=name, daemon=True)
+    thread.start()
+    thread.join(timeout=_BRIDGE_TIMEOUT_S)
+    if thread.is_alive():
+        raise TimeoutError(f"{name} timed out after {_BRIDGE_TIMEOUT_S}s")
+    if failure:
+        raise failure[0]
+    return result[0]
 
 
 def enforce_image_quota_sync(workspace_id: str | None) -> None:
     """Synchronous gate the engine calls before generating. Raises QuotaExceeded.
 
-    Bridges :func:`enforce_image_quota` for the sync engine. Returns immediately
+    Bridges :func:`enforce_image_quota` for the sync engine, on whichever thread
+    shape the caller happens to be (see the section note). Returns immediately
     when there is no active workspace, so the unscoped CLI / stdio MCP / test
     path never opens an event loop or a database connection. Only ``QuotaExceeded``
-    (the intentional denial) propagates; the async gate already swallows soft
-    failures (no DB, transport) and the bridge itself swallows nothing it should
-    not, so an unexpected bridging error is logged and treated as "no cap" rather
-    than blocking a generation a budget guard was never meant to stop.
+    (the intentional denial) propagates; a cap is a budget guard, not a
+    correctness invariant, so a bridging error degrades to "no cap" rather than
+    blocking a generation a budget guard was never meant to stop. That degrade is
+    logged at WARNING: a gate that has quietly stopped gating is indistinguishable
+    from a gate with nothing to do.
     """
     if not workspace_id:
         return
     try:
-        asyncio.run(enforce_image_quota(workspace_id))
+        _run_blocking(lambda: enforce_image_quota(workspace_id), name="image-quota-gate")
     except QuotaExceeded:
         raise
     except Exception:  # noqa: BLE001 - the gate is soft; bridging errors never block
-        _log.debug("image quota gate skipped (bridge error)", exc_info=True)
+        _log.warning(
+            "image quota gate DID NOT RUN for workspace %s; generation proceeds unchecked",
+            workspace_id,
+            exc_info=True,
+        )
 
 
 def meter_image_spend_sync(
@@ -287,71 +387,76 @@ def meter_image_spend_sync(
 ) -> None:
     """Synchronous best-effort metering the engine calls after a generation.
 
-    Bridges :func:`meter_image_spend` for the sync engine. Never raises: a
+    Bridges :func:`meter_image_spend` for the sync engine, on whichever thread
+    shape the caller happens to be (see the section note). Never raises: a
     metering failure must not undo a generation that already succeeded. No-op
     without an active workspace (no tenant to bill), so the unscoped path never
-    opens a loop.
+    opens a loop. A failure is logged at WARNING because the provider has already
+    charged for these bytes and the ledger is about to disagree.
     """
     if not workspace_id:
         return
     try:
-        asyncio.run(
-            meter_image_spend(
+        _run_blocking(
+            lambda: meter_image_spend(
                 workspace_id,
                 brand_slug=brand_slug,
                 backend=backend,
                 model=model,
                 cost_cents=cost_cents,
                 count=count,
-            )
+            ),
+            name="image-spend-meter",
         )
     except Exception:  # noqa: BLE001 - metering is best-effort; never break a run
-        _log.debug("image spend metering skipped (bridge error)", exc_info=True)
+        _log.warning(
+            "image spend NOT RECORDED for workspace %s (%s/%s, %s cents x%s); "
+            "the provider billed this generation and the ledger will not show it",
+            workspace_id,
+            backend,
+            model,
+            cost_cents,
+            count,
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------
-# One-loop governor for a single generation (cap-read then meter-write)
+# Per-generation governance handle (cap read, then meter write)
 # ---------------------------------------------------------------------------
 #
-# The cap check (before the paid backend) and the meter write (after it) are two
-# DB touches in one synchronous ``generate_asset`` call. Run each through its own
-# ``asyncio.run`` and each gets a FRESH event loop, so asyncpg's connection pool
-# (which SQLAlchemy binds to the loop that created it) cannot be reused across
-# the two halves: the second run rebuilds the pool from scratch. ``image_governance``
-# opens ONE event loop for the whole generation and runs both coroutines on it,
-# so the pool created during the cap read is reused for the meter write. The
-# ordering the engine needs is preserved by construction: the caller invokes
-# ``enforce`` before the backend call and ``meter`` after it; this context
-# manager only controls which loop they run on, not when. It is a complete no-op
-# when there is no workspace (the unscoped CLI / stdio MCP / test path), where
-# neither half should touch a loop or the database, exactly as the ``_sync``
-# bridges already guaranteed.
+# ``engine.generate_asset`` wraps its backend call in ``image_governance`` so it
+# has ONE object for the pair: ``enforce`` before the spend, ``meter`` after it.
+# Both halves go through the same loop-aware bridges as every other caller.
+#
+# This used to open a private event loop for the pair and drive both coroutines
+# on it with ``run_until_complete``, to keep asyncpg's pool alive across the two
+# DB touches. That bought nothing -- both halves use ``get_bridge_sessionmaker``,
+# which is deliberately ``NullPool`` and retains no connection between checkouts,
+# so there was never a pool to carry over -- and it broke outright on any thread
+# that was already running a loop, since ``run_until_complete`` refuses to drive
+# a second loop there. That is the engine's own path under the HTTP MCP
+# transport, so the chokepoint every surface funnels through was the one most
+# exposed to the silent hole described in the section above.
 
 
 class _ImageGovernor:
-    """Runs the cap read and the meter write on one shared event loop.
+    """The cap gate and the spend meter for one generation.
 
-    Holds a single loop for the span of one generation. ``enforce`` runs the cap
-    gate (only ``QuotaExceeded`` propagates, mirroring ``enforce_image_quota_sync``);
-    ``meter`` runs the best-effort spend write (never raises, mirroring
-    ``meter_image_spend_sync``). When there is no workspace both methods return
-    immediately and no loop is ever created.
+    ``enforce`` denies an over-budget run before the paid backend (only
+    ``QuotaExceeded`` propagates); ``meter`` records the spend after it (never
+    raises). Both delegate to the ``_sync`` bridges, so they inherit the
+    loop-probing and the loud failure logging. Both are no-ops without a
+    workspace, where there is no tenant to meter and no loop or database is
+    touched.
     """
 
-    def __init__(self, workspace_id: str | None, loop: asyncio.AbstractEventLoop | None):
+    def __init__(self, workspace_id: str | None):
         self._workspace_id = workspace_id
-        self._loop = loop
 
     def enforce(self) -> None:
         """Deny over-budget BEFORE the backend runs. Raises ``QuotaExceeded``."""
-        if not self._workspace_id or self._loop is None:
-            return
-        try:
-            self._loop.run_until_complete(enforce_image_quota(self._workspace_id))
-        except QuotaExceeded:
-            raise
-        except Exception:  # noqa: BLE001 - the gate is soft; bridging errors never block
-            _log.debug("image quota gate skipped (bridge error)", exc_info=True)
+        enforce_image_quota_sync(self._workspace_id)
 
     def meter(
         self,
@@ -363,45 +468,24 @@ class _ImageGovernor:
         count: int = 1,
     ) -> None:
         """Record the spend AFTER a successful generation. Never raises."""
-        if not self._workspace_id or self._loop is None:
-            return
-        try:
-            self._loop.run_until_complete(
-                meter_image_spend(
-                    self._workspace_id,
-                    brand_slug=brand_slug,
-                    backend=backend,
-                    model=model,
-                    cost_cents=cost_cents,
-                    count=count,
-                )
-            )
-        except Exception:  # noqa: BLE001 - metering is best-effort; never break a run
-            _log.debug("image spend metering skipped (bridge error)", exc_info=True)
+        meter_image_spend_sync(
+            self._workspace_id,
+            brand_slug=brand_slug,
+            backend=backend,
+            model=model,
+            cost_cents=cost_cents,
+            count=count,
+        )
 
 
 @contextlib.contextmanager
 def image_governance(workspace_id: str | None) -> Iterator[_ImageGovernor]:
-    """One event loop for a generation's cap read and meter write.
+    """Hand the engine one governance handle for the span of a generation.
 
     Enter once around the generate region: call ``enforce`` before the paid
-    backend call and ``meter`` after the bytes are saved, and both DB touches
-    share a single loop so asyncpg reuses its pool across them. No-op (no loop,
+    backend call and ``meter`` after the bytes are saved. Ordering is the
+    caller's, by construction; this only supplies the handle. A no-op (no loop,
     no database) without an active workspace, so the unscoped CLI / stdio MCP /
-    test path is unchanged. The loop is created here and always closed, mirroring
-    what ``asyncio.run`` did per half, just once for the pair.
+    test path is unchanged.
     """
-    if not workspace_id:
-        yield _ImageGovernor(workspace_id, None)
-        return
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        yield _ImageGovernor(workspace_id, loop)
-    finally:
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-        except Exception:  # noqa: BLE001 - teardown must never mask the generation result
-            _log.debug("image governance loop teardown skipped", exc_info=True)
-        asyncio.set_event_loop(None)
-        loop.close()
+    yield _ImageGovernor(workspace_id)

@@ -50,3 +50,38 @@ os.environ["AUTH_REQUIRED"] = "false"
 def _auth_off_by_default(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("AUTH_REQUIRED", "false")
     yield
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Fail the suite on an un-awaited coroutine instead of printing a warning.
+
+    A sync-to-async bridge that stops reaching its coroutine does not raise and
+    does not return anything different; it leaves exactly one trace, the
+    interpreter's "coroutine 'x' was never awaited" RuntimeWarning at collection
+    time. That is not a diagnostic anyone reads. It is how the per-tenant image
+    cap and the image spend ledger both went dead on the HTTP MCP transport and
+    stayed dead for weeks: the coroutine was built, ``asyncio.run`` refused to
+    nest, the best-effort ``except`` swallowed the error, and the only evidence
+    was a warning in a log nobody tails.
+
+    Promoting it to an error makes that class of mistake fail a test run rather
+    than leak money. It takes BOTH lines below. The abandoned coroutine is
+    reported from the garbage collector, so the first line's error surfaces where
+    no frame can catch it; CPython hands it to ``sys.unraisablehook`` and pytest
+    turns it back into a warning (``PytestUnraisableExceptionWarning``), leaving
+    the run green. The second line closes that door. Verified against a canary
+    that drops a coroutine on the floor -- with only the first line the canary
+    passes.
+
+    This is a NET, not a guarantee: collection timing decides WHICH test is
+    blamed, and a coroutine still referenced at the end of the run is never
+    reported at all. So the bridges that matter also assert their coroutine
+    actually ran (see tests/test_cost_governance.py). The net is here because the
+    next bridge someone writes will not think to.
+    """
+    config.addinivalue_line(
+        "filterwarnings", "error:coroutine .* was never awaited:RuntimeWarning"
+    )
+    config.addinivalue_line(
+        "filterwarnings", "error::pytest.PytestUnraisableExceptionWarning"
+    )

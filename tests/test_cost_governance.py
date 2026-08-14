@@ -19,8 +19,11 @@ Two layers, mirroring tests/test_governance.py:
 """
 from __future__ import annotations
 
+import gc
+import logging
 import os
 import uuid
+import warnings
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -186,6 +189,179 @@ def test_enforce_is_soft_when_database_is_unconfigured(
         model="gpt-image-1",
         cost_cents=4.0,
     )
+
+
+# ---------------------------------------------------------------------------
+# The bridges ON A LIVE EVENT LOOP (no Postgres: the coroutines are spied).
+#
+# Every bridge test above this line calls the ``_sync`` helpers from a plain sync
+# test function, i.e. from a thread with no running loop. Production does not
+# always look like that: MCP_HTTP_ENABLED=true mounts the MCP tools on the ASGI
+# event loop, so ``generate_asset`` and the avatar helpers run INSIDE a loop.
+#
+# In that shape the bridges used to call ``asyncio.run``, which raises before
+# awaiting, leaving the already-constructed coroutine to be garbage-collected
+# with "RuntimeWarning: coroutine 'meter_image_spend' was never awaited" -- and
+# the broad best-effort ``except`` swallowed it. The cap never enforced and the
+# spend was never recorded, and no test could see it, because no test ran the
+# bridges from inside a loop. These do.
+#
+# They assert the two halves of the contract separately, because either one alone
+# would still have passed while the money leaked: that the coroutine actually RAN
+# (a bridge that silently no-ops is the bug), and that no coroutine was dropped
+# unawaited (the fingerprint the bug left in the logs).
+# ---------------------------------------------------------------------------
+
+
+def _drive_and_collect(fn) -> list[str]:
+    """Run ``fn`` and return the 'was never awaited' RuntimeWarnings it produced.
+
+    The warning fires when the abandoned coroutine is COLLECTED, not when it is
+    dropped, so the collection is forced inside the ``catch_warnings`` block --
+    otherwise it can surface in an unrelated later test, or not at all.
+    """
+    gc.collect()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        fn()
+        gc.collect()
+    return [
+        str(w.message)
+        for w in caught
+        if issubclass(w.category, RuntimeWarning) and "never awaited" in str(w.message)
+    ]
+
+
+@pytest.fixture
+def spied_coroutines(monkeypatch: pytest.MonkeyPatch) -> dict[str, list]:
+    """Replace both async halves with recorders that must actually be awaited."""
+    calls: dict[str, list] = {"enforce": [], "meter": []}
+
+    async def _enforce(workspace_id):
+        calls["enforce"].append(workspace_id)
+
+    async def _meter(workspace_id, **kw):
+        calls["meter"].append((workspace_id, kw))
+
+    monkeypatch.setattr(cost, "enforce_image_quota", _enforce)
+    monkeypatch.setattr(cost, "meter_image_spend", _meter)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_sync_bridges_reach_their_coroutine_from_inside_a_loop(
+    spied_coroutines: dict[str, list],
+) -> None:
+    # The regression: on the HTTP MCP transport the bridges ran on the ASGI loop
+    # and reached neither coroutine. Both must run, with the arguments intact.
+    ws = str(uuid.uuid4())
+    cost.enforce_image_quota_sync(ws)
+    cost.meter_image_spend_sync(
+        ws, brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=4.0
+    )
+
+    assert spied_coroutines["enforce"] == [ws]
+    assert len(spied_coroutines["meter"]) == 1
+    metered_ws, kw = spied_coroutines["meter"][0]
+    assert metered_ws == ws
+    assert kw["cost_cents"] == 4.0
+    assert kw["model"] == "gpt-image-1"
+
+
+@pytest.mark.asyncio
+async def test_image_governance_reaches_both_halves_from_inside_a_loop(
+    spied_coroutines: dict[str, list],
+) -> None:
+    # The engine chokepoint's own path: generate_asset wraps the paid backend call
+    # in image_governance, and under the HTTP MCP transport that ran on the ASGI
+    # loop, where the governor's private-loop run_until_complete could not drive
+    # anything at all.
+    ws = str(uuid.uuid4())
+    with cost.image_governance(ws) as governor:
+        governor.enforce()
+        governor.meter(
+            brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=4.0
+        )
+
+    assert spied_coroutines["enforce"] == [ws]
+    assert len(spied_coroutines["meter"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_bridges_never_drop_a_coroutine_unawaited(
+    spied_coroutines: dict[str, list],
+) -> None:
+    # The literal fingerprint of the defect, asserted directly: not one
+    # "coroutine ... was never awaited" from any bridge while a loop is running.
+    ws = str(uuid.uuid4())
+
+    def _exercise_everything() -> None:
+        cost.enforce_image_quota_sync(ws)
+        cost.meter_image_spend_sync(
+            ws, brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=4.0
+        )
+        with cost.image_governance(ws) as governor:
+            governor.enforce()
+            governor.meter(
+                brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=4.0
+            )
+
+    assert _drive_and_collect(_exercise_everything) == []
+
+
+@pytest.mark.asyncio
+async def test_quota_denial_still_propagates_from_inside_a_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The gate has to keep DENYING across the bridge, not merely keep running:
+    # QuotaExceeded is raised on the worker thread and must reach the caller.
+    async def _deny(workspace_id):
+        raise QuotaExceeded("workspace image budget reached")
+
+    monkeypatch.setattr(cost, "enforce_image_quota", _deny)
+    with pytest.raises(QuotaExceeded):
+        cost.enforce_image_quota_sync(str(uuid.uuid4()))
+
+
+@pytest.mark.asyncio
+async def test_meter_failure_is_loud_but_never_raises(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Metering stays best-effort (a dead ledger must not undo a generation that
+    # already succeeded), but "best-effort" cost 54 days of unrecorded spend when
+    # it meant debug-level silence. A dropped row must land in the log at WARNING.
+    async def _explode(workspace_id, **kw):
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setattr(cost, "meter_image_spend", _explode)
+    with caplog.at_level(logging.WARNING, logger="brand_ops.cost"):
+        cost.meter_image_spend_sync(
+            str(uuid.uuid4()),
+            brand_slug="acme",
+            backend="litellm",
+            model="gpt-image-1",
+            cost_cents=4.0,
+        )
+    assert any("NOT RECORDED" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_unscoped_bridges_touch_nothing_even_inside_a_loop(
+    spied_coroutines: dict[str, list],
+) -> None:
+    # The no-workspace contract is unchanged by the loop-probing: an unscoped run
+    # has no tenant to meter, so neither coroutine is even constructed.
+    cost.enforce_image_quota_sync(None)
+    cost.meter_image_spend_sync(
+        None, brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=4.0
+    )
+    with cost.image_governance(None) as governor:
+        governor.enforce()
+        governor.meter(
+            brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=4.0
+        )
+
+    assert spied_coroutines == {"enforce": [], "meter": []}
 
 
 # ---------------------------------------------------------------------------
@@ -569,5 +745,57 @@ async def test_null_agent_budget_is_no_cap(monkeypatch: pytest.MonkeyPatch) -> N
             ws, brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=5000.0
         )
         await cost.enforce_image_quota(ws)  # null budget, no cap -> never denies
+    finally:
+        await dispose_engine()
+
+
+@_db
+@pytest.mark.asyncio
+async def test_sync_bridges_write_the_ledger_from_inside_a_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End to end, in production's shape: bridge + live loop + real ledger + RLS.
+
+    The tests above drive the async halves directly, and the non-DB tests spy on
+    the coroutines. Neither would have caught the defect this file now guards,
+    because the money is only really recorded when the SYNC bridge, called from a
+    thread that already has a running loop, reaches Postgres. So this asserts the
+    whole chain at once: meter through ``meter_image_spend_sync`` while the test's
+    own event loop is running, then read the row back and watch the cap that had
+    been passing start denying.
+    """
+    from brand_ops.db import repository as repo
+    from brand_ops.db.base import dispose_engine, get_sessionmaker, scoped_session
+
+    ws = await _setup_workspace()
+    monkeypatch.setenv("BRAND_OPS_IMAGE_CAP_CENTS", "10")
+    try:
+        # Under the cap (empty ledger): the gate passes, across the bridge.
+        cost.enforce_image_quota_sync(ws)
+
+        cost.meter_image_spend_sync(
+            ws, brand_slug="acme", backend="litellm", model="gpt-image-1", cost_cents=12.0
+        )
+
+        sm = get_sessionmaker()
+        since = datetime.now(UTC) - timedelta(days=30)
+        async with sm() as session:
+            async with scoped_session(session, workspace_id=ws):
+                # agent_spend_since groups by (agent_kind, agent_ref), so one row
+                # is one agent and ``calls`` is the event count within it.
+                rows = list(await repo.agent_spend_since(session, ws, since))
+                assert len(rows) == 1, "the bridged meter wrote no ledger row"
+                assert rows[0].agent_kind == cost.IMAGE_AGENT_KIND
+                assert rows[0].agent_ref == cost.IMAGE_AGENT_REF
+                assert rows[0].calls == 1
+                # kind='image' specifically, which is what the cap reads.
+                total = await repo.workspace_image_spend_since(session, ws, since)
+                assert total == pytest.approx(12.0)
+
+        # And the recorded spend is what the NEXT request's gate reads: 12 cents
+        # against a 10-cent cap now denies. Metering that does not feed the gate
+        # is just bookkeeping.
+        with pytest.raises(QuotaExceeded):
+            cost.enforce_image_quota_sync(ws)
     finally:
         await dispose_engine()
