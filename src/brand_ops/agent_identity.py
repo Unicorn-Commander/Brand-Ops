@@ -369,7 +369,9 @@ def _avatar_prompt(brand: Brand, name: str, role: str, bio: str = "") -> str:
             f"reads clearly at small sizes. No text and no watermark."
         )
     keywords = ", ".join(list(v.style_keywords)[:4])
-    style_cue = f" Secondary style cues (never override the references): {keywords}." if keywords else ""
+    style_cue = (
+        f" Secondary style cues (never override the references): {keywords}." if keywords else ""
+    )
     return (
         f"Create a new character avatar matching the EXACT illustration style of the "
         f"reference images when provided. This character is {name}, the {role} for the "
@@ -410,6 +412,10 @@ def generate_avatar(
 
     _, backend_impl, _ = resolve_image_backend(_AVATAR_DEFAULT_BACKEND, None, settings)
     char_refs = resolve_character_references(brand_slug, brand, kits_dir)
+    # Avatar generation is image generation on the shared key, so it goes through
+    # the same per-workspace cost gate + metering the engine chokepoint uses
+    # (no-op when unscoped or when no cap is set).
+    _ws = get_current_workspace_id()
     req = GenRequest(
         prompt=_avatar_prompt(
             brand,
@@ -421,12 +427,17 @@ def generate_avatar(
         height=_AVATAR_SIZE[1],
         count=1,
         reference_images=list(char_refs),
-        extra={"colors": [brand.visual.colors.primary, brand.visual.colors.accent]},
+        extra={
+            "colors": [brand.visual.colors.primary, brand.visual.colors.accent],
+            # Same gateway-side attribution the engine chokepoint sets: the
+            # litellm backend forwards this as the OpenAI ``user`` field so the
+            # spend lands on THIS workspace instead of only on the app's shared
+            # virtual key. Avatars bypass generate_asset, so they were invisible
+            # to per-tenant attribution while still costing money. Empty when
+            # unscoped, in which case the backend omits the field entirely.
+            "user": _ws or "",
+        },
     )
-    # Avatar generation is image generation on the shared key, so it goes through
-    # the same per-workspace cost gate + metering the engine chokepoint uses
-    # (no-op when unscoped or when no cap is set).
-    _ws = get_current_workspace_id()
     cost.enforce_image_quota_sync(_ws)
     result = backend_impl.generate(req)
     if not result.images:
@@ -498,7 +509,11 @@ def generate_variants(
             height=_AVATAR_SIZE[1],
             count=1,
             reference_images=list(char_refs),
-            extra={"colors": colors},
+            # ``user`` attributes this variant's gateway spend to the workspace,
+            # exactly as the engine chokepoint and the primary avatar above do.
+            # A variant run is STATES-many billable images, so leaving it off
+            # made the single largest image spender the least attributable.
+            extra={"colors": colors, "user": _ws or ""},
         )
         result = backend_impl.generate(req)
         if not result.images:
