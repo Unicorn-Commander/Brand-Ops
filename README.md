@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
   <img alt="Package version 0.32.0" src="https://img.shields.io/badge/version-0.32.0-blue">
   <img alt="Python 3.12 or newer" src="https://img.shields.io/badge/python-3.12%2B-3776AB">
   <img alt="FastAPI and React" src="https://img.shields.io/badge/stack-FastAPI%20%2B%20React-009688">
@@ -414,7 +414,7 @@ Do not run with `AUTH_REQUIRED=false` on a host other people can reach. That mod
 
 ## Licence
 
-Brand-Ops is licensed under the GNU Affero General Public License v3.0 or later. See [LICENSE](LICENSE). If you run a modified version as a network service, the AGPL requires you to offer the corresponding source to its users.
+Brand-Ops is licensed under the [Apache License 2.0](LICENSE). You can use, change and redistribute it, including commercially, under its terms. Our names and logos are covered by [TRADEMARKS.md](TRADEMARKS.md).
 
 <p align="center">
   Built by <a href="https://magicunicorn.tech">Magic Unicorn</a> · part of <a href="https://unicorncommander.ai">Unicorn Commander</a>
