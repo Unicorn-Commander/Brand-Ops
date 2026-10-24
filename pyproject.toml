@@ -7,7 +7,11 @@ name = "brand-ops"
 version = "0.32.0"
 description = "Brand identity and AI image-asset generation for the Unicorn Commander suite. MCP and agent first."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.12"
+classifiers = [
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+]
 dependencies = [
   "pydantic>=2.9",
   "pyyaml>=6.0",
