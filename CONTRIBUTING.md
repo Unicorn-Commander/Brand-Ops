@@ -45,4 +45,4 @@ Ruff's settings are in `pyproject.toml`. The test suite forces `AUTH_REQUIRED=fa
 
 ## Licence
 
-By contributing, you agree that your contribution is licensed under the GNU Affero General Public License v3.0 or later, the same licence as the rest of the repository. See [LICENSE](LICENSE).
+Contributions are made under the Apache License 2.0, the same licence as the repository. By opening a pull request you confirm you wrote the change or have the right to submit it under that licence. See [LICENSE](LICENSE).
