@@ -634,7 +634,7 @@ def resize_avatar_png(src: Path, size: int) -> bytes:
 
     with Image.open(src) as img:
         rgba = img.convert("RGBA")
-        resized = rgba.resize((size, size), Image.LANCZOS)
+        resized = rgba.resize((size, size), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         resized.save(buf, format="PNG")
     return buf.getvalue()

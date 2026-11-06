@@ -142,7 +142,7 @@ def _brand_background(
     small.putpixel((1, 0), _mix(primary, accent, 0.5))
     small.putpixel((0, 1), _mix(primary, accent, 0.5))
     small.putpixel((1, 1), accent)
-    wash = small.resize(size, Image.BILINEAR)
+    wash = small.resize(size, Image.Resampling.BILINEAR)
     return Image.blend(Image.new("RGB", size, bg), wash, alpha)
 
 
@@ -179,7 +179,7 @@ def _paste_mark(card: Image.Image, mark_path: Path | None, box: tuple[int, int, 
     except Exception:  # noqa: BLE001 - a bad mark must not break the card
         return
     bl, bt, br, bb = box
-    mark.thumbnail((br - bl, bb - bt), Image.LANCZOS)
+    mark.thumbnail((br - bl, bb - bt), Image.Resampling.LANCZOS)
     x = bl + (br - bl - mark.width) // 2
     y = bt + (bb - bt - mark.height) // 2
     card.paste(mark, (x, y), mark)

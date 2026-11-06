@@ -23,23 +23,23 @@ What is asserted here, transport by transport:
     a-PAT-cannot-mint-a-PAT rule.
 
 The RSA tests use a real generated key and real signatures, with only the JWKS
-FETCH stubbed -- so they exercise jose's actual signature/issuer/expiry checking
+FETCH stubbed -- so they exercise PyJWT's actual signature/issuer/expiry checking
 rather than a mock of it. No network and no database is touched anywhere here.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from fastapi.testclient import TestClient
-from jose import jwk as jose_jwk
-from jose import jwt
 
 # brand_ops.api.app must be imported before mcp_server: app -> mcp_http ->
 # mcp_server, and mcp_server imports back into brand_ops.api. Importing the app
@@ -88,15 +88,7 @@ def rsa_key() -> tuple[str, dict]:
         serialization.PrivateFormat.PKCS8,
         serialization.NoEncryption(),
     ).decode()
-    public_pem = (
-        key.public_key()
-        .public_bytes(
-            serialization.Encoding.PEM,
-            serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode()
-    )
-    public_jwk = jose_jwk.construct(public_pem, algorithm="RS256").to_dict()
+    public_jwk = json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(key.public_key()))
     public_jwk["kid"] = KID
     return private_pem, public_jwk
 
@@ -205,6 +197,36 @@ def test_http_mcp_refuses_missing_credential(monkeypatch: pytest.MonkeyPatch) ->
         r = _ping(client, None)
     assert r.status_code == 401
     assert r.headers.get("www-authenticate") == "Bearer"
+
+
+def test_brigade_accepts_eddsa_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PyJWT verifies the Brigade EdDSA path against a real public JWK."""
+    issuer = "https://fictional-brigade.example.com"
+    private = ed25519.Ed25519PrivateKey.generate()
+    public_jwk = json.loads(jwt.algorithms.OKPAlgorithm.to_jwk(private.public_key()))
+    public_jwk["kid"] = "ed-test"
+    now = int(time.time())
+    token = jwt.encode(
+        {
+            "sub": "fictional-user",
+            "iss": issuer,
+            "aud": "brand-ops",
+            "iat": now,
+            "exp": now + 300,
+        },
+        private,
+        algorithm="EdDSA",
+        headers={"kid": "ed-test"},
+    )
+    _serve_jwks(monkeypatch, public_jwk)
+    monkeypatch.setenv("BRIGADE_TRUSTED_ISSUER", issuer)
+    monkeypatch.setenv("BRIGADE_EXPECTED_AUDIENCE", "brand-ops")
+
+    principal = asyncio.run(auth_mod._verify_brigade(token))
+
+    assert principal is not None
+    assert principal.uc_uid == "fictional-user"
+    assert principal.issuer == "brigade"
 
 
 @pytest.mark.parametrize(
