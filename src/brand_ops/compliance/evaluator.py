@@ -23,7 +23,7 @@ import math
 from pathlib import Path
 from typing import Any
 
-from ..brand_loader import current_kits_dir, safe_subpath
+from ..brand_loader import brand_kit_roots, safe_subpath
 
 # An em-dash is off-house-style: we flag its presence in copy. The hyphen-minus
 # and en-dash are fine; only U+2014 is banned.
@@ -389,8 +389,14 @@ def _resolve_image_path(
     cross-tenant traversal on both the read path (``check_asset``) and the write
     paths (``stamp_compliance``, ``transition``).
     """
-    root = kits_dir or current_kits_dir()
-    return safe_subpath(root, brand_slug, kind, asset_type, file)
+    candidates = [
+        safe_subpath(root, kind, asset_type, file)
+        for root in brand_kit_roots(brand_slug, kits_dir)
+    ]
+    for candidate in candidates:
+        if candidate is not None and candidate.exists():
+            return candidate
+    return next((candidate for candidate in candidates if candidate is not None), None)
 
 
 def _read_sidecar_prompt(image_path: Path | None) -> str | None:

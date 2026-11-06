@@ -51,11 +51,13 @@ from ..backends.base import (
 from ..brand_clone import clone_brand, create_brand_from_draft
 from ..brand_loader import (
     BrandNotFound,
+    brand_kit_roots,
     current_kits_dir,
     get_allowed_brands,
     get_current_workspace_id,
     list_brands,
     load_brand,
+    resolve_brand_kit,
     safe_subpath,
     workspace_query_suffix,
 )
@@ -271,10 +273,25 @@ def _ensure_brand_visible(brand: str) -> None:
     another workspace's bytes. No-op when unscoped (CLI / stdio MCP / tests).
     """
     allowed = get_allowed_brands()
-    if allowed is not None and brand not in allowed:
+    if allowed is None:
+        # Local/test callers historically use synthetic asset-only directories
+        # without a brand.yaml; the byte-path guard below still confines them.
+        return
+    try:
+        resolve_brand_kit(brand)
+    except BrandNotFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="brand not found"
-        )
+        ) from None
+
+
+def _asset_path(brand: str, kind: str, asset: str, file: str) -> Path | None:
+    """Resolve an asset through workspace overlays and the shared kit fallback."""
+    for root in brand_kit_roots(brand):
+        candidate = safe_subpath(root, kind, asset, file)
+        if candidate is not None and candidate.is_file():
+            return candidate
+    return None
 
 
 def _mark_url(brand: Brand) -> str | None:
@@ -1282,9 +1299,8 @@ def get_asset_file(
     if kind not in ("generated", "imported"):
         raise HTTPException(status_code=_HTTP_422, detail="kind must be generated or imported")
     _ensure_brand_visible(brand)
-    root = current_kits_dir().resolve()
-    target = (root / brand / kind / asset / file).resolve()
-    if not target.is_relative_to(root) or not target.is_file():
+    target = _asset_path(brand, kind, asset, file)
+    if target is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="asset not found"
         )
@@ -1325,9 +1341,8 @@ def delete_asset_file(
     if kind not in ("generated", "imported"):
         raise HTTPException(status_code=_HTTP_422, detail="kind must be generated or imported")
     _ensure_brand_visible(brand)
-    root = current_kits_dir().resolve()
-    target = (root / brand / kind / asset / file).resolve()
-    if not target.is_relative_to(root) or not target.is_file():
+    target = _asset_path(brand, kind, asset, file)
+    if target is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="asset not found"
         )
@@ -1474,7 +1489,7 @@ def _apply_transition(
     # image path the catalog and approve flow resolve. ``transition`` above already
     # confined and would have 404'd an escaping path; re-confine here as defense in
     # depth (and because this path feeds a served URL).
-    image_path = safe_subpath(current_kits_dir(), brand, kind, asset, file)
+    image_path = _asset_path(brand, kind, asset, file)
     if image_path is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="asset sidecar not found"
@@ -2228,7 +2243,7 @@ def generate_brand_agent_avatar(slug: str, agent: str, _: _Owner) -> AgentIdenti
     return AgentIdentityOut(**ident)
 
 
-def _serve_avatar(path: Path | None, size: int | None) -> Response:
+def _serve_avatar(path: Path | None, size: int | None, brand: str) -> Response:
     """Serve a confined avatar file, optionally downscaled to a square ``size``.
 
     The shared body of the avatar and variant GET routes. An out-of-range
@@ -2245,8 +2260,10 @@ def _serve_avatar(path: Path | None, size: int | None) -> Response:
             status_code=_HTTP_422,
             detail=f"size must be one of {list(agent_identity.AVATAR_SIZES)}",
         )
-    root = current_kits_dir().resolve()
-    if path is None or not path.resolve().is_relative_to(root) or not path.is_file():
+    roots = [root.resolve() for root in brand_kit_roots(brand)]
+    if path is None or not any(path.resolve().is_relative_to(root) for root in roots):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="avatar not generated")
+    if not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="avatar not generated")
     if size is None:
         return _safe_file_response(path)
@@ -2284,7 +2301,7 @@ def get_brand_agent_avatar(
         path = agent_identity.avatar_path(slug, agent)
     except agent_identity.AgentIdentityError as exc:
         raise HTTPException(status_code=_HTTP_422, detail=str(exc)) from None
-    return _serve_avatar(path, size)
+    return _serve_avatar(path, size, slug)
 
 
 @router.post("/brands/{slug}/agents/{agent}/variants", response_model=AgentIdentityOut)
@@ -2351,7 +2368,7 @@ def get_brand_agent_variant(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="variant not found"
         ) from None
-    return _serve_avatar(path, size)
+    return _serve_avatar(path, size, slug)
 
 
 @router.get("/brands/{slug}/agents/{agent}/manifest")

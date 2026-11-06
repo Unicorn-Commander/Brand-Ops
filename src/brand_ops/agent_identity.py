@@ -25,10 +25,11 @@ from . import cost, governance
 from .atomic_write import atomic_write_bytes, atomic_write_text
 from .backends.base import GenRequest
 from .brand_loader import (
-    current_kits_dir,
     get_current_workspace_id,
     load_brand,
+    resolve_brand_kit,
     resolve_character_references,
+    writable_brand_kit,
 )
 from .compliance.evaluator import check_image_colors
 from .compliance.rules import build_rules
@@ -101,12 +102,37 @@ def slugify(name: str) -> str:
 
 
 def _agents_root(brand_slug: str, kits_dir: Path | None) -> Path:
-    root = kits_dir or current_kits_dir()
-    return root / brand_slug / "agents"
+    return writable_brand_kit(brand_slug, kits_dir) / "agents"
 
 
-def _agent_dir(brand_slug: str, agent_slug: str, kits_dir: Path | None) -> Path:
-    return _agents_root(brand_slug, kits_dir) / agent_slug
+def _agent_roots(brand_slug: str, kits_dir: Path | None) -> list[Path]:
+    """Read agent directories workspace-first, then from the shared kit."""
+    selected = resolve_brand_kit(brand_slug, kits_dir)
+    if kits_dir is not None:
+        return [selected / "agents"]
+
+    workspace_id = get_current_workspace_id()
+    if not workspace_id:
+        return [selected / "agents"]
+
+    # A workspace may keep agent overlays for a shared built-in without copying
+    # the shared brand.yaml. A workspace-owned brand fully shadows a same-slug
+    # shared kit, so only the shared-brand case gets the second root.
+    workspace_root = writable_brand_kit(brand_slug)
+    roots = [workspace_root / "agents"]
+    if selected != workspace_root:
+        roots.append(selected / "agents")
+    return roots
+
+
+def _find_agent_meta(
+    brand_slug: str, agent_slug: str, kits_dir: Path | None
+) -> Path | None:
+    for root in _agent_roots(brand_slug, kits_dir):
+        meta = root / agent_slug / "agent.json"
+        if meta.is_file():
+            return meta
+    return None
 
 
 def _voice_tone(brand: Brand) -> list[str]:
@@ -205,15 +231,19 @@ def _identity_dict(
 def list_agents(brand_slug: str, kits_dir: Path | None = None) -> list[dict[str, Any]]:
     """All agent identities for a brand, newest first."""
     load_brand(brand_slug, kits_dir)  # validates the slug + brand exists
-    root = _agents_root(brand_slug, kits_dir)
-    if not root.is_dir():
-        return []
-    out: list[dict[str, Any]] = []
-    for d in sorted(root.iterdir()):
-        meta = d / "agent.json"
-        if d.is_dir() and meta.is_file():
-            data = json.loads(meta.read_text())
-            out.append(_identity_dict(brand_slug, d.name, data, kits_dir))
+    by_slug: dict[str, dict[str, Any]] = {}
+    # Shared identities are the fallback; a workspace overlay with the same
+    # agent slug wins, just like the brand resolver.
+    for root in reversed(_agent_roots(brand_slug, kits_dir)):
+        if not root.is_dir():
+            continue
+        for d in sorted(root.iterdir()):
+            meta = d / "agent.json"
+            if d.is_dir() and meta.is_file():
+                by_slug[d.name] = _identity_dict(
+                    brand_slug, d.name, json.loads(meta.read_text()), kits_dir
+                )
+    out = list(by_slug.values())
     out.sort(key=lambda a: a.get("created_at") or "", reverse=True)
     return out
 
@@ -221,10 +251,11 @@ def list_agents(brand_slug: str, kits_dir: Path | None = None) -> list[dict[str,
 def load_agent(
     brand_slug: str, agent_slug: str, kits_dir: Path | None = None
 ) -> dict[str, Any]:
+    load_brand(brand_slug, kits_dir)
     if not _SLUG_RE.match(agent_slug or ""):
         raise AgentIdentityError(f"invalid agent slug {agent_slug!r}")
-    meta = _agent_dir(brand_slug, agent_slug, kits_dir) / "agent.json"
-    if not meta.is_file():
+    meta = _find_agent_meta(brand_slug, agent_slug, kits_dir)
+    if meta is None:
         raise AgentIdentityError(f"agent {agent_slug!r} not found for brand {brand_slug!r}")
     return _identity_dict(brand_slug, agent_slug, json.loads(meta.read_text()), kits_dir)
 
@@ -247,7 +278,9 @@ def create_agent(
     agent_slug = slugify(name)
     if not _SLUG_RE.match(agent_slug):
         raise AgentIdentityError(f"name {name!r} does not yield a valid slug")
-    d = _agent_dir(brand_slug, agent_slug, kits_dir)
+    # Always write under the active workspace. For a shared built-in this is an
+    # agent-only overlay, so the shared kit remains immutable across tenants.
+    d = _agents_root(brand_slug, kits_dir) / agent_slug
     if (d / "agent.json").exists():
         raise FileExistsError(f"agent {agent_slug!r} already exists for brand {brand_slug!r}")
     d.mkdir(parents=True, exist_ok=True)
@@ -279,12 +312,22 @@ def _load_agent_data(
     load_brand(brand_slug, kits_dir)  # tenant guard + brand-exists
     if not _SLUG_RE.match(agent_slug or ""):
         raise AgentIdentityError(f"invalid agent slug {agent_slug!r}")
-    meta = _agent_dir(brand_slug, agent_slug, kits_dir) / "agent.json"
-    if not meta.is_file():
+    meta = _find_agent_meta(brand_slug, agent_slug, kits_dir)
+    if meta is None:
         raise AgentIdentityError(
             f"agent {agent_slug!r} not found for brand {brand_slug!r}"
         )
-    return meta, json.loads(meta.read_text())
+    data = json.loads(meta.read_text())
+
+    # Mutations to a shared built-in must become workspace-local overlays. Copy
+    # only the small identity record; generated avatar bytes are written beside
+    # this copied record by the caller.
+    writable = _agents_root(brand_slug, kits_dir) / agent_slug / "agent.json"
+    if kits_dir is None and writable != meta:
+        writable.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(writable, json.dumps(data, indent=2))
+        meta = writable
+    return meta, data
 
 
 def set_agent_voice(
@@ -405,10 +448,7 @@ def generate_avatar(
 
     settings = settings or get_settings()
     brand = load_brand(brand_slug, kits_dir)
-    meta_path = _agent_dir(brand_slug, agent_slug, kits_dir) / "agent.json"
-    if not meta_path.is_file():
-        raise AgentIdentityError(f"agent {agent_slug!r} not found for brand {brand_slug!r}")
-    data = json.loads(meta_path.read_text())
+    meta_path, data = _load_agent_data(brand_slug, agent_slug, kits_dir)
 
     _, backend_impl, _ = resolve_image_backend(_AVATAR_DEFAULT_BACKEND, None, settings)
     char_refs = resolve_character_references(brand_slug, brand, kits_dir)
@@ -485,10 +525,7 @@ def generate_variants(
 
     settings = settings or get_settings()
     brand = load_brand(brand_slug, kits_dir)
-    meta_path = _agent_dir(brand_slug, agent_slug, kits_dir) / "agent.json"
-    if not meta_path.is_file():
-        raise AgentIdentityError(f"agent {agent_slug!r} not found for brand {brand_slug!r}")
-    data = json.loads(meta_path.read_text())
+    meta_path, data = _load_agent_data(brand_slug, agent_slug, kits_dir)
 
     name = data.get("name", agent_slug)
     role = data.get("role", "agent")
@@ -552,8 +589,12 @@ def avatar_path(
     """Confined path to the agent's avatar, or None if not generated."""
     if not _SLUG_RE.match(agent_slug or ""):
         raise AgentIdentityError(f"invalid agent slug {agent_slug!r}")
-    p = _agent_dir(brand_slug, agent_slug, kits_dir) / "avatar.png"
-    return p if p.is_file() else None
+    load_brand(brand_slug, kits_dir)
+    for root in _agent_roots(brand_slug, kits_dir):
+        p = root / agent_slug / "avatar.png"
+        if p.is_file():
+            return p
+    return None
 
 
 def variant_path(
@@ -569,8 +610,12 @@ def variant_path(
         raise AgentIdentityError(f"invalid agent slug {agent_slug!r}")
     if state not in _STATE_MODIFIERS:
         raise AgentIdentityError(f"unknown avatar state {state!r}")
-    p = _agent_dir(brand_slug, agent_slug, kits_dir) / _variant_filename(state)
-    return p if p.is_file() else None
+    load_brand(brand_slug, kits_dir)
+    for root in _agent_roots(brand_slug, kits_dir):
+        p = root / agent_slug / _variant_filename(state)
+        if p.is_file():
+            return p
+    return None
 
 
 def resize_avatar_png(src: Path, size: int) -> bytes:

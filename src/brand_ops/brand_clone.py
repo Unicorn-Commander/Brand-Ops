@@ -175,8 +175,9 @@ def clone_brand(
     # Resolve the source first: this both validates the source exists (raising
     # BrandNotFound, a FileNotFoundError subclass is not used here so the route
     # maps it explicitly) and gives us the fully merged brand for a distinct
-    # clone. A missing source must fail before we create any directory.
-    source = load_brand(source_slug, kits_dir=root)
+    # clone. With the default root, shared suite brands are valid sources for a
+    # workspace clone; an explicit test/maintenance root remains single-root.
+    source = load_brand(source_slug, kits_dir=root if kits_dir is not None else None)
 
     dest_dir = root / new_slug
     _assert_slug_available(new_slug, root)
@@ -244,7 +245,7 @@ def clone_brand(
     # Load through the same path every surface uses, so the returned Brand is
     # exactly what GET /api/brands/<new_slug> will serve (and the as_child merge
     # is exercised here, not just asserted downstream).
-    return load_brand(new_slug, kits_dir=root)
+    return load_brand(new_slug, kits_dir=root if kits_dir is not None else None)
 
 
 def create_brand_from_draft(
@@ -369,7 +370,7 @@ def create_brand_from_draft(
     # hex raises ValueError here (the route maps it to 422). The directory was
     # already created, so the route's cleanup or the operator removes it; the
     # agent's hex validation makes this practically unreachable from intake.
-    return load_brand(slug, kits_dir=root)
+    return load_brand(slug, kits_dir=root if kits_dir is not None else None)
 
 
 def _display_name(draft: dict) -> str:

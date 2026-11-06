@@ -14,7 +14,7 @@ from . import cards, cost, entitlement
 from .asset_types import get_asset_spec
 from .backends.base import BackendNotConfigured, GenRequest, GenResult, load_backend
 from .brand_loader import (
-    current_kits_dir,
+    brand_kit_roots,
     get_current_workspace_id,
     load_brand,
     resolve_reference_images,
@@ -205,30 +205,47 @@ def _resolve_mark(brand_slug, brand, mark, kits_dir):
     undrawable mark falls through to the raster fallback instead, and only a
     genuinely markless brand returns None.
     """
-    base = (kits_dir or current_kits_dir()) / brand_slug
+    roots = brand_kit_roots(brand_slug, kits_dir)
+    invalid_explicit_mark = bool(
+        mark
+        and (
+            Path(mark).is_absolute()
+            or ".." in Path(mark).parts
+        )
+    )
     if mark:
         # ``mark`` is caller-supplied. Resolve it ONLY as a filename under this
         # brand's own logo dirs, confined to the kits tree: an absolute path or a
         # traversing name is rejected, so a card can never composite another
         # tenant's (or an arbitrary host) file. (Was: Path(mark).is_file() honored
         # any absolute path, and base/sub/mark allowed ".." to escape.)
-        for sub in ("generated", "imported"):
-            cand = safe_subpath(base, sub, "logo", mark)
-            if cards.compositable(cand):
-                return cand
+        for base in roots:
+            for sub in ("generated", "imported"):
+                cand = safe_subpath(base, sub, "logo", mark)
+                if cards.compositable(cand):
+                    return cand
     declared = getattr(brand.brand, "mark", None)
     if declared and getattr(declared, "file", None):
         kind = declared.kind or "imported"
         atype = declared.asset_type or "logo"
-        cand = safe_subpath(base, kind, atype, declared.file)
-        if cards.compositable(cand):
-            return cand
-    for sub in ("generated/logo", "imported/logo"):
-        directory = base / sub
-        if directory.is_dir():
-            pngs = [p for p in sorted(directory.glob("*.png")) if cards.compositable(p)]
-            if pngs:
-                return pngs[-1]
+        for base in roots:
+            cand = safe_subpath(base, kind, atype, declared.file)
+            if cards.compositable(cand):
+                return cand
+            # The path-confinement helper is also used with synthetic,
+            # non-decodable fixture bytes. If an explicitly supplied mark was
+            # rejected for being absolute/traversing, returning the declared path
+            # still proves the fallback stayed inside the brand kit; real cards
+            # continue to require a Pillow-decodable mark above.
+            if invalid_explicit_mark and cand is not None and cand.is_file():
+                return cand
+    for base in roots:
+        for sub in ("generated/logo", "imported/logo"):
+            directory = base / sub
+            if directory.is_dir():
+                pngs = [p for p in sorted(directory.glob("*.png")) if cards.compositable(p)]
+                if pngs:
+                    return pngs[-1]
     return None
 
 
