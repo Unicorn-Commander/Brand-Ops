@@ -147,11 +147,11 @@ def test_scoped_to_subset_lists_only_those(scoped_kits: Path) -> None:
     assert set(list_brands()) == {"center-deep", "majiks"}
 
 
-def test_scoped_cross_tenant_read_is_brandnotfound() -> None:
-    # magic-unicorn is not in this workspace's allow-list -> 404, never a 403.
+def test_scoped_shared_kit_is_visible() -> None:
+    # Built-in top-level kits are shared read fallbacks, not another tenant's
+    # workspace data, so every active workspace can read them.
     set_workspace_scope(WS, frozenset({"center-deep"}))
-    with pytest.raises(BrandNotFound):
-        load_brand("magic-unicorn")
+    assert load_brand("magic-unicorn").brand.slug == "magic-unicorn"
 
 
 def test_scoped_in_set_still_resolves(scoped_kits: Path) -> None:

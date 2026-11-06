@@ -60,26 +60,162 @@ def get_current_workspace_id() -> str | None:
     return _scope.get()[0]
 
 
-def current_kits_dir() -> Path:
-    """The kits root for the active request: the per-workspace subtree when scoped.
+def shared_kits_dir() -> Path:
+    """The deploy-shared kit root containing the built-in suite brands."""
+    return DEFAULT_KITS_DIR
 
-    Tenant brand files live at ``brand-kits/<workspace_id>/<slug>/`` so each
-    workspace is physically isolated on disk: a brand read can never resolve a
-    path into another tenant's subtree (defense in depth beneath the visibility
-    gate), and two tenants may hold the same brand slug without colliding. When
-    there is no active workspace (the CLI, the stdio MCP, tests, AUTH off) this is
-    the global ``brand-kits/`` root, preserving the original flat behavior. Every
-    reader and writer resolves its root through here (via ``kits_dir or
-    current_kits_dir()``), so per-request tenant scoping is automatic at one
-    boundary rather than threaded through each caller.
-    """
+
+def workspace_kits_dir() -> Path:
+    """The active workspace's writable kit root, or the shared root when unscoped."""
     ws = get_current_workspace_id()
     return DEFAULT_KITS_DIR / ws if ws else DEFAULT_KITS_DIR
+
+
+def current_kits_dir() -> Path:
+    """The active request's writable kits root.
+
+    Workspace-created kits live at ``brand-kits/<workspace_id>/<slug>/``. The
+    shared top-level root is a read fallback, not a write target for a scoped
+    request; callers that resolve an existing brand for reading should use
+    :func:`resolve_brand_kit` instead.
+    """
+    return workspace_kits_dir()
 
 
 def get_allowed_brands() -> frozenset[str] | None:
     """The brand slugs visible to this request: None = all (unscoped), else the set."""
     return _scope.get()[1]
+
+
+def writable_brand_kit(slug: str, kits_dir: Path | None = None) -> Path:
+    """Return the kit directory where this request may write ``slug``.
+
+    A caller-supplied ``kits_dir`` is an explicit test/maintenance root and is
+    honored exactly. In a workspace request, all new files go below that
+    workspace even when the brand itself is one of the shared built-ins. This
+    prevents an agent, generated asset, or avatar from modifying the shared kit
+    seen by every workspace.
+    """
+    _validate_slug(slug)
+    root = kits_dir or current_kits_dir()
+    return root / slug
+
+
+def _brand_yaml_exists(kit: Path) -> bool:
+    return (kit / "brand.yaml").is_file()
+
+
+def resolve_brand_kit(slug: str, kits_dir: Path | None = None) -> Path:
+    """Resolve one visible brand kit, workspace first and shared second.
+
+    A workspace-owned kit shadows a same-slug shared kit. If no workspace copy
+    exists, the built-in top-level kit is available to an active workspace as a
+    shared read-only fallback. A scoped caller with no active workspace remains
+    deny-by-default, and a workspace-owned brand not present in the caller's
+    allow-list is never rescued by a same-slug shared kit.
+
+    ``kits_dir`` is an explicit root override used by tests, importers, and
+    maintenance jobs; it intentionally keeps the historical single-root
+    behavior and does not consult the request's fallback roots.
+    """
+    _validate_slug(slug)
+    allowed = get_allowed_brands()
+    workspace_id = get_current_workspace_id()
+
+    if kits_dir is not None:
+        kit = kits_dir / slug
+        if _brand_yaml_exists(kit):
+            return kit
+        raise BrandNotFound(f"brand {slug!r} not found")
+
+    # ``allowed is not None`` marks an authenticated request. With no active
+    # workspace that request is intentionally denied, including shared kits.
+    if allowed is not None and workspace_id is None:
+        raise BrandNotFound(f"brand {slug!r} not found")
+
+    workspace_kit = (DEFAULT_KITS_DIR / workspace_id / slug) if workspace_id else None
+    if workspace_kit is not None and _brand_yaml_exists(workspace_kit):
+        if allowed is not None and slug not in allowed:
+            raise BrandNotFound(f"brand {slug!r} not found")
+        return workspace_kit
+
+    shared_kit = DEFAULT_KITS_DIR / slug
+    if _brand_yaml_exists(shared_kit):
+        # Shared suite brands are deliberately available in every active
+        # workspace. They are not another tenant's kit.
+        return shared_kit
+
+    raise BrandNotFound(f"brand {slug!r} not found")
+
+
+def brand_scope(slug: str, kits_dir: Path | None = None) -> str:
+    """Return ``workspace`` or ``shared`` for a visible brand."""
+    kit = resolve_brand_kit(slug, kits_dir)
+    if kits_dir is not None:
+        return "shared"
+    workspace_id = get_current_workspace_id()
+    if workspace_id and kit == DEFAULT_KITS_DIR / workspace_id / slug:
+        return "workspace"
+    return "shared"
+
+
+def brand_kit_roots(slug: str, kits_dir: Path | None = None) -> list[Path]:
+    """Return readable kit roots in workspace/overlay-first order."""
+    if kits_dir is not None:
+        _validate_slug(slug)
+        return [kits_dir / slug]
+    try:
+        selected = resolve_brand_kit(slug, kits_dir)
+    except BrandNotFound:
+        # The sidecar catalog and path-confinement helpers also support local
+        # asset-only fixtures that intentionally omit brand.yaml. They remain
+        # unscoped-only; authenticated reads must resolve a real visible brand.
+        if get_allowed_brands() is None:
+            return [current_kits_dir() / slug]
+        raise
+    overlay = writable_brand_kit(slug)
+    if overlay == selected:
+        return [selected]
+    return [overlay, selected]
+
+
+def _brand_slugs(root: Path) -> list[str]:
+    """List valid, non-infrastructure brand directories directly below ``root``."""
+    if not root.exists():
+        return []
+    return sorted(
+        p.name
+        for p in root.iterdir()
+        if p.is_dir() and not p.name.startswith(("_", ".")) and _brand_yaml_exists(p)
+    )
+
+
+def list_brand_entries(kits_dir: Path | None = None) -> list[dict[str, str]]:
+    """List visible brands with their physical scope.
+
+    For a workspace request, workspace kits are listed first and shadow any
+    same-slug shared kit. Shared top-level suite brands are then added. A
+    workspace's allow-list filters only workspace-owned entries; shared entries
+    are common read-only fixtures and remain visible in every active workspace.
+    """
+    if kits_dir is not None:
+        return [{"slug": slug, "scope": "shared"} for slug in _brand_slugs(kits_dir)]
+
+    allowed = get_allowed_brands()
+    workspace_id = get_current_workspace_id()
+    if allowed is not None and workspace_id is None:
+        return []
+
+    entries: dict[str, dict[str, str]] = {}
+    if workspace_id:
+        workspace_root = DEFAULT_KITS_DIR / workspace_id
+        for slug in _brand_slugs(workspace_root):
+            if allowed is None or slug in allowed:
+                entries[slug] = {"slug": slug, "scope": "workspace"}
+
+    for slug in _brand_slugs(DEFAULT_KITS_DIR):
+        entries.setdefault(slug, {"slug": slug, "scope": "shared"})
+    return [entries[slug] for slug in sorted(entries)]
 
 
 def workspace_query_suffix() -> str:
@@ -187,21 +323,7 @@ def safe_subpath(root: Path, *parts: str) -> Path | None:
 
 
 def list_brands(kits_dir: Path | None = None) -> list[str]:
-    root = kits_dir or current_kits_dir()
-    if not root.exists():
-        return []
-    slugs = sorted(
-        p.name
-        for p in root.iterdir()
-        if p.is_dir() and not p.name.startswith("_") and (p / "brand.yaml").exists()
-    )
-    allowed = get_allowed_brands()
-    if allowed is None:
-        # Unscoped (CLI / stdio MCP / tests): the original global listing.
-        return slugs
-    # Tenant-scoped: only the brands this workspace owns, per the DB allow-list
-    # the resolver loaded. A simple set membership test -- no per-brand load.
-    return [s for s in slugs if s in allowed]
+    return [entry["slug"] for entry in list_brand_entries(kits_dir)]
 
 
 def _brand_yaml_path(slug: str, kits_dir: Path) -> Path:
@@ -288,10 +410,8 @@ def load_brand(slug: str, kits_dir: Path | None = None) -> Brand:
     # another tenant's file. Unscoped (allowed is None: CLI / stdio MCP / tests)
     # this never fires. The gate runs on every call; only the parse below is
     # cached.
-    allowed = get_allowed_brands()
-    if allowed is not None and slug not in allowed:
-        raise BrandNotFound(f"brand {slug!r} not found")
-    root = kits_dir or current_kits_dir()
+    kit = resolve_brand_kit(slug, kits_dir)
+    root = kit.parent
 
     # Cache fast path: when the brand.yaml is unchanged since we last parsed it
     # (same resolved path + st_mtime_ns), return the memoized Brand. A sub-brand
@@ -311,9 +431,11 @@ def load_brand(slug: str, kits_dir: Path | None = None) -> Brand:
     parent_slug = (raw.get("brand") or {}).get("parent")
     parent_key = None
     if parent_slug:
-        parent_raw = _read_yaml(parent_slug, root)
+        parent_kit = resolve_brand_kit(parent_slug, kits_dir)
+        parent_root = parent_kit.parent
+        parent_raw = _read_yaml(parent_slug, parent_root)
         raw = _merge(parent_raw, raw)
-        parent_key = _mtime_key(_brand_yaml_path(parent_slug, root))
+        parent_key = _mtime_key(_brand_yaml_path(parent_slug, parent_root))
     brand_obj = Brand.model_validate(raw)
 
     # Store only when we have a stable child key. ``child_key`` is re-read here
@@ -336,8 +458,7 @@ _MAX_CHARACTER_REFS = 14
 
 def _kit_base(slug: str, kits_dir: Path | None = None) -> Path:
     """Resolved on-disk root for one brand's kit directory."""
-    root = kits_dir or current_kits_dir()
-    return (root / slug).resolve()
+    return resolve_brand_kit(slug, kits_dir).resolve()
 
 
 def _resolve_kit_relative(base: Path, ref: str) -> Path | None:

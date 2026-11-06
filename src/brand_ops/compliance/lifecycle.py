@@ -25,9 +25,9 @@ from ..activity import append_event
 from ..atomic_write import atomic_write_text
 from ..brand_loader import (
     BrandNotFound,
-    current_kits_dir,
     get_current_workspace_id,
     load_brand,
+    resolve_brand_kit,
 )
 from ..catalog_index import index_sidecar_sync
 from .evaluator import _resolve_image_path, check_asset
@@ -199,7 +199,11 @@ def transition(
     # tree (``_resolve_image_path`` returns None on an escaping segment).
     if image_path is None:
         raise FileNotFoundError("asset sidecar not found")
-    root = (kits_dir or current_kits_dir()).resolve()
+    root = (
+        (kits_dir / brand_slug).resolve()
+        if kits_dir is not None
+        else resolve_brand_kit(brand_slug).resolve()
+    )
     sidecar = image_path.with_suffix(image_path.suffix + ".json")
     if not sidecar.is_relative_to(root) or not sidecar.is_file():
         raise FileNotFoundError("asset sidecar not found")

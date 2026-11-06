@@ -46,6 +46,8 @@ from .brand_clone import clone_brand as _clone_brand
 from .brand_clone import create_brand_from_draft as _create_brand_from_draft
 from .brand_loader import (
     BrandNotFound,
+    brand_kit_roots,
+    brand_scope,
     current_kits_dir,
     get_allowed_brands,
     get_current_workspace_id,
@@ -54,7 +56,7 @@ from .brand_loader import (
     safe_subpath,
 )
 from .brand_loader import (
-    list_brands as _list_brands,
+    list_brand_entries as _list_brand_entries,
 )
 from .compliance import (
     build_rules,
@@ -124,6 +126,15 @@ _USER_ERRORS = (BrandNotFound, KeyError, ValueError)
 _log = logging.getLogger("brand_ops.mcp_server")
 
 
+class _BrandEntryList(list[dict[str, str]]):
+    """Wire-compatible brand records with legacy slug membership semantics."""
+
+    def __contains__(self, item: object) -> bool:
+        if isinstance(item, str):
+            return any(entry.get("slug") == item for entry in self)
+        return super().__contains__(item)
+
+
 def _index_brand_best_effort(brand: Brand) -> None:
     """DB-index an MCP-created brand under the active workspace, best effort.
 
@@ -145,9 +156,9 @@ def _index_brand_best_effort(brand: Brand) -> None:
     if not workspace_id:
         return
     meta = brand.brand
-    try:
-        asyncio.run(
-            record_brand(
+    async def _record() -> None:
+        try:
+            await record_brand(
                 workspace_id,
                 slug=meta.slug,
                 display_name=meta.display_name,
@@ -155,12 +166,21 @@ def _index_brand_best_effort(brand: Brand) -> None:
                 tagline=meta.tagline,
                 created_by="mcp",
             )
-        )
-    except Exception:  # noqa: BLE001 - best effort; the boot import is the backstop
-        _log.warning(
-            "MCP-created brand %s not DB-indexed; boot import will pick it up",
-            meta.slug,
-        )
+        except Exception:  # noqa: BLE001 - best effort; boot import is the backstop
+            _log.warning(
+                "MCP-created brand %s not DB-indexed; boot import will pick it up",
+                meta.slug,
+            )
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(_record())
+    else:
+        # FastMCP dispatches synchronous tool bodies inside a running event loop.
+        # Schedule the best-effort DB mirror there rather than creating a
+        # coroutine that asyncio.run cannot own.
+        loop.create_task(_record())
 
 
 def _error(message: str, **extra: Any) -> dict[str, Any]:
@@ -242,13 +262,15 @@ def _missing_asset_types(brand_slug: str) -> list[str]:
 
 @mcp.tool(annotations=_read("List brands"))
 def list_brands() -> dict[str, Any]:
-    """List the brand slugs seeded under brand-kits/.
+    """List visible brands and whether each kit is workspace or shared.
 
-    Returns a dict with a ``brands`` list of slugs and a ``count``.
+    Workspace kits shadow same-slug shared kits. Shared suite brands are visible
+    as read-only fallbacks in every active workspace. Each entry has ``slug`` and
+    ``scope`` (``workspace`` or ``shared``), plus the total ``count``.
     """
     try:
-        slugs = _list_brands()
-        return {"brands": slugs, "count": len(slugs)}
+        brands = _BrandEntryList(_list_brand_entries())
+        return {"brands": brands, "count": len(brands)}
     except Exception as exc:  # noqa: BLE001 - boundary guard, never raise
         return _error(exc)
 
@@ -399,27 +421,18 @@ def list_generated_assets(
     if status is not None and status not in ("approved", "needs_review"):
         return _error("status must be approved or needs_review")
     try:
-        root = current_kits_dir()
-        if not root.exists():
-            return {"assets": [], "count": 0}
-
-        # Tenant gate: the same workspace allow-list the brand loader uses, so the
-        # scoped MCP surface never lists another workspace's catalog. Unscoped
-        # (None: stdio / CLI / tests) every brand is read, exactly as before.
-        allowed = get_allowed_brands()
         if brand:
-            if allowed is not None and brand not in allowed:
+            try:
+                brand_dirs = brand_kit_roots(brand)
+            except BrandNotFound:
                 return {"assets": [], "count": 0}
-            bd = safe_subpath(root, brand)
-            brand_dirs = [bd] if (bd is not None and bd.is_dir()) else []
         else:
-            brand_dirs = [
-                p
-                for p in root.iterdir()
-                if p.is_dir()
-                and not p.name.startswith("_")
-                and (allowed is None or p.name in allowed)
-            ]
+            brand_dirs = []
+            for entry in _list_brand_entries():
+                try:
+                    brand_dirs.extend(brand_kit_roots(entry["slug"]))
+                except BrandNotFound:
+                    continue
 
         records: list[dict[str, Any]] = []
         for brand_dir in sorted(brand_dirs):
@@ -1059,6 +1072,7 @@ def new_brand(
     dest = current_kits_dir() / brand.slug
     return {
         "slug": brand.slug,
+        "scope": brand_scope(brand.slug),
         "created": str(dest),
         "brand_yaml": str(dest / "brand.yaml"),
         "parent": brand.brand.parent,
@@ -2012,9 +2026,17 @@ def fetch_asset_bytes(
     allowed = get_allowed_brands()
     if allowed is not None and brand not in allowed:
         return _error("asset not found", brand=brand, asset=asset, file=file)
-    root = current_kits_dir().resolve()
-    target = (root / brand / kind / asset / file).resolve()
-    if not target.is_relative_to(root) or not target.is_file():
+    try:
+        roots = brand_kit_roots(brand)
+    except BrandNotFound:
+        return _error("asset not found", brand=brand, asset=asset, file=file)
+    target = None
+    for root in roots:
+        candidate = safe_subpath(root, kind, asset, file)
+        if candidate is not None and candidate.is_file():
+            target = candidate
+            break
+    if target is None:
         return _error("asset not found", brand=brand, asset=asset, file=file)
     suffix = target.suffix.lower()
     fmt = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".webp": "webp", ".gif": "gif"}.get(
@@ -2040,9 +2062,9 @@ def fetch_asset_bytes(
 
 @mcp.resource("brand-ops://brands")
 def brands_resource() -> str:
-    """All seeded brand slugs as JSON."""
-    slugs = _list_brands()
-    return json.dumps({"brands": slugs, "count": len(slugs)}, indent=2)
+    """All visible brands and their workspace/shared scope as JSON."""
+    brands = _list_brand_entries()
+    return json.dumps({"brands": brands, "count": len(brands)}, indent=2)
 
 
 @mcp.resource("brand-ops://asset-types")

@@ -17,9 +17,11 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from ..brand_loader import (
+    brand_kit_roots,
     current_kits_dir,
     get_allowed_brands,
     get_current_workspace_id,
+    list_brand_entries,
     safe_subpath,
     workspace_query_suffix,
 )
@@ -271,38 +273,69 @@ def read_assets(
         if records is not None:
             return records
 
-    root = kits_dir or current_kits_dir()
-    if not root.exists():
-        return []
-
-    # Tenant gate: the same workspace allow-list the brand loader uses. When the
-    # request is scoped (allowed is not None) only visible brands are scanned, so
-    # the no-brand-filter listing cannot leak another workspace's assets and a
-    # request for a brand outside the workspace returns nothing. Unscoped (CLI /
-    # stdio MCP / tests) every brand is read, exactly as before.
-    allowed = get_allowed_brands()
-    if brand:
-        if allowed is not None and brand not in allowed:
+    # Resolve each brand to its concrete kit. Workspace kits shadow the shared
+    # top-level suite kits; shared kits are a safe fallback for active workspaces.
+    # Asset writes for a shared brand use a workspace-local overlay, which is
+    # scanned before the shared catalog below.
+    if kits_dir is not None:
+        root = kits_dir
+        if not root.exists():
             return []
-        brands = [brand]
+        if brand:
+            allowed = get_allowed_brands()
+            if allowed is not None and brand not in allowed:
+                return []
+            brands = [(brand, root / brand)]
+        else:
+            brands = [
+                (p.name, p)
+                for p in sorted(root.iterdir())
+                if p.is_dir() and not p.name.startswith(("_", "."))
+            ]
+            allowed = get_allowed_brands()
+            if allowed is not None:
+                brands = [(slug, path) for slug, path in brands if slug in allowed]
     else:
-        brands = [
-            p.name
-            for p in sorted(root.iterdir())
-            if p.is_dir() and not p.name.startswith("_")
-        ]
-        if allowed is not None:
-            brands = [b for b in brands if b in allowed]
+        if brand:
+            try:
+                roots = brand_kit_roots(brand)
+            except Exception:  # noqa: BLE001 - unknown/invisible brand is empty
+                return []
+            brands = [(brand, kit) for kit in roots]
+        else:
+            brands = []
+            seen: set[str] = set()
+            for entry in list_brand_entries():
+                slug = entry["slug"]
+                try:
+                    roots = brand_kit_roots(slug)
+                except Exception:  # noqa: BLE001 - malformed brand is skipped
+                    continue
+                brands.extend((slug, kit) for kit in roots)
+                seen.add(slug)
+            # Preserve the unscoped sidecar catalog's support for local asset
+            # fixtures that have no brand.yaml. These are never included for a
+            # workspace-scoped caller because list_brand_entries is gated there.
+            if get_allowed_brands() is None:
+                root = current_kits_dir()
+                if root.exists():
+                    for path in sorted(root.iterdir()):
+                        if (
+                            path.is_dir()
+                            and not path.name.startswith(("_", "."))
+                            and path.name not in seen
+                        ):
+                            brands.append((path.name, path))
 
     records: list[AssetRecord] = []
-    for slug in brands:
+    for slug, brand_root in brands:
         for kind in _KINDS:
             # Confine the join: ``slug`` is already allow-list gated, but ``asset``
             # (the asset-type segment) is caller-supplied, so route the whole join
             # through the shared guard. A crafted segment that would escape the
             # workspace subtree yields None and is skipped, never scanned.
-            parts = [slug, kind, asset] if asset else [slug, kind]
-            scan_root = safe_subpath(root, *parts)
+            parts = [kind, asset] if asset else [kind]
+            scan_root = safe_subpath(brand_root, *parts)
             if scan_root is None or not scan_root.exists():
                 continue
             for sidecar, image_path in _iter_sidecars(scan_root):
