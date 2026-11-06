@@ -1,8 +1,8 @@
 # Brand-Ops CI gate (Forgejo Actions). Runs on push to main / feat branches and
 # on pull requests: lint + the full Python suite, the web typecheck + build +
-# unit tests, and a dependency-advisory scan. Requires a Forgejo Actions runner
-# registered with the `ubuntu-latest` label on git.unicorncommander.ai; until one
-# exists this file is inert (it activates the moment a runner is available).
+# unit tests, and a dependency-advisory scan. Runs on the house Forgejo Actions
+# runner (legacy1, `ubuntu-latest` label). Actions outside code.forgejo.org must
+# be referenced by full URL: the runner cannot clone `astral-sh/setup-uv` otherwise.
 name: CI
 
 on:
@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: https://github.com/astral-sh/setup-uv@v5
       - name: Ruff
         run: uv run --extra backends --extra dev ruff check .
       - name: Pytest
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: https://github.com/astral-sh/setup-uv@v5
       - name: Python advisories (pip-audit)
         # Fails the build on any known Python advisory. pip-audit exits non-zero
         # when it finds one, so there is no `|| true`: a new high/critical CVE
