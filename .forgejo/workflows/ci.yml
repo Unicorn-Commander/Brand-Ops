@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/astral-sh/setup-uv@v5
+        with:
+          # Pin the interpreter the image ships (python:3.12-slim); unpinned, uv
+          # picked the newest CPython (3.15), where jiter/pydantic-core have no
+          # wheels yet and the runner cannot build them (no Rust toolchain).
+          python-version: "3.12"
       - name: Ruff
         run: uv run --extra backends --extra dev ruff check .
       - name: Pytest
@@ -43,6 +48,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: https://github.com/astral-sh/setup-uv@v5
+        with:
+          # Pin the interpreter the image ships (python:3.12-slim); unpinned, uv
+          # picked the newest CPython (3.15), where jiter/pydantic-core have no
+          # wheels yet and the runner cannot build them (no Rust toolchain).
+          python-version: "3.12"
       - name: Python advisories (pip-audit)
         # Fails the build on any known Python advisory. pip-audit exits non-zero
         # when it finds one, so there is no `|| true`: a new high/critical CVE
@@ -53,12 +63,14 @@ jobs:
         # add a `--ignore-vuln <ID>` line below WITH a comment that records the
         # advisory id, the reason, and a re-review date. Keep the list short and
         # revisit it; an unbounded ignore list defeats the gate.
-        run: >
-          uvx pip-audit
-          --strict
-          --desc
+        # pip-audit with no target audits the environment it runs in; under
+        # `uvx` that is pip-audit's own tool venv (it flagged filelock, which
+        # we do not ship). Export the locked project set and audit that instead.
+        run: |
+          uv export --frozen --no-dev --extra backends --no-emit-project --no-hashes -o /tmp/requirements.txt
+          uvx pip-audit --strict --desc --no-deps -r /tmp/requirements.txt
         # Example of an accepted advisory (remove when adding real ones):
-        #   uvx pip-audit --strict --desc \
+        #   uvx pip-audit --strict --desc --no-deps -r /tmp/requirements.txt \
         #     --ignore-vuln GHSA-xxxx-xxxx-xxxx  # <pkg>: no fix yet, not on our path; re-review 2026-09
       - uses: actions/setup-node@v4
         with:

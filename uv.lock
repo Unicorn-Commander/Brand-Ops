@@ -98,7 +98,7 @@ wheels = [
 
 [[package]]
 name = "brand-ops"
-version = "0.30.0"
+version = "0.32.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -143,7 +143,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "google-genai", marker = "extra == 'backends'", specifier = ">=1.0.0" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", specifier = ">=1.12" },
+    { name = "mcp", specifier = ">=1.12,<2" },
     { name = "openai", marker = "extra == 'backends'", specifier = ">=1.40" },
     { name = "pillow", marker = "extra == 'backends'", specifier = ">=10.0" },
     { name = "prometheus-fastapi-instrumentator", specifier = ">=7.0" },
