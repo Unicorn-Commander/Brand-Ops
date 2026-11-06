@@ -333,16 +333,28 @@ class BrandIntakeAgent(Agent):
         raw = await self.chat(messages, temperature=0.6, response_json=True)
         if raw is None:
             # No gateway. A neutral, tasteful identity so the brand can still be
-            # created and refined later.
+            # created and refined later. Preserve the operator's own words.
             notes.append(_DEFAULT_NOTE_NO_GATEWAY)
-            return self._default_draft(name, parent_brand), notes
+            return (
+                self._default_draft(
+                    name, parent_brand, description=description
+                ),
+                notes,
+            )
 
         parsed = _parse_json_object(raw)
         if parsed is None:
             notes.append(_DEFAULT_NOTE_UNPARSED)
-            return self._default_draft(name, parent_brand), notes
+            return (
+                self._default_draft(
+                    name, parent_brand, description=description
+                ),
+                notes,
+            )
 
-        return self._normalize_draft(parsed, name, parent_brand, notes)
+        return self._normalize_draft(
+            parsed, name, parent_brand, notes, description=description
+        )
 
     # -- normalization + default ---------------------------------------------
 
@@ -352,13 +364,18 @@ class BrandIntakeAgent(Agent):
         name: str,
         parent_brand: dict[str, Any] | None,
         notes: list[str],
+        *,
+        description: str = "",
     ) -> tuple[dict[str, Any], list[str]]:
         """Coerce a parsed model object into a complete, valid draft.
 
         Validates each hex, backfilling any invalid or missing color from the
         default (and noting it). Scrubs the tagline and description of em-dashes
         and hype words. Fills typography, tone, and keywords from sound defaults
-        when the model omits them. ``notes`` is appended to and returned.
+        when the model omits them. When the operator supplied a ``description``,
+        it is kept verbatim (after strip) over any model-invented copy -- the
+        caller's words are the source of truth for every generation prompt that
+        follows. ``notes`` is appended to and returned.
         """
         defaults = self._default_palette(parent_brand)
         raw_palette = parsed.get("palette")
@@ -385,7 +402,16 @@ class BrandIntakeAgent(Agent):
         style_keywords = _as_str_list(parsed.get("style_keywords")) or list(_DEFAULT_KEYWORDS)
 
         tagline = _scrub(parsed.get("tagline")) or _default_tagline(name)
-        description = _scrub(parsed.get("description")) or _default_description(name)
+        operator_description = (description or "").strip()
+        if operator_description:
+            # Verbatim operator copy wins over model prose. Do not scrub: the
+            # human's own art direction is intentional and is injected into every
+            # generation prompt as-is (same contract as new_brand).
+            final_description = operator_description
+        else:
+            final_description = (
+                _scrub(parsed.get("description")) or _default_description(name)
+            )
         rationale = _scrub(parsed.get("rationale")) or (
             "I chose a coherent palette with real contrast and a plain, direct "
             "voice as a sound starting point."
@@ -397,22 +423,37 @@ class BrandIntakeAgent(Agent):
             "voice_tone": voice_tone,
             "style_keywords": style_keywords,
             "tagline": tagline,
-            "description": description,
+            "description": final_description,
             "rationale": rationale,
         }
         return draft, notes
 
     def default_draft_with_note(
-        self, name: str, parent_brand: dict[str, Any] | None = None
+        self,
+        name: str,
+        parent_brand: dict[str, Any] | None = None,
+        *,
+        description: str = "",
+        tagline: str = "",
     ) -> tuple[dict[str, Any], list[str]]:
         """The neutral default draft plus its starting-point note.
 
         The route's last-resort path: if ``draft_identity`` ever raises (it is
         designed not to), the route falls back here so the brand is still created
-        from a complete, valid identity rather than 500ing. Returns the same
+        from a complete, valid identity rather than 500ing. Operator-supplied
+        ``description`` / ``tagline`` are written verbatim when present so a
+        silent fallback never discards the human's own words. Returns the same
         ``(draft, notes)`` shape ``draft_identity`` returns.
         """
-        return self._default_draft(name, parent_brand), [_DEFAULT_NOTE_NO_GATEWAY]
+        return (
+            self._default_draft(
+                name,
+                parent_brand,
+                description=description,
+                tagline=tagline,
+            ),
+            [_DEFAULT_NOTE_NO_GATEWAY],
+        )
 
     def _default_palette(self, parent_brand: dict[str, Any] | None) -> dict[str, str]:
         """The default palette, seeded from a parent's valid colors when present.
@@ -433,22 +474,29 @@ class BrandIntakeAgent(Agent):
         return palette
 
     def _default_draft(
-        self, name: str, parent_brand: dict[str, Any] | None
+        self,
+        name: str,
+        parent_brand: dict[str, Any] | None,
+        *,
+        description: str = "",
+        tagline: str = "",
     ) -> dict[str, Any]:
         """A complete neutral, on-theme identity used when the model cannot help.
 
-        Tasteful and dark by default (or the parent's footing for a sub-brand),
-        with a plain tagline and description derived from the name. Everything is
-        valid against the schema so the brand is created and immediately
-        refinable.
+        Tasteful and dark by default (or the parent's footing for a sub-brand).
+        When the operator supplied a description or tagline those are kept
+        verbatim; only the missing fields are invented. Everything is valid
+        against the schema so the brand is created and immediately refinable.
         """
+        clean_description = (description or "").strip()
+        clean_tagline = (tagline or "").strip()
         return {
             "palette": self._default_palette(parent_brand),
             "typography": dict(_DEFAULT_TYPOGRAPHY),
             "voice_tone": list(_DEFAULT_TONE),
             "style_keywords": list(_DEFAULT_KEYWORDS),
-            "tagline": _default_tagline(name),
-            "description": _default_description(name),
+            "tagline": clean_tagline or _default_tagline(name),
+            "description": clean_description or _default_description(name),
             "rationale": (
                 "This is a neutral starting identity: a dark, high-contrast "
                 "palette and a plain, direct voice. Refine it as the brand takes "

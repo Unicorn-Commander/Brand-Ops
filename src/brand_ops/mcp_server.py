@@ -18,7 +18,6 @@ Requires the ``mcp`` Python package (already a project dependency).
 """
 from __future__ import annotations
 
-import asyncio
 import base64
 import binascii
 import json
@@ -38,9 +37,16 @@ from .agents.brand_research import _slugify
 from .agents.registry import AGENT_REGISTRY
 from .api.catalog import read_assets
 from .api.guidelines import build_guidelines
-from .api.mcp_auth import install_mcp_guard, set_stdio_credential
+from .api.mcp_auth import (
+    ResolvedPrincipal,
+    get_mcp_principal,
+    install_mcp_guard,
+    set_mcp_principal,
+    set_stdio_credential,
+)
 from .api.schemas import BrandGuidelines
 from .asset_types import ASSET_TYPES
+from .async_bridge import run_sync
 from .backends.base import BackendError, BackendNotConfigured
 from .brand_clone import clone_brand as _clone_brand
 from .brand_clone import create_brand_from_draft as _create_brand_from_draft
@@ -52,6 +58,7 @@ from .brand_loader import (
     load_brand,
     resolve_reference_images,
     safe_subpath,
+    set_workspace_scope,
 )
 from .brand_loader import (
     list_brands as _list_brands,
@@ -124,6 +131,34 @@ _USER_ERRORS = (BrandNotFound, KeyError, ValueError)
 _log = logging.getLogger("brand_ops.mcp_server")
 
 
+def _grant_brand_visibility(slug: str) -> None:
+    """Make a just-created brand visible for the rest of this MCP session.
+
+    The HTTP MCP principal snapshots the workspace brand allow-list at auth
+    time. A brand written to disk (and even to the DB) is still invisible to
+    ``list_brands`` / ``get_brand`` until the next re-resolve -- which used to
+    look exactly like "creation failed" and forced a container restart. Expand
+    both the request-scoped allow-list and the principal snapshot so the next
+    tool call in this session sees the new slug without a restart.
+    """
+    if not slug:
+        return
+    resolved = get_mcp_principal()
+    if resolved is not None and slug not in resolved.allowed_brands:
+        expanded = frozenset(set(resolved.allowed_brands) | {slug})
+        updated = ResolvedPrincipal(
+            principal=resolved.principal,
+            allowed_brands=expanded,
+            entitlements=resolved.entitlements,
+        )
+        set_mcp_principal(updated)
+        updated.publish()
+        return
+    allowed = get_allowed_brands()
+    if allowed is not None and slug not in allowed:
+        set_workspace_scope(get_current_workspace_id(), allowed | {slug})
+
+
 def _index_brand_best_effort(brand: Brand) -> None:
     """DB-index an MCP-created brand under the active workspace, best effort.
 
@@ -133,34 +168,56 @@ def _index_brand_best_effort(brand: Brand) -> None:
     (stdio / CLI: no active workspace) is a no-op -- the file IS the catalog. The
     file write already succeeded and is workspace-stamped, so a DB error here
     only delays the brand's cross-request appearance; the boot import is the
-    backstop, so this never fails the create. The MCP tools run with no live
-    event loop (intake_brand already uses asyncio.run), so a fresh loop is safe.
+    backstop, so this never fails the create.
+
+    Uses :func:`run_sync` + the NullPool :func:`get_bridge_sessionmaker` so this
+    works both with no event loop (stdio / tests) and on the live ASGI loop
+    (HTTP MCP). Two prior bugs left brands invisible until restart:
+
+    1. Bare ``asyncio.run`` raised ``cannot be called from a running event loop``
+       and the index was swallowed.
+    2. Using the pooled sessionmaker from a throwaway loop raised asyncpg's
+       ``Future attached to a different loop`` -- same silent miss. The bridge
+       engine (NullPool) is the catalog dual-write pattern for exactly this.
     """
-    # Lazy import: a module-level import of db.tenancy pulls
-    # api.app -> mcp_http -> mcp_server back in before ``mcp`` is defined here (a
-    # circular import). At call time the cycle is long resolved.
-    from .db.tenancy import record_brand
+    # Lazy import: a module-level import of db.* pulls api.app -> mcp_http ->
+    # mcp_server back in before ``mcp`` is defined here (a circular import). At
+    # call time the cycle is long resolved.
+    from .db import repository as repo
+    from .db.base import get_bridge_sessionmaker, workspace_session
 
     workspace_id = get_current_workspace_id()
     if not workspace_id:
         return
     meta = brand.brand
+
+    async def _record() -> None:
+        sm = get_bridge_sessionmaker()
+        async with sm() as session:
+            async with workspace_session(session, workspace_id) as scoped:
+                await repo.upsert_brand(
+                    scoped,
+                    workspace_id,
+                    slug=meta.slug,
+                    display_name=meta.display_name,
+                    parent_slug=meta.parent,
+                    tagline=meta.tagline,
+                    status="active",
+                    created_by="mcp",
+                )
+
     try:
-        asyncio.run(
-            record_brand(
-                workspace_id,
-                slug=meta.slug,
-                display_name=meta.display_name,
-                parent_slug=meta.parent,
-                tagline=meta.tagline,
-                created_by="mcp",
-            )
-        )
+        run_sync(_record, name=f"index-brand-{meta.slug}", timeout=30.0)
     except Exception:  # noqa: BLE001 - best effort; the boot import is the backstop
         _log.warning(
             "MCP-created brand %s not DB-indexed; boot import will pick it up",
             meta.slug,
+            exc_info=True,
         )
+    # Always expand the session allow-list so list/get in THIS call see the brand
+    # even if the DB write failed (file is still the source of truth on disk).
+    # Cross-request visibility requires the DB write above to succeed.
+    _grant_brand_visibility(meta.slug)
 
 
 def _error(message: str, **extra: Any) -> dict[str, Any]:
@@ -720,6 +777,15 @@ def generate_asset(
     generate, and save the image plus its sidecar JSON under
     brand-kits/<slug>/generated/<asset>/.
 
+    Default backend is the house LiteLLM gateway (``litellm``) for every asset
+    type, so generation works without third-party provider keys. Pass
+    ``backend=`` only when you deliberately want a direct provider.
+
+    IMPORTANT — client timeouts: generation (especially ``count`` > 1) can take
+    longer than many MCP client timeouts. The server often finishes the work
+    after the client gives up. On timeout, call ``list_generated_assets`` for
+    this brand/asset BEFORE retrying; a blind retry double-charges.
+
     If the chosen backend has no credentials configured it returns
     {"needs_key": "<backend>"} instead of failing, so a client can prompt for
     the key and retry.
@@ -730,8 +796,10 @@ def generate_asset(
         variant: Optional variant name allowed by the asset's prompt template.
         topic: Optional topic, used by text-heavy assets like og_image.
         platform: Optional platform hint, used by social_card.
-        backend: Optional backend override (gemini, openai, recraft, flux).
-        count: How many images to generate (default 1).
+        backend: Optional backend override (litellm, openai, gemini, recraft,
+            flux, openrouter). Omit to use the house gateway default.
+        count: How many images to generate (default 1). Higher counts take
+            longer; prefer count=1 and re-call if needed.
 
     Returns the written file paths, the backend and model used, the cost in
     cents, the size, and the prompt that produced them.
@@ -812,12 +880,18 @@ def generate_card(
         asset: "og_image" or "social_card".
         message: Main copy (headline for og_image, tagline for social_card).
             Defaults to the brand tagline.
-        mark: Optional mark to composite: an absolute path, or a filename under
-            the brand's generated/imported logo dir. Defaults to the brand's
+        mark: Optional mark to composite: a BARE FILENAME under this brand's own
+            generated/logo or imported/logo dir. Absolute paths and traversal are
+            refused, so a card can never composite another brand's file; to reuse
+            a sibling brand's mark, import it into this brand first. Must be a
+            raster image (SVG cannot be composited). Defaults to the brand's
             declared mark, else its most recent logo.
         variant: Optional variant label recorded on the asset.
 
     Returns the written paths, the resolved mark, the size, and the message used.
+    If a requested mark could not be honored, a different mark is composited and
+    "notes" says so explicitly -- check it rather than assuming "mark" is what you
+    asked for.
     """
     try:
         outcome = engine.generate_card(
@@ -1141,12 +1215,17 @@ def intake_brand(
     and name as hints and notes that deep live-site capture needs Brigade.
 
     When the LLM gateway is not configured or returns an unusable draft, a
-    neutral, tasteful, on-theme default identity is written instead and a note
-    says it is a starting point to refine. The brand is always created.
+    neutral, tasteful, on-theme default *visual* identity is written instead and
+    a note says it is a starting point to refine. The brand is always created.
+    Any ``description`` you supply is ALWAYS written verbatim into brand.yaml
+    (same contract as ``new_brand``) -- a planner fallback never discards the
+    human's own art direction, because that text is injected into every
+    generation prompt.
 
     Args:
         name: The new brand's display name, for example "Majiks Studio".
-        description: What you can say about the brand, if anything.
+        description: What you can say about the brand, if anything. Preserved
+            verbatim on the created brand even when drafting falls back.
         url: A related URL or the brand's live site, if any.
         parent: An existing brand slug if this is a sub-brand.
         mode: "describe" (draft from the name and description, the default) or
@@ -1186,22 +1265,32 @@ def intake_brand(
         if loaded_parent is not None:
             parent_identity = _brand_identity(parent_slug, loaded_parent)
 
+    operator_description = (description or "").strip()
     try:
         agent = BrandIntakeAgent()
-        draft, notes = asyncio.run(
-            agent.draft_identity(
+        # run_sync bridges both stdio (no loop) and HTTP MCP (live ASGI loop).
+        # A bare asyncio.run here raised "cannot be called from a running event
+        # loop" on the HTTP path, silently discarded the draft, and used to
+        # throw away the operator description on the fallback path too.
+        draft, notes = run_sync(
+            lambda: agent.draft_identity(
                 clean_name,
-                description=(description or "").strip(),
+                description=operator_description,
                 url=(url or "").strip(),
                 parent_brand=parent_identity,
                 mode=(mode or "describe").strip().lower(),
-            )
+            ),
+            name=f"intake-draft-{slug}",
+            timeout=120.0,
         )
     except Exception as exc:  # noqa: BLE001 - drafting must not raise across the boundary
         # An unexpected drafting failure still creates the brand from the
-        # neutral default, mirroring the REST route's degrade.
+        # neutral default, mirroring the REST route's degrade -- but the
+        # operator's description is preserved (never replaced by placeholder).
         draft, notes = BrandIntakeAgent().default_draft_with_note(
-            clean_name, parent_identity
+            clean_name,
+            parent_identity,
+            description=operator_description,
         )
         notes.append(f"Drafting hit an error and fell back to a default: {exc}")
 
@@ -1212,8 +1301,11 @@ def intake_brand(
         )
 
     # The operator's typed name is the display name (the draft carries an
-    # identity, not a name), so stamp it before the write.
+    # identity, not a name), so stamp it before the write. Re-assert the
+    # operator description so no path can drop it.
     draft["display_name"] = clean_name
+    if operator_description:
+        draft["description"] = operator_description
 
     try:
         brand = _create_brand_from_draft(slug, draft, parent=parent_slug)

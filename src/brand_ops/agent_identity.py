@@ -360,7 +360,9 @@ def _avatar_prompt(brand: Brand, name: str, role: str) -> str:
             f"reads clearly at small sizes. No text and no watermark."
         )
     keywords = ", ".join(list(v.style_keywords)[:4])
-    style_cue = f" Secondary style cues (never override the references): {keywords}." if keywords else ""
+    style_cue = (
+        f" Secondary style cues (never override the references): {keywords}." if keywords else ""
+    )
     return (
         f"Create a new character avatar matching the EXACT illustration style of the "
         f"reference images when provided. This character is {name}, the {role} for the "

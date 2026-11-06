@@ -1,9 +1,10 @@
 """Asset-type registry: output sizing and the default backend per asset type.
 
-Per-asset backend defaults follow the research. Logos and icons want clean
-transparency or true vector, so they default to backends that do that well.
-Text-heavy or composed assets default to the strongest text and composition
-backend. Every default is overridable per call with --backend.
+Default backend for every image asset is the house LiteLLM gateway (``litellm``),
+so generate_asset works out of the box without third-party provider keys.
+Direct providers (openai, gemini, recraft, flux, openrouter) remain available as
+explicit ``backend=`` overrides when configured. Every default is overridable
+per call with --backend / the MCP backend argument.
 """
 from __future__ import annotations
 
@@ -25,26 +26,26 @@ ASSET_TYPES: dict[str, AssetSpec] = {
         key="logo",
         label="Logo",
         size=(2048, 2048),
-        default_backend="openai",
+        default_backend="litellm",
         transparent=True,
         notes=(
-            "Square mark. OpenAI for clean alpha; vectorize to SVG later. "
-            "Recraft is an opt-in provider for native SVG."
+            "Square mark via the house LiteLLM gateway. "
+            "Recraft is an opt-in provider for native SVG (backend=recraft)."
         ),
     ),
     "app_icon": AssetSpec(
         key="app_icon",
         label="App icon",
         size=(1024, 1024),
-        default_backend="openai",
+        default_backend="litellm",
         transparent=True,
-        notes="Must read at 32px. OpenAI gives native transparency.",
+        notes="Must read at 32px. House gateway by default; no third-party key required.",
     ),
     "launcher_tile": AssetSpec(
         key="launcher_tile",
         label="Launcher tile",
         size=(512, 512),
-        default_backend="gemini",
+        default_backend="litellm",
         transparent=False,
         notes=(
             "Square app tile for the Ops-Center launcher (and similar app grids). "
@@ -57,28 +58,28 @@ ASSET_TYPES: dict[str, AssetSpec] = {
         key="og_image",
         label="OG share image",
         size=(1200, 630),
-        default_backend="gemini",
-        notes="Text heavy. Gemini has the best legible text.",
+        default_backend="litellm",
+        notes="Text heavy. House gateway default; cards.py can also composite text-safe cards.",
     ),
     "podcast_cover": AssetSpec(
         key="podcast_cover",
         label="Podcast cover",
         size=(3000, 3000),
-        default_backend="gemini",
+        default_backend="litellm",
     ),
     "social_card": AssetSpec(
         key="social_card",
         label="Social card",
         size=(1080, 1080),
-        default_backend="gemini",
+        default_backend="litellm",
     ),
     "avatar": AssetSpec(
         key="avatar",
         label="Avatar",
         size=(1024, 1024),
-        default_backend="gemini",
+        default_backend="litellm",
         transparent=False,
-        notes="Profile image. Gemini holds a person or character consistent from references.",
+        notes="Profile image via house gateway. Reference images keep character consistent.",
     ),
 }
 
