@@ -825,12 +825,18 @@ def generate_card(
         asset: "og_image" or "social_card".
         message: Main copy (headline for og_image, tagline for social_card).
             Defaults to the brand tagline.
-        mark: Optional mark to composite: an absolute path, or a filename under
-            the brand's generated/imported logo dir. Defaults to the brand's
+        mark: Optional mark to composite: a BARE FILENAME under this brand's own
+            generated/logo or imported/logo dir. Absolute paths and traversal are
+            refused, so a card can never composite another brand's file; to reuse
+            a sibling brand's mark, import it into this brand first. Must be a
+            raster image (SVG cannot be composited). Defaults to the brand's
             declared mark, else its most recent logo.
         variant: Optional variant label recorded on the asset.
 
     Returns the written paths, the resolved mark, the size, and the message used.
+    If a requested mark could not be honored, a different mark is composited and
+    "notes" says so explicitly -- check it rather than assuming "mark" is what you
+    asked for.
     """
     try:
         outcome = engine.generate_card(
@@ -1155,12 +1161,17 @@ def intake_brand(
     and name as hints and notes that deep live-site capture needs Brigade.
 
     When the LLM gateway is not configured or returns an unusable draft, a
-    neutral, tasteful, on-theme default identity is written instead and a note
-    says it is a starting point to refine. The brand is always created.
+    neutral, tasteful, on-theme default *visual* identity is written instead and
+    a note says it is a starting point to refine. The brand is always created.
+    Any ``description`` you supply is ALWAYS written verbatim into brand.yaml
+    (same contract as ``new_brand``) -- a planner fallback never discards the
+    human's own art direction, because that text is injected into every
+    generation prompt.
 
     Args:
         name: The new brand's display name, for example "Majiks Studio".
-        description: What you can say about the brand, if anything.
+        description: What you can say about the brand, if anything. Preserved
+            verbatim on the created brand even when drafting falls back.
         url: A related URL or the brand's live site, if any.
         parent: An existing brand slug if this is a sub-brand.
         mode: "describe" (draft from the name and description, the default) or
@@ -1200,12 +1211,13 @@ def intake_brand(
         if loaded_parent is not None:
             parent_identity = _brand_identity(parent_slug, loaded_parent)
 
+    operator_description = (description or "").strip()
     try:
         agent = BrandIntakeAgent()
         draft, notes = asyncio.run(
             agent.draft_identity(
                 clean_name,
-                description=(description or "").strip(),
+                description=operator_description,
                 url=(url or "").strip(),
                 parent_brand=parent_identity,
                 mode=(mode or "describe").strip().lower(),
@@ -1213,9 +1225,12 @@ def intake_brand(
         )
     except Exception as exc:  # noqa: BLE001 - drafting must not raise across the boundary
         # An unexpected drafting failure still creates the brand from the
-        # neutral default, mirroring the REST route's degrade.
+        # neutral default, mirroring the REST route's degrade -- but the
+        # operator's description is preserved (never replaced by placeholder).
         draft, notes = BrandIntakeAgent().default_draft_with_note(
-            clean_name, parent_identity
+            clean_name,
+            parent_identity,
+            description=operator_description,
         )
         notes.append(f"Drafting hit an error and fell back to a default: {exc}")
 
@@ -1226,8 +1241,11 @@ def intake_brand(
         )
 
     # The operator's typed name is the display name (the draft carries an
-    # identity, not a name), so stamp it before the write.
+    # identity, not a name), so stamp it before the write. Re-assert the
+    # operator description so no path can drop it.
     draft["display_name"] = clean_name
+    if operator_description:
+        draft["description"] = operator_description
 
     try:
         brand = _create_brand_from_draft(slug, draft, parent=parent_slug)

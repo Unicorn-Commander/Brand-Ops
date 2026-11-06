@@ -192,10 +192,16 @@ def generate_asset(
     return outcome
 
 
-def _resolve_mark(brand_slug, brand, mark, kits_dir):
+def _resolve_mark(brand_slug, brand, mark, kits_dir, warnings=None):
     """Find the brand mark to composite: an explicit one, the brand's declared
     mark, else the most recent generated (then imported) logo. None if there is
     no logo yet (the card still renders, just without a mark).
+
+    When the caller asked for a specific ``mark`` that cannot be honored, the
+    fallbacks below quietly composite a DIFFERENT one. Callers pass ``warnings``
+    (a list) to hear about that: the card is fine, but it does not carry the mark
+    that was requested, and saying nothing is how a cross-brand ``mark=`` came
+    back looking like a success with the wrong logo on it.
 
     Every candidate must be one Pillow can actually decode. Compositing is
     raster-only, and an SVG mark (magic-unicorn declares ``unicorn.svg``) made
@@ -224,6 +230,14 @@ def _resolve_mark(brand_slug, brand, mark, kits_dir):
                 cand = safe_subpath(base, sub, "logo", mark)
                 if cards.compositable(cand):
                     return cand
+        if warnings is not None:
+            warnings.append(
+                f"requested mark {mark!r} was NOT used: a mark must be a filename "
+                f"under {brand_slug}'s own generated/logo or imported/logo, and must "
+                "be a raster image Pillow can decode. Absolute paths and traversal "
+                "are refused (a card can never composite another brand's file), and "
+                "SVG cannot be composited. Falling back to this brand's own mark."
+            )
     declared = getattr(brand.brand, "mark", None)
     if declared and getattr(declared, "file", None):
         kind = declared.kind or "imported"
@@ -256,6 +270,7 @@ def render_card(
     message: str | None = None,
     mark: str | None = None,
     kits_dir: Path | None = None,
+    warnings: list[str] | None = None,
 ) -> tuple[bytes, Path | None]:
     """Compose an og_image / social_card deterministically; return (PNG bytes, mark path).
 
@@ -271,7 +286,7 @@ def render_card(
         raise ValueError(
             f"{asset_type!r} has no card layout; composable: og_image, social_card, launcher_tile"
         )
-    mark_path = _resolve_mark(brand_slug, brand, mark, kits_dir)
+    mark_path = _resolve_mark(brand_slug, brand, mark, kits_dir, warnings)
     png = cards.compose_card(brand, asset_type, message=message, mark_path=mark_path)
     return png, mark_path
 
@@ -320,8 +335,14 @@ def generate_card(
     if dry_run:
         return outcome
 
+    mark_warnings: list[str] = []
     png, mark_path = render_card(
-        brand_slug, asset_type, message=message, mark=mark, kits_dir=kits_dir
+        brand_slug,
+        asset_type,
+        message=message,
+        mark=mark,
+        kits_dir=kits_dir,
+        warnings=mark_warnings,
     )
     result = GenResult(
         images=[png],
@@ -335,7 +356,13 @@ def generate_card(
         },
     )
     outcome.result = result
+    # The refusal has to be louder than the substitution, and has to come first:
+    # "composited with mark X" alone reads as success even when X is not what was
+    # asked for.
+    outcome.notes.extend(mark_warnings)
+    built.warnings.extend(mark_warnings)
     if mark_path:
-        outcome.notes.append(f"composited with mark {Path(mark_path).name}")
+        substituted = " (SUBSTITUTE)" if mark_warnings else ""
+        outcome.notes.append(f"composited with mark {Path(mark_path).name}{substituted}")
     outcome.paths = save_result(brand_slug, asset_type, variant, built, result, kits_dir)
     return outcome

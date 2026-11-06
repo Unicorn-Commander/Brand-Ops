@@ -9,6 +9,7 @@ import json
 import types
 
 import pytest
+from PIL import Image
 
 from brand_ops import engine
 from brand_ops.api.catalog import read_assets
@@ -23,7 +24,13 @@ from brand_ops.compliance.evaluator import _resolve_image_path
 def _seed_asset(root, brand, asset_type, file, prompt="secret"):
     d = root / brand / "imported" / asset_type
     d.mkdir(parents=True, exist_ok=True)
-    (d / file).write_bytes(b"\x89PNG\r\n\x1a\n")
+    # A REAL, decodable PNG -- not just the 8-byte signature. _resolve_mark screens
+    # every candidate through cards.compositable() (Pillow must be able to open it,
+    # which is what stops an SVG mark from silently rendering a blank card), so a
+    # header-only fixture is rejected as undrawable and the mark fallback yields
+    # None -- making this file's confinement test fail for a reason that has
+    # nothing to do with confinement.
+    Image.new("RGBA", (4, 4), (255, 0, 0, 255)).save(d / file)
     (d / (file + ".json")).write_text(
         json.dumps({"brand": brand, "asset_type": asset_type, "prompt": prompt})
     )
@@ -115,3 +122,30 @@ def test_resolve_mark_rejects_absolute_and_traversal(tmp_path):
     got2 = engine._resolve_mark("mine", brand, "../../victim/imported/logo/secret.png", tmp_path)
     assert got2 == (tmp_path / "mine/imported/logo/mine.png")
     assert "victim" not in str(got2)
+
+
+def test_refused_mark_is_reported_not_silently_substituted(tmp_path):
+    """Confinement must not be silent: the card still renders, but with a
+    DIFFERENT mark than the caller asked for. Saying nothing is how a cross-brand
+    ``mark=`` came back looking like a success with the wrong logo composited
+    (hit in the field 2026-08-09 asking for a sibling brand's mark).
+    """
+    _seed_asset(tmp_path, "mine", "logo", "mine.png")
+    _seed_asset(tmp_path, "victim", "logo", "secret.png")
+    brand = types.SimpleNamespace(
+        brand=types.SimpleNamespace(
+            mark=types.SimpleNamespace(file="mine.png", kind="imported", asset_type="logo")
+        )
+    )
+    for refused in ("/etc/hostname", "../../victim/imported/logo/secret.png"):
+        warnings: list[str] = []
+        got = engine._resolve_mark("mine", brand, refused, tmp_path, warnings)
+        assert got == (tmp_path / "mine/imported/logo/mine.png")
+        assert warnings, f"substituted the mark for {refused!r} without telling the caller"
+        assert refused in warnings[0] and "NOT used" in warnings[0]
+
+    # the honored path stays quiet -- a warning on every call trains people to
+    # ignore it
+    quiet: list[str] = []
+    assert engine._resolve_mark("mine", brand, "mine.png", tmp_path, quiet) is not None
+    assert quiet == []

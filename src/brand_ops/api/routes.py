@@ -631,6 +631,7 @@ async def intake_brand_route(body: IntakeRequest, principal: _Owner) -> IntakeRe
     # back to a neutral default with a note), but we still wrap the call so any
     # unexpected error degrades to the same default path rather than a 500.
     notes: list[str]
+    operator_description = (body.description or "").strip()
     try:
         # Thread metering context onto the intake agent: when the caller is
         # workspace-scoped, its drafting LLM turn records a best-effort spend
@@ -644,13 +645,18 @@ async def intake_brand_route(body: IntakeRequest, principal: _Owner) -> IntakeRe
         )
         draft, notes = await intake_agent.draft_identity(
             name,
-            description=(body.description or "").strip(),
+            description=operator_description,
             url=(body.url or "").strip(),
             parent_brand=parent_identity,
             mode=(body.mode or "describe").strip().lower(),
         )
     except Exception:  # noqa: BLE001 - an LLM/agent problem degrades, never a 500
-        draft, notes = BrandIntakeAgent().default_draft_with_note(name, parent_identity)
+        # Preserve the operator's description on the fallback path -- a silent
+        # planner failure must never replace the human's art direction with the
+        # placeholder "…is a new brand. This description is a starting point…".
+        draft, notes = BrandIntakeAgent().default_draft_with_note(
+            name, parent_identity, description=operator_description
+        )
 
     if parent and parent_identity is None:
         notes.append(
@@ -661,7 +667,10 @@ async def intake_brand_route(body: IntakeRequest, principal: _Owner) -> IntakeRe
     # The operator's typed name is the display name, with its original casing.
     # The draft does not carry one (it is an identity, not a name), so stamp it
     # here before the write rather than letting the writer fall back to the slug.
+    # Re-assert the operator description so no draft path can drop it.
     draft["display_name"] = name
+    if operator_description:
+        draft["description"] = operator_description
 
     # Write the brand from the draft. A duplicate is a 409 (the pre-check makes
     # this rare but a concurrent create is still possible); a bad slug or an
