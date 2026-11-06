@@ -27,7 +27,7 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0",
   "alembic>=1.13",
   "asyncpg>=0.29",
-  "python-jose[cryptography]>=3.3",
+  "PyJWT[crypto]>=2.15.0",
   "structlog>=24.4",
   "python-multipart>=0.0.9",
   "prometheus-fastapi-instrumentator>=7.0",
@@ -38,7 +38,8 @@ dependencies = [
 backends = [
   "google-genai>=1.0.0",
   "openai>=1.40",
-  "pillow>=10.0",
+  # Pillow 13.0.0 fixes CVE-2026-112399, CVE-2026-112892, CVE-2026-112393, CVE-2026-96638, CVE-2026-96640, CVE-2026-96778, GHSA-78g4-xqwv-q3g8.
+  "pillow>=13.0.0",
 ]
 # Error tracking, env-gated: the SDK is only imported when SENTRY_DSN is set, so
 # it stays an opt-in extra rather than a hard runtime dependency.

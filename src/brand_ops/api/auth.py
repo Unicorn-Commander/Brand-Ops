@@ -28,8 +28,6 @@ another workstream. The Keycloak realm URL and client id come from the shared
 """
 from __future__ import annotations
 
-import base64
-import json
 import logging
 import os
 import time
@@ -37,14 +35,10 @@ from dataclasses import dataclass, field, replace
 from typing import Annotated, Any
 
 import httpx
+import jwt
 from fastapi import Depends, Header, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-try:
-    from jose import JWTError, jwt
-except ImportError:  # pragma: no cover - python-jose is a hard dependency
-    JWTError = Exception  # type: ignore[assignment]
-    jwt = None  # type: ignore[assignment]
+from jwt.exceptions import PyJWTError
 
 from .. import tokens as pat_tokens
 from ..activity import set_current_actor
@@ -285,17 +279,15 @@ def _extract_scopes(claims: dict[str, Any]) -> tuple[str, ...]:
 async def _verify_keycloak(token: str) -> Principal | None:
     """Verify a uchub Keycloak RS256 bearer. None on any failure.
 
-    Signature, issuer, and expiry are enforced by jose. Audience is checked
+    Signature, issuer, and expiry are enforced by PyJWT. Audience is checked
     here against the configured client id, accepting either an ``aud`` member or
     a ``resource_access`` key (Keycloak stamps ``aud="account"`` widely, so a
     strict aud-only check would reject valid cross-client tokens).
     """
-    if jwt is None:  # pragma: no cover - jose is a hard dependency
-        return None
     settings = get_settings()
     try:
         header = jwt.get_unverified_header(token)
-    except (JWTError, ValueError, KeyError):
+    except (PyJWTError, ValueError, KeyError):
         return None
     alg = header.get("alg")
     if alg not in _ACCEPTED_ALGS:
@@ -316,12 +308,12 @@ async def _verify_keycloak(token: str) -> Principal | None:
             return None
         claims = jwt.decode(
             token,
-            key,
+            _load_jwk_for_alg(key, alg),
             algorithms=[alg],
             issuer=realm,
-            options={"verify_at_hash": False, "verify_aud": False},
+            options={"verify_aud": False},
         )
-    except (JWTError, httpx.HTTPError, ValueError, KeyError) as exc:
+    except (PyJWTError, httpx.HTTPError, ValueError, KeyError) as exc:
         _log.info("keycloak token validation failed: %s", exc.__class__.__name__)
         return None
 
@@ -354,52 +346,21 @@ async def _verify_keycloak(token: str) -> Principal | None:
 # ---------------------------------------------------------------------------
 
 
-def _b64url_decode(value: str) -> bytes:
-    pad = "=" * (-len(value) % 4)
-    return base64.urlsafe_b64decode(value + pad)
-
-
 def _load_jwk_for_alg(jwk: dict[str, Any], alg: str):
     """Return a verifying key object for ``alg`` from a JWK dict."""
     kty = jwk.get("kty")
     if alg == "EdDSA":
         if kty != "OKP" or jwk.get("crv") != "Ed25519":
             raise ValueError("EdDSA requires kty=OKP and crv=Ed25519")
-        x = jwk.get("x")
-        if not isinstance(x, str):
-            raise ValueError("EdDSA JWK missing 'x'")
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-
-        raw = _b64url_decode(x)
-        if len(raw) != 32:
-            raise ValueError("Ed25519 raw key must be 32 bytes")
-        return Ed25519PublicKey.from_public_bytes(raw)
-    if alg == "RS256":
+    elif alg == "RS256":
         if kty != "RSA":
             raise ValueError("RS256 requires kty=RSA")
-        from jose.backends.cryptography_backend import CryptographyRSAKey
-
-        return CryptographyRSAKey(jwk, "RS256")
-    raise ValueError(f"unsupported alg {alg!r}")
-
-
-def _verify_brigade_signature(alg: str, key: Any, signing_input: bytes, signature: bytes) -> bool:
-    if alg == "EdDSA":
-        from cryptography.exceptions import InvalidSignature
-
-        try:
-            key.verify(signature, signing_input)
-            return True
-        except InvalidSignature:
-            return False
-        except Exception:  # pragma: no cover - defensive
-            return False
-    if alg == "RS256":
-        try:
-            return bool(key.verify(signing_input, signature))
-        except Exception:  # pragma: no cover - defensive
-            return False
-    return False
+    else:
+        raise ValueError(f"unsupported alg {alg!r}")
+    try:
+        return jwt.PyJWK.from_dict(jwk, algorithm=alg).key
+    except PyJWTError as exc:
+        raise ValueError(f"invalid {alg} JWK") from exc
 
 
 async def _verify_brigade(token: str) -> Principal | None:
@@ -414,10 +375,9 @@ async def _verify_brigade(token: str) -> Principal | None:
     parts = token.split(".")
     if len(parts) != 3 or not all(parts):
         return None
-    header_b64, payload_b64, signature_b64 = parts
     try:
-        header = json.loads(_b64url_decode(header_b64))
-    except (ValueError, json.JSONDecodeError):
+        header = jwt.get_unverified_header(token)
+    except (PyJWTError, ValueError, KeyError):
         return None
     if not isinstance(header, dict):
         return None
@@ -440,19 +400,28 @@ async def _verify_brigade(token: str) -> Principal | None:
         if key_jwk is None:
             return None
         verifying_key = _load_jwk_for_alg(key_jwk, alg)
-        signature = _b64url_decode(signature_b64)
     except (httpx.HTTPError, ValueError, RuntimeError) as exc:
         _log.info("brigade token key/signature setup failed: %s", exc.__class__.__name__)
         return None
 
-    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
-    if not _verify_brigade_signature(alg, verifying_key, signing_input, signature):
-        _log.info("brigade token signature verification failed for kid=%r", kid)
-        return None
-
     try:
-        claims = json.loads(_b64url_decode(payload_b64))
-    except (ValueError, json.JSONDecodeError):
+        # Disable claim checks here so the explicit checks below retain the
+        # existing clock-skew and audience semantics; PyJWT still verifies the
+        # signature and decodes the signed claims.
+        claims = jwt.decode(
+            token,
+            verifying_key,
+            algorithms=[alg],
+            options={
+                "verify_exp": False,
+                "verify_nbf": False,
+                "verify_iat": False,
+                "verify_aud": False,
+                "verify_iss": False,
+            },
+        )
+    except (PyJWTError, ValueError) as exc:
+        _log.info("brigade token signature verification failed: %s", exc.__class__.__name__)
         return None
     if not isinstance(claims, dict):
         return None

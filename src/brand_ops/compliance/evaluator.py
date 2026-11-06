@@ -262,7 +262,7 @@ def check_image_colors(image_path: Path, rules: dict) -> dict[str, Any]:
     # of the palette entirely.
     opaque = Image.new("RGB", (total, 1))
     opaque.putdata(kept)
-    quantized = opaque.convert("P", palette=Image.ADAPTIVE, colors=64)
+    quantized = opaque.convert("P", palette=Image.Palette.ADAPTIVE, colors=64)
     palette = quantized.getpalette() or []
     counts = quantized.getcolors() or []  # list of (count, palette_index)
 
