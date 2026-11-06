@@ -199,14 +199,36 @@ def test_agent_scrubs_em_dash_and_hype_from_copy() -> None:
 
 def test_agent_no_gateway_yields_default_draft_with_note() -> None:
     agent = BrandIntakeAgent(brigade=_StubBrigade(chat_reply=None), settings=Settings())
-    draft, notes = _run(agent.draft_identity("Acme", description="x"))
+    operator_description = (
+        "Acme builds focused software for small teams. Calm surface, fast work."
+    )
+    draft, notes = _run(
+        agent.draft_identity("Acme", description=operator_description)
+    )
     # A complete, valid identity even with no model.
     assert draft["palette"]["primary"].startswith("#")
     assert draft["palette"]["background"] == "#0a0a0a"
     assert draft["typography"]["primary_font"]
     assert draft["voice_tone"]
-    # And an honest starting-point note.
+    # Operator description is preserved verbatim -- never the placeholder.
+    assert draft["description"] == operator_description
+    assert "starting point; refine it" not in draft["description"]
+    # And an honest starting-point note about the visual identity.
     assert any("starting point" in n.lower() for n in notes)
+
+
+def test_agent_good_draft_preserves_operator_description() -> None:
+    agent = BrandIntakeAgent(
+        brigade=_StubBrigade(chat_reply=json.dumps(GOOD_DRAFT)), settings=Settings()
+    )
+    operator_description = "OPERATOR ART DIRECTION THAT MUST SURVIVE THE DRAFT"
+    draft, notes = _run(
+        agent.draft_identity("Acme", description=operator_description)
+    )
+    assert draft["description"] == operator_description
+    # Palette still comes from the model.
+    assert draft["palette"]["primary"] == GOOD_DRAFT["palette"]["primary"]
+    assert not any("starting point" in n.lower() for n in notes)
 
 
 def test_agent_parent_consistency_default_echoes_parent_footing() -> None:
@@ -373,10 +395,12 @@ def test_route_no_gateway_still_creates_brand_with_note(
     # The client fixture cleared the LLM env, so the shared gateway reports no
     # gateway and the agent's chat returns None. The brand is still created from
     # the neutral default, with an honest note, and the route is 200 not 500.
+    # The operator description must still land in brand.yaml (read-back).
     cleanup_real_kits.append("acme-nolm")
+    operator_description = "anything the operator said about Acme Nolm"
     resp = client.post(
         "/api/brands/intake",
-        json={"name": "Acme Nolm", "description": "anything"},
+        json={"name": "Acme Nolm", "description": operator_description},
     )
     assert resp.status_code == 200
     result = IntakeResult.model_validate(resp.json())
@@ -387,6 +411,10 @@ def test_route_no_gateway_still_creates_brand_with_note(
     # An honest note that the identity is a starting point.
     assert result.notes
     assert any("starting point" in n.lower() for n in result.notes)
+    # Read-back: the brand file carries the operator description verbatim.
+    follow = client.get("/api/brands/acme-nolm")
+    assert follow.status_code == 200
+    assert follow.json().get("description") == operator_description
 
 
 def test_route_duplicate_slug_is_409(
@@ -419,11 +447,15 @@ def test_mcp_intake_brand_no_gateway_creates_brand(
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     cleanup_real_kits.append("acme-mcp")
-    result = mcp_server.intake_brand("Acme MCP", description="anything")
+    operator_description = "anything the MCP caller said about Acme"
+    result = mcp_server.intake_brand("Acme MCP", description=operator_description)
     assert "error" not in result
     assert result["brand"]["slug"] == "acme-mcp"
     assert result["draft"]["palette"]["primary"].startswith("#")
     assert result["notes"]
+    # Description is never the placeholder when the caller supplied one.
+    assert result["brand"]["description"] == operator_description
+    assert result["draft"]["description"] == operator_description
 
 
 def test_mcp_intake_brand_duplicate_returns_error(
